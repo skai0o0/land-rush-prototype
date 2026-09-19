@@ -1,0 +1,286 @@
+{
+  "tile_meters": 8.0,
+  "aesthetic": "Stylized Sci-Fi RTS Architecture, Chunky Low-Poly, Flat Shading",
+  "polygon_budget": "1500-3500 triangles",
+  "pivot": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "schools": {
+    "hcmut": {
+      "id": "hcmut",
+      "name": "Trường Đại học Bách khoa (HCMUT)",
+      "model": "models/hqs/hcmut_hq.glb",
+      "concept": "Pháo Đài Cơ Khí Kỹ Thuật / Mechanical Engineering Fortress",
+      "primary_colors": [
+        "#030391",
+        "#4A5568",
+        "#1488D8"
+      ],
+      "emission_colors": [
+        "#1488D8"
+      ],
+      "bounding_box_m": [
+        38.105,
+        44.0,
+        47.2
+      ],
+      "bounding_box_tiles": [
+        4.763,
+        5.5,
+        5.9
+      ],
+      "triangles": 1942,
+      "file_size_kb": 76.21,
+      "tactical_role": "Giáp phòng thủ kiên cố, sửa chữa cơ giới"
+    },
+    "hcmus": {
+      "id": "hcmus",
+      "name": "Trường Đại học Khoa học Tự nhiên (HCMUS)",
+      "model": "models/hqs/hcmus_hq.glb",
+      "concept": "Trạm Đài Thiên Văn Lượng Tử / Quantum Observatory Station",
+      "primary_colors": [
+        "#0054A6",
+        "#E2E8F0",
+        "#00B4D8"
+      ],
+      "emission_colors": [
+        "#00B4D8",
+        "#FFC107"
+      ],
+      "bounding_box_m": [
+        40.0,
+        40.0,
+        49.91
+      ],
+      "bounding_box_tiles": [
+        5.0,
+        5.0,
+        6.239
+      ],
+      "triangles": 2032,
+      "file_size_kb": 38.29,
+      "tactical_role": "Quét sương mù bản đồ, pháo xung điện"
+    },
+    "hcmussh": {
+      "id": "hcmussh",
+      "name": "Trường Đại học Khoa học Xã hội và Nhân văn (HCMUSSH)",
+      "model": "models/hqs/hcmussh_hq.glb",
+      "concept": "Đền Đài Tri Thức Văn Hiến / Heritage Knowledge Temple",
+      "primary_colors": [
+        "#FDB813",
+        "#D8CBB5",
+        "#C1272D"
+      ],
+      "emission_colors": [
+        "#C1272D"
+      ],
+      "bounding_box_m": [
+        42.0,
+        42.0,
+        29.7
+      ],
+      "bounding_box_tiles": [
+        5.25,
+        5.25,
+        3.713
+      ],
+      "triangles": 1588,
+      "file_size_kb": 61.47,
+      "tactical_role": "Mở rộng ranh giới chiếm đất, tăng sĩ khí"
+    },
+    "uit": {
+      "id": "uit",
+      "name": "Trường Đại học Công nghệ Thông tin (UIT)",
+      "model": "models/hqs/uit_hq.glb",
+      "concept": "Trung Tâm Dữ Liệu Cyber Core / Cyber Data Monolith",
+      "primary_colors": [
+        "#0000FD",
+        "#111827",
+        "#2F6BFF"
+      ],
+      "emission_colors": [
+        "#2F6BFF",
+        "#FF5722"
+      ],
+      "bounding_box_m": [
+        50.4,
+        50.4,
+        51.75
+      ],
+      "bounding_box_tiles": [
+        6.3,
+        6.3,
+        6.469
+      ],
+      "triangles": 1532,
+      "file_size_kb": 108.53,
+      "tactical_role": "Áp chế mạng điện tử, trinh sát tự hành"
+    },
+    "uel": {
+      "id": "uel",
+      "name": "Trường Đại học Kinh tế - Luật (UEL)",
+      "model": "models/hqs/uel_hq.glb",
+      "concept": "Viện Pháp Lý & Tháp Tài Chính / Legislative Citadel",
+      "primary_colors": [
+        "#0055A5",
+        "#F1F5F9",
+        "#DAA520"
+      ],
+      "emission_colors": [
+        "#DAA520"
+      ],
+      "bounding_box_m": [
+        44.0,
+        44.0,
+        42.0
+      ],
+      "bounding_box_tiles": [
+        5.5,
+        5.5,
+        5.25
+      ],
+      "triangles": 1542,
+      "file_size_kb": 102.27,
+      "tactical_role": "Gia tăng tích lũy tài chính, tạo lá chắn"
+    },
+    "iu": {
+      "id": "iu",
+      "name": "Trường Đại học Quốc tế (IU)",
+      "model": "models/hqs/iu_hq.glb",
+      "concept": "Tổ Hợp Không Gian Toàn Cầu / Global Scarlet Complex",
+      "primary_colors": [
+        "#B83227",
+        "#009CD1",
+        "#323393"
+      ],
+      "emission_colors": [
+        "#009CD1"
+      ],
+      "bounding_box_m": [
+        40.0,
+        36.0,
+        30.5
+      ],
+      "bounding_box_tiles": [
+        5.0,
+        4.5,
+        3.812
+      ],
+      "triangles": 2692,
+      "file_size_kb": 71.07,
+      "tactical_role": "Tiếp vận lính dù, giao thương tài nguyên"
+    },
+    "uhs": {
+      "id": "uhs",
+      "name": "Trường Đại học Khoa học Sức khỏe (UHS)",
+      "model": "models/hqs/uhs_hq.glb",
+      "concept": "Tháp Cứu Sinh Y Sinh Học / Biomedical Aegis Spire",
+      "primary_colors": [
+        "#FFFFFF",
+        "#008B8B",
+        "#4CBB17"
+      ],
+      "emission_colors": [
+        "#4CBB17",
+        "#BF86BF"
+      ],
+      "bounding_box_m": [
+        38.0,
+        38.0,
+        37.0
+      ],
+      "bounding_box_tiles": [
+        4.75,
+        4.75,
+        4.625
+      ],
+      "triangles": 2176,
+      "file_size_kb": 114.46,
+      "tactical_role": "Hào quang hồi phục sinh lực, giải độc"
+    },
+    "ubb": {
+      "id": "ubb",
+      "name": "Trường Đại học Công nghệ Sinh học và Môi trường (VNU-UBB)",
+      "model": "models/hqs/ubb_hq.glb",
+      "concept": "Trạm Sinh Thái Sinh Học & Vòm Năng Lượng Xanh / Bio-Dome Eco-Spire",
+      "primary_colors": [
+        "#10B981",
+        "#065F46",
+        "#84CC16"
+      ],
+      "emission_colors": [
+        "#84CC16"
+      ],
+      "bounding_box_m": [
+        39.944,
+        37.989,
+        35.835
+      ],
+      "bounding_box_tiles": [
+        4.993,
+        4.749,
+        4.479
+      ],
+      "triangles": 1872,
+      "file_size_kb": 45.77,
+      "tactical_role": "Trạm sinh thái, năng lượng tái tạo chiến trường"
+    },
+    "uflis": {
+      "id": "uflis",
+      "name": "Trường Đại học Ngoại ngữ và Ngoại giao (VNU-UFLIS)",
+      "model": "models/hqs/uflis_hq.glb",
+      "concept": "Hải Đăng Đa Văn Hóa & Tháp Truyền Tin Ngoại Giao / Polyglot Beacon",
+      "primary_colors": [
+        "#7C3AED",
+        "#1E40AF",
+        "#F59E0B"
+      ],
+      "emission_colors": [
+        "#F59E0B"
+      ],
+      "bounding_box_m": [
+        35.107,
+        35.107,
+        47.65
+      ],
+      "bounding_box_tiles": [
+        4.388,
+        4.388,
+        5.956
+      ],
+      "triangles": 1664,
+      "file_size_kb": 122.82,
+      "tactical_role": "Truyền tin ngoại giao, kết nối đa phương"
+    },
+    "ulpa": {
+      "id": "ulpa",
+      "name": "Trường Đại học Luật và Quản trị Công (VNU-ULPA)",
+      "model": "models/hqs/ulpa_hq.glb",
+      "concept": "Điện Đền Thể Chế & Cột Trụ Trật Tự / Civic Citadel",
+      "primary_colors": [
+        "#991B1B",
+        "#18181B",
+        "#D97706"
+      ],
+      "emission_colors": [
+        "#D97706"
+      ],
+      "bounding_box_m": [
+        50.0,
+        50.0,
+        28.25
+      ],
+      "bounding_box_tiles": [
+        6.25,
+        6.25,
+        3.531
+      ],
+      "triangles": 1614,
+      "file_size_kb": 118.6,
+      "tactical_role": "Thể chế pháp lý, duy trì trật tự lãnh thổ"
+    }
+  },
+  "updated_at": "2026-09-19T07:29:29.473705Z"
+}

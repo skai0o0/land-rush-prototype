@@ -1,0 +1,214 @@
+{
+  "tile_meters": 8.0,
+  "aesthetic": "Chunky Low-Poly, Flat Shading",
+  "polygon_budget": "1200-4800 triangles",
+  "pivot": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "up_axis_export": "+Y",
+  "default_faction_color": "#1488D8",
+  "landmarks": [
+    {
+      "id": "landmark_ho_da",
+      "name": "Cụm Hồ Đá Làng Đại học",
+      "model_path": "/models/landmarks/ho_da.glb",
+      "tile_footprint": {
+        "width": 6,
+        "depth": 5
+      },
+      "tris_count": 1478,
+      "gameplay_role": "chokepoint_hazard",
+      "bounding_box_m": [
+        62.1,
+        51.3,
+        16.7
+      ],
+      "file_size_kb": 92.15,
+      "faction_material": "Mat_ho_da_FactionAccent",
+      "poly_budget_ok": true,
+      "size_budget_ok": true
+    },
+    {
+      "id": "landmark_doc_tinh",
+      "name": "Dốc tình Nhân Văn",
+      "model_path": "/models/landmarks/doc_tinh.glb",
+      "tile_footprint": {
+        "width": 5,
+        "depth": 2
+      },
+      "tris_count": 2040,
+      "gameplay_role": "speed_corridor",
+      "bounding_box_m": [
+        45.25,
+        18.95,
+        10.3
+      ],
+      "file_size_kb": 129.39,
+      "faction_material": "Mat_doc_tinh_FactionAccent",
+      "poly_budget_ok": true,
+      "size_budget_ok": true
+    },
+    {
+      "id": "landmark_duong_danh_nhan",
+      "name": "Con đường Danh nhân",
+      "model_path": "/models/landmarks/duong_danh_nhan.glb",
+      "tile_footprint": {
+        "width": 6,
+        "depth": 1
+      },
+      "tris_count": 2072,
+      "gameplay_role": "research_buff_boulevard",
+      "bounding_box_m": [
+        48.5,
+        10.0,
+        3.6
+      ],
+      "file_size_kb": 123.8,
+      "faction_material": "Mat_duong_danh_nhan_FactionAccent",
+      "poly_budget_ok": true,
+      "size_budget_ok": true
+    },
+    {
+      "id": "landmark_nha_dieu_hanh",
+      "name": "Khu Nhà điều hành ĐHQG-HCM",
+      "model_path": "/models/landmarks/nha_dieu_hanh.glb",
+      "tile_footprint": {
+        "width": 6,
+        "depth": 5
+      },
+      "tris_count": 1834,
+      "gameplay_role": "command_headquarters",
+      "bounding_box_m": [
+        48.45,
+        37.75,
+        46.25
+      ],
+      "file_size_kb": 138.4,
+      "faction_material": "Mat_nha_dieu_hanh_FactionAccent",
+      "poly_budget_ok": true,
+      "size_budget_ok": true
+    },
+    {
+      "id": "landmark_nvh_sinh_vien",
+      "name": "Nhà Văn hóa Sinh viên",
+      "model_path": "/models/landmarks/nvh_sinh_vien.glb",
+      "tile_footprint": {
+        "width": 8,
+        "depth": 7
+      },
+      "tris_count": 1660,
+      "gameplay_role": "spirit_camp",
+      "bounding_box_m": [
+        56.544,
+        61.75,
+        22.05
+      ],
+      "file_size_kb": 78.93,
+      "faction_material": "Mat_nvh_sinh_vien_FactionAccent",
+      "poly_budget_ok": true,
+      "size_budget_ok": true
+    },
+    {
+      "id": "landmark_cho_dem",
+      "name": "Chợ đêm Làng Đại học",
+      "model_path": "/models/landmarks/cho_dem.glb",
+      "tile_footprint": {
+        "width": 5,
+        "depth": 4
+      },
+      "tris_count": 1538,
+      "gameplay_role": "economy_hub",
+      "bounding_box_m": [
+        36.0,
+        28.0,
+        4.25
+      ],
+      "file_size_kb": 115.04,
+      "faction_material": "Mat_cho_dem_FactionAccent",
+      "poly_budget_ok": true,
+      "size_budget_ok": true
+    },
+    {
+      "id": "landmark_ktx_khu_a",
+      "name": "Ký túc xá Khu A",
+      "model_path": "/models/landmarks/ktx_khu_a.glb",
+      "tile_footprint": {
+        "width": 7,
+        "depth": 6
+      },
+      "tris_count": 3158,
+      "gameplay_role": "garrison_outpost",
+      "bounding_box_m": [
+        46.0,
+        36.55,
+        16.0
+      ],
+      "file_size_kb": 253.33,
+      "faction_material": "Mat_ktx_khu_a_FactionAccent",
+      "poly_budget_ok": true,
+      "size_budget_ok": false
+    },
+    {
+      "id": "landmark_ktx_khu_b",
+      "name": "Ký túc xá Khu B",
+      "model_path": "/models/landmarks/ktx_khu_b.glb",
+      "tile_footprint": {
+        "width": 9,
+        "depth": 8
+      },
+      "tris_count": 1566,
+      "gameplay_role": "mega_stronghold",
+      "bounding_box_m": [
+        60.0,
+        54.0,
+        57.2
+      ],
+      "file_size_kb": 115.16,
+      "faction_material": "Mat_ktx_khu_b_FactionAccent",
+      "poly_budget_ok": true,
+      "size_budget_ok": true
+    },
+    {
+      "id": "landmark_tram_xe_buyt",
+      "name": "Trạm xe buýt ĐHQG",
+      "model_path": "/models/landmarks/tram_xe_buyt.glb",
+      "tile_footprint": {
+        "width": 4,
+        "depth": 2
+      },
+      "tris_count": 1734,
+      "gameplay_role": "fast_travel_hub",
+      "bounding_box_m": [
+        40.0,
+        24.0,
+        5.119
+      ],
+      "file_size_kb": 112.87,
+      "faction_material": "Mat_tram_xe_buyt_FactionAccent",
+      "poly_budget_ok": true,
+      "size_budget_ok": true
+    },
+    {
+      "id": "landmark_cong_chinh",
+      "name": "Nút giao Cổng chính ĐHQG",
+      "model_path": "/models/landmarks/cong_chinh.glb",
+      "tile_footprint": {
+        "width": 8,
+        "depth": 5
+      },
+      "tris_count": 1512,
+      "gameplay_role": "frontier_gate",
+      "bounding_box_m": [
+        64.0,
+        42.0,
+        11.484
+      ],
+      "file_size_kb": 74.62,
+      "faction_material": "Mat_cong_chinh_FactionAccent",
+      "poly_budget_ok": true,
+      "size_budget_ok": true
+    }
+  ]
+}

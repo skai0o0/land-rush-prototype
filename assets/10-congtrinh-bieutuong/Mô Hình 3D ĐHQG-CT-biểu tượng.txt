@@ -1,0 +1,435 @@
+﻿Thiết kế tham số và đặc tả hình học 3D biểu tượng ĐHQG-HCM cho hệ thống MCP sinh mô hình tự động
+Xây dựng kho tài nguyên 3D cho một tựa game chiến thuật chiếm đất (Territory Conquest RTS) lấy bối cảnh Khu đô thị ĐHQG-HCM đòi hỏi việc chuẩn hóa hình học từ thực địa sang ngôn ngữ cách điệu đa giác thấp (Stylized Low-Poly). Ở góc quan sát đẳng cự (Isometric Top-down) với góc nghiêng camera    theo trục X và xoay    theo trục Z, các chi tiết vi mô dưới 0,2m sẽ bị triệt tiêu hoàn toàn thành nhiễu hạt điểm ảnh (pixel noise). Vì vậy, bài toán tạo hình qua AI Agent kết nối Model Context Protocol (MCP) phải tập trung tối đa vào "bản sắc hình bóng" (Silhouette Signifiers): giếng trời tổ ong của Nhà văn hóa Sinh viên1, vách đá giật cấp của Hồ Đá2, khối tháp đối xứng 10 tầng của Khu Nhà điều hành4, hoặc nhịp điệu phân khối chữ H cao tầng của Ký túc xá Khu B5.
+Mô hình vận hành của hệ thống dựa trên việc biến AI Agent thành một kỹ sư dựng hình tự động thông qua giao thức MCP, kích hoạt công cụ execute_blender_code để thực thi mã nguồn Python (bpy) trực tiếp bên trong Blender runtime7. Toàn bộ 10 địa danh được tham số hóa thành các hình khối sơ cấp (Primitives), liên kết qua các phép toán hình học Boolean, biến đổi mảng (Array), vát mép (Bevel) và phân định ranh giới vật liệu linh hoạt (Multi-material Slots). Điểm neo hình học (Pivot Point) của tất cả công trình kiến trúc được cố định tại đáy tâm (X=0, Y=0, Z=0) nhằm bảo đảm sự tương thích tuyệt đối khi phân bổ vào hệ thống ô lưới (Grid Snapping) của bản đồ game.
+Các công trình không chỉ tồn tại như những khối diễn họa tĩnh mà trực tiếp đảm nhận các chức năng cơ học trò chơi (gameplay mechanics): từ căn cứ chỉ huy, trạm trung chuyển quân sự, mỏ tài nguyên kinh tế đến chướng ngại vật địa hình. Hệ thống vật liệu được phân tách độc lập giữa các lớp vỏ vật lý cố định và các kênh màu nhận diện phe phái (Faction Dynamic Shaders), cho phép hoán đổi sắc thái đại diện của các trường thành viên—xanh dương Bách Khoa (#1488D8)10, đỏ son Nhân Văn (#A6192E)11, hay xanh biển thẫm Tự Nhiên (#0055A5)12—ngay khi trạng thái kiểm soát lãnh thổ thay đổi.
+Quy chuẩn thị giác Isometric Low-Poly và kiến trúc shader phe phái
+Thiết kế mỹ thuật cho góc nhìn Isometric đòi hỏi sự cân bằng khắt khe giữa tính tối giản đa giác và khả năng nhận diện công trình trong chưa đầy một giây. Phong cách chủ đạo được xác lập là Chunky Low-Poly: triệt tiêu độ mịn bề mặt (Smooth Shading) để chuyển hoàn toàn sang diện phẳng (Flat Shading), đồng thời sử dụng các cạnh vát Bevel lớn nhằm bắt các vệt sáng highlight rõ nét từ nguồn sáng định hướng (Sun Light). Mỗi khối nhà hay mảng địa hình đều được tinh giản thành cấu trúc hình học tối thiểu, duy trì ngân sách đa giác từ 1.200 đến 4.800 tam giác (triangles) cho mỗi công trình hoàn chỉnh, đảm bảo hiệu năng xử lý khi hàng chục phân khu xuất hiện đồng thời trên cùng một khung hình.
+Hệ tọa độ không gian mô hình tuân thủ quy chuẩn Z-Up, trong đó mặt phẳng quy chiếu Z = 0 tương ứng với cốt nền cao độ mặt đất chuẩn. Đối với các công trình kiến trúc xây dựng, việc neo Pivot Point tại đáy tâm hình học giúp việc tính toán bán kính chiếm đóng (Control Radius) và vùng ảnh hưởng sương mù chiến tranh (Fog of War) đạt độ chính xác số học cao nhất. Riêng đối với địa hình âm như Hồ Đá, cao trình Z = 0 đại diện cho mặt thoáng nước tĩnh, cho phép lòng hồ cắt sâu xuống các tọa độ Z âm và các khối bờ đá giật cấp vươn lên các tọa độ Z dương2.
+Kiến trúc vật liệu trong Blender được thiết lập qua Shader Principled BSDF với độ nhám bề mặt (Roughness) duy trì ở mức cao từ 0.7 đến 0.9 và triệt tiêu tính kim loại (Metallic = 0.0) trên các mảng tường bê tông để tránh hiện tượng lóa sáng. Hệ thống quản lý vật liệu chia làm hai nhóm chuyên biệt:
+* Nhóm vật liệu kết cấu tĩnh: Bao gồm các mã màu đại diện cho bê tông sảnh (#E8ECED), kính phản quang (#81D4FA với Transmission Weight = 0.7), ngói mái dốc (#8D6E63), nhựa đường (#37474F) và thảm thực vật nhiệt đới (#2E7D32).
+* Nhóm vật liệu đổi màu động (Faction Slots): Được gán cho các diện hình học chiến lược như dải cờ nóc nhà, viền mái vòm, dải pano phân tầng hoặc biển tên trung tâm. Khi một phe phái chiếm cứ điểm thành công, script sẽ tự động cập nhật thuộc tính Base Color của shader này thông qua chuyển đổi tuyến tính từ không gian màu sRGB sang Linear sRGB bằng công thức   .
+
+
+Trường / Đơn vị thành viên
+	Mã màu Hex chủ đạo
+	Không gian màu Linear RGB (sử dụng trong bpy)
+	Yếu tố hình học nhận diện thương hiệu
+	Đại học Bách Khoa
+	#1488D8
+	(0.005, 0.250, 0.694)
+	Khung mạng lưới tam giác, kết cấu lục giác tổ ong10
+	ĐH KHXH&NV
+	#A6192E
+	(0.381, 0.010, 0.026)
+	Khối mái cong Khuê Văn Các cách điệu, gam đỏ gạch11
+	ĐH Khoa học Tự nhiên
+	#0055A5
+	(0.000, 0.089, 0.381)
+	Khối lăng trụ phân vị đứng, dải lam màu xanh biển thẫm12
+	Cơ quan ĐHQG-HCM
+	#0054A6 điểm #F2A900
+	Xanh: (0.000, 0.086, 0.388), Vàng: (0.890, 0.407, 0.000)
+	Khối đối xứng trục uy nghiêm, phù hiệu tri thức mở14
+	Giải phẫu hình học và tham số dựng hình 10 biểu tượng ĐHQG-HCM
+Hồ Đá
+Hồ Đá hình thành từ các moong khai thác đá công nghiệp bị bỏ hoang, tạo nên các hố nước sâu từ 20m đến hơn 60m được bao bọc bởi những vách đá thẳng đứng, lởm chởm và bề mặt nước xanh ngọc bích sẫm2. Trong gameplay, Hồ Đá là chướng ngại vật tự nhiên không thể xâm nhập, chia cắt các mũi tấn công và định hình các điểm thắt cổ chai chiến thuật (Tactical Chokepoints).
+Hình học của Hồ Đá được mô hình hóa thành một vết cắt địa hình âm đa giác không đều, bao gồm lòng hồ và hệ thống bờ đá giật cấp. Lòng hồ là một hốc lõm dạng phễu thoải dần với 3 đến 4 tầng gián đoạn (Terraced Steps), mỗi vách bậc có góc nghiêng từ 75° đến 85° tạo bởi các bề mặt phẳng gãy góc ngẫu nhiên. Mặt nước là một lưới Plane phẳng nằm ngang tại Z = 0, gán vật liệu truyền sáng (Transmission Weight = 0.85, Roughness = 0.05) mang sắc xanh lục bảo đậm (#0D5C4D)16. Bao quanh mép bờ trên cùng là các đoạn rào chắn bảo vệ bằng thép mỏng màu xám đen bị gãy đứt đoạn3, điểm xuyết các biển báo nguy hiểm hình tam giác màu vàng viền đỏ cách điệu3 và các bụi cây tràm dại low-poly (tạo từ khối Ico-Sphere phân cấp thấp) mọc rải rác trên sườn đất đỏ sỏi15.
+   * Kích thước Bounding Box: 50m x 40m x 16m (Chiều sâu đáy hồ -10m, đỉnh bờ đá cao nhất +6m).
+   * Điểm neo tọa độ (Pivot Point): Điểm trung tâm hình học của mặt nước phẳng tại (0, 0, 0).
+   * Primitive khởi tạo: Lưới Grid (kích thước 50m x 40m, phân mảnh 12x10) cho địa hình đá; Plane cho mặt nước; Cone 5 cạnh cho cọc rào; Ico-Sphere cấp 1 cho bụi cây.
+   * Thao tác Blender chính: Chọn các vòng cạnh bên trong (inner edge loops) và dịch chuyển theo phương âm Z để tạo lòng moong; áp dụng Displace Modifier kết hợp kết cấu Voronoi tỉ lệ lớn nhằm phá vỡ tính đồng dạng của bờ đá; hoàn thiện bằng Decimate Modifier (chế độ Planar, góc giới hạn 22°) để tạo các diện cắt phẳng sắc cạnh.
+Dốc tình Nhân Văn
+Nằm tại trục đường nối liền giữa Trường ĐH KHXH&NV, Trường ĐH Công nghệ Thông tin và khu vực tiếp giáp Nhà khách ĐHQG18, Dốc tình Nhân Văn là biểu tượng lãng mạn gắn liền với nhịp sống sinh viên21. Trong cơ chế chiếm đất, tuyến đường dốc này hoạt động như một hành lang tăng tốc độ cơ động khi đơn vị di chuyển xuôi dốc và giảm tốc độ khi hành quân ngược dốc.
+Mô hình cấu trúc gồm dải mặt đường nhựa uốn lượn cong chữ S nhẹ (S-curve ribbon) vươn từ cốt nền Z = 0 lên đỉnh dốc Z = 5.5m với độ dốc kỹ thuật khoảng 9% đến 11%. Hai bên mép lộ giới là vỉa hè lát gạch vàng nhạt xen kẽ các bồn cỏ đắp nổi. Yếu tố nhận diện cốt lõi là hàng cây bóng mát rợp bóng điểm xuyết các vòm cây hoa chuông vàng nở rộ và các giàn hoa giấy rủ sắc hồng21. Cây xanh được tối giản thành thân gỗ nâu xiên nhẹ và các tán lá cấu thành từ cụm khối đa diện bát diện (Octahedrons) hoặc thập nhị diện (Dodecahedrons) mang sắc vàng chanh (#FDD835) và đỏ hồng (#E91E63). Dọc tuyến vỉa hè bố trí các cặp ghế đá sinh viên màu trắng xám đặt cạnh hệ thống cột đèn đường kim loại thon dài có chụp đèn nón chúc xuống21.
+   * Kích thước Bounding Box: 42m x 12m x 7.5m.
+   * Điểm neo tọa độ (Pivot Point): Điểm chính giữa tim đường tại chân dốc (0, 0, 0).
+   * Primitive khởi tạo: Đường dẫn Bezier Curve định hình sống dốc; tiết diện hình chữ nhật đùn theo đường cong (Curve Bevel Profile) tạo mặt đường và vỉa hè; Cube cho ghế đá; Cylinder cho thân cây và cột đèn.
+   * Thao tác Blender chính: Sử dụng Curve Modifier để ép dải hộp mặt đường chạy chính xác theo đường cong độ dốc; rải ghế đá và cột đèn dọc tuyến bằng Array Modifier kết hợp Curve Deform với khoảng cách bước 7m; áp dụng Random Transform nhẹ cho góc xoay thân cây để tránh tính rập khuôn máy móc.
+Con đường danh nhân
+Tuyến đường bộ hành văn hóa trong Khu đô thị ĐHQG-HCM nổi bật với dãy 10 pho tượng điêu khắc đá tạc hình các danh nhân lịch sử, tư tưởng và văn hóa dân tộc như Chu Văn An, Nguyễn Trãi, Lê Quý Đôn, Đoàn Thị Điểm, Phan Châu Trinh24. Trong trò chơi, công trình hoạt động như một "Đại lộ Công tích", cung cấp hào quang tăng chỉ số kinh nghiệm, sĩ khí hoặc điểm nghiên cứu công nghệ cho phe phái chiếm giữ.
+Mô hình được tổ chức như một trục đường đi bộ thẳng tắp, mặt đường lát các phiến đá granite vuông đan xen hai sắc độ xám tương phản. Điểm nhấn trung tâm là hai hàng bệ tượng đá hình hộp chữ nhật xếp đối xứng tuyệt đối qua trục đại lộ24. Mỗi bệ đá cao 1.0m, nâng đỡ các khối điêu khắc tượng trưng cho hình tượng danh nhân dạng tượng đứng (cao 2.2m) hoặc tượng ngồi trầm mặc (cao 1.7m)25. Tượng đá không đi sâu vào chi tiết giải phẫu học mà được cách điệu thành các diện phẳng đa giác dứt khoát phác họa tà áo dài, dáng tay nâng cuốn thư hoặc vuốt chòm râu25. Xen giữa các bệ tượng là bồn hoa viền đá thấp trồng cây cảnh bụi và hệ đèn rọi chiếu hắt chân tượng tạo hiệu ứng thị giác trang nghiêm vào ban đêm.
+   * Kích thước Bounding Box: 48m x 10m x 3.6m.
+   * Điểm neo tọa độ (Pivot Point): Điểm đầu trục đường bộ hành tại cốt Z = 0 (0, 0, 0).
+   * Primitive khởi tạo: Plane cho mặt sàn đại lộ; Cube vát mép làm bệ đá; Cylinder 6 cạnh phối hợp Cube gọt tỉa đa giác làm thân tượng; Box phẳng làm bồn hoa chân tường.
+   * Thao tác Blender chính: Áp dụng lệnh Bisect và Dissolve Degenerate để vát các diện phẳng dứt khoát cho thân tượng điêu khắc; nhân bản hàng tượng đối xứng qua trục Y bằng Mirror Modifier; bo nhẹ các gờ bệ đá bằng Bevel Modifier (Width = 0.06m).
+Khu nhà điều hành ĐHQG-HCM
+Là trung tâm quản lý hành chính cao cấp nhất của toàn bộ hệ thống đại học, Khu Nhà điều hành mang dáng vẻ uy nghi, bề thế với cấu trúc đối xứng trục nghiêm ngặt4. Tòa nhà cao 44m gồm 10 tầng làm việc nổi, tầng kỹ thuật và hệ mái dốc dán ngói trang trọng4. Trong game chiếm đất, đây là Đại bản doanh trung ương (Command Headquarters / Capitol), điểm phòng thủ cuối cùng định đoạt sự tồn vong của một phe phái.
+Khối kiến trúc gồm một khối đế 2 tầng mở rộng làm sảnh tiếp đón và bậc tam cấp hoành tráng4. Khối thân chính 10 tầng vươn cao với nhịp điệu mặt đứng phân vị dọc: các dải lam chắn nắng bê tông chạy thẳng đứng từ tầng 3 lên tầng 10, kẹp giữa các vách kính cường lực xanh thẫm4. Đỉnh công trình kết thúc bằng khối mái dốc chữ A cách điệu dán ngói màu nâu xám tạo silhouette quyền lực4. Khoảng không gian trước tòa nhà là quảng trường đá granite rộng lớn có cột cờ ĐHQG vươn cao ở vị trí trung tâm trang trọng29, hai bên bố trí khối nhà làm việc phụ trợ 3 tầng đối xứng khép góc tạo thế phòng thủ vững chãi4.
+   * Kích thước Bounding Box: 46m x 36m x 44m.
+   * Điểm neo tọa độ (Pivot Point): Chân bậc tam cấp chính diện tiền sảnh tại (0, 0, 0).
+   * Primitive khởi tạo: Khối Cube lớn phân tầng làm thân tháp; Prism đa diện cho hệ mái dốc ngói; Cylinder thon dài cho hệ cột sảnh và cột cờ; Plane phân tầng cho quảng trường đá.
+   * Thao tác Blender chính: Sử dụng công cụ Loop Cut and Slide để chia nhịp 10 tầng đồng nhất; thực hiện Extrude Along Normals để tạo độ nhô 0.35m cho các lam chắn nắng thẳng đứng; đục rỗng không gian sảnh vòm tầng trệt bằng Boolean Difference.
+Nhà văn hoá sinh viên
+Được biết đến với tên gọi biểu tượng "Tổ Ong Tri Thức", công trình phức hợp văn hóa này là một tuyệt tác kiến trúc hiện đại đạt giải thưởng quốc tế của liên danh GK Archi và Nihon Sekkei, quy mô diện tích sàn gần 40.000m² trên khuôn viên 3,5 ha1. Trong cấu trúc trò chơi, công trình giữ vai trò Căn cứ Văn hóa / Trạm hồi phục năng lượng và chiêu mộ các đơn vị tinh nhuệ.
+Hình khối tổng thể là một khối lăng trụ lục giác bo tròn các góc mềm mại gồm 5 tầng nổi1. Đặc trưng nhận diện thị giác độc nhất vô nhị từ góc nhìn trên cao là một giếng trời hình elip khổng lồ cắt xuyên thẳng từ tầng mái xuống tận tầng trệt, tạo thành một ống dẫn khí động học tự nhiên đón gió và ánh sáng1. Toàn bộ bề mặt bao che bên ngoài được bọc bởi hệ lam màu trắng đan chéo mô phỏng mắt lưới tổ ong lục giác1. Mặt sàn tầng thượng được biến thành một công viên trên cao giật cấp phủ đầy thảm cỏ xanh mướt1. Khối đế tầng trệt giật sâu vào trong, để lộ hàng cột nghiêng chịu lực vươn ra đỡ khối tích lớn bên trên1.
+   * Kích thước Bounding Box: 62m x 56m x 25m.
+   * Điểm neo tọa độ (Pivot Point): Điểm xuyên tâm của giếng trời elip tại cao độ mặt sàn tầng trệt (0, 0, 0).
+   * Primitive khởi tạo: Cylinder 6 cạnh (Hexagon) cho thân vỏ ngoài; Cylinder tròn kéo dẹt elip làm vật thể cắt giếng trời; Plane lượn sóng cho thảm xanh mái thượng; Cylinder nghiêng làm cột chống chân đế.
+   * Thao tác Blender chính: Lệnh Boolean Difference với khối elip nghiêng nhẹ để khoét rỗng giếng trời xuyên suốt; áp dụng Wireframe Modifier trên một lớp vỏ nhân bản ngoài cùng (offset 0.1m) để tạo khung hoa văn tổ ong; sử dụng Bevel Modifier bản rộng làm mềm các góc nhọn lục giác của tòa nhà.
+Chợ đêm Làng đại học
+Chợ đêm sinh viên bên cạnh Nhà văn hóa Sinh viên là tụ điểm thương mại, dịch vụ ẩm thực sầm uất với hơn 200 gian hàng bạt hoạt động tấp nập mỗi tối34. Trong game chiến thuật, Chợ đêm là Cứ điểm Kinh tế trọng yếu (Gold / Economy Generator), liên tục tạo dòng ngân sách cho phe nào thiết lập được quyền kiểm soát chu vi xung quanh.
+Cấu trúc hình học được quy hoạch theo mạng lưới bàn cờ (Grid Layout) gồm 3 đến 4 trục lối đi bộ hẹp kẹp giữa các dãy quầy sạp liên hoàn34. Mỗi sạp hàng (kiosk) là một khối lập phương khung sắt nhỏ lợp mái bạt dốc 4 phía dạng kim tự tháp cụt (hip-roof) hoặc mái vát một chiều, xen kẽ các tông màu bạt sọc rực rỡ (xanh-trắng, đỏ-trắng, vàng-cam)34. Giăng ngang trên nóc các lối đi là những đường dây điện chùng võng đính các cụm đèn tròn phát sáng rực rỡ (sử dụng vật liệu Emission tông vàng ấm #FFA726 và trắng chanh). Dưới mặt đất rải rác các chồng ghế nhựa vuông nhỏ màu xanh, đỏ, các thùng xốp đựng hàng và các xe đẩy đồ ăn vặt bốc làn khói low-poly cách điệu36 (tạo bởi các chùm Ico-Sphere bán trong suốt).
+   * Kích thước Bounding Box: 36m x 28m x 4.2m.
+   * Điểm neo tọa độ (Pivot Point): Trọng tâm mặt đất tại cổng vào trục chính khu chợ (0, 0, 0).
+   * Primitive khởi tạo: Cube cho khung quầy và bàn ghế; Pyramid 4 mặt đáy cụt cho mái bạt quầy hàng; Bezier Curve cho dây điện võng; Ico-Sphere cho bóng đèn tròn và hạt khói.
+   * Thao tác Blender chính: Sử dụng Array Modifier hai chiều phân bổ hệ thống sạp hàng thành các dãy song song; chạy script Python can thiệp nhẹ vào góc xoay Z (random.uniform(-5°, 5°)) và tỷ lệ quy mô từng sạp để tạo vẻ lộn xộn tự nhiên; gán vật liệu Emission cường độ cao (Strength = 4.0) cho các bóng đèn chợ.
+KTX Khu A
+Ký túc xá Khu A là quần thể cư xá truyền thống, gồm nhiều dãy nhà dạng thanh ngang (slab blocks) từ 5 đến 12 tầng bố trí ôm trọn các cụm sân nội khu rợp bóng cây xanh cổ thụ37. Trong bản đồ game, đây là một Cứ điểm Đồn trú (Garrison Outpost) có khả năng huấn luyện và sản xuất liên tục các đơn vị quân bộ binh sơ cấp với chi phí thấp.
+Khối kiến trúc chủ đạo gồm các khối hộp chữ nhật dài ghép nối dạng chữ U hoặc chữ L bao bọc sân trong37. Mặt đứng của các khối nhà A1, A2, A3 mang tính nhịp điệu cao nhờ hệ thống hốc ban công thụt sâu và cửa sổ song song lặp lại chuẩn xác37. Điểm đặc trưng nhận diện là các mảng tường sơn vàng mù tạt kết hợp trắng xám cũ kỹ, xen kẽ các khung chuồng cọp kim loại nhô ra ở ban công và các vạt phơi quần áo sinh viên nhiều màu sắc. Đầu hồi các khối nhà có cầu thang bộ thoát hiểm lộ thiên dạng dầm thép ziczac gắn chặt vào thân tường. Khu vực sân trong trung tâm bố trí sân bóng mini cỏ nhân tạo màu xanh sáng kẹp giữa những rặng cây xà cừ tán rộng37.
+   * Kích thước Bounding Box: 52m x 44m x 22m (Mô phỏng cụm 3 khối nhà chữ U cao 5-6 tầng).
+   * Điểm neo tọa độ (Pivot Point): Điểm trung tâm sân sinh hoạt chung tại cốt Z = 0 (0, 0, 0).
+   * Primitive khởi tạo: Cube lớn kéo dài làm thân nhà chính; Cube âm bản làm rãnh cắt ban công thụt; Plane làm mặt sân bóng đá cỏ nhân tạo; Cylinder phân đoạn cho cầu thang xoắn/thoát hiểm.
+   * Thao tác Blender chính: Sử dụng Boolean Difference dạng mảng để đục hàng loạt hốc ban công âm tường sâu 1.2m; liên kết các tầng lầu bằng Array Modifier theo trục Z; áp dụng Displace mức thấp trên thân tường tạo độ gồ ghề của lớp vữa trát lâu năm.
+KTX Khu B
+Được xem là đại đô thị ký túc xá quy mô bậc nhất Đông Nam Á, KTX Khu B gồm 19 đến 25 tòa tháp cao từ 12 đến 16 tầng mang phong cách kiến trúc hiện đại, phân bố thành các cụm đơn nguyên tháp bề thế (khu BA, C, D, E)5. Trong gameplay, KTX Khu B giữ vị trí Pháo đài Kiên cố (Mega Stronghold), sở hữu lượng điểm máu công trình (HP) cực lớn và khả năng chứa đòn phản công mạnh mẽ.
+Hình khối kiến trúc gồm các khối tháp mặt bằng chữ T, chữ L hoặc chữ H ghép nối để tối đa hóa lưu thông gió và ánh sáng5. Tầng 1 và 2 liên kết thành một khối đế dịch vụ thương mại (Podium) mở rộng với các cửa hàng tiện ích, phòng gym và nhà ăn sầm uất5. Từ tầng 3 đến 16, các thân tháp vươn thẳng đứng, mặt tường được phân chia bằng các dải màu sơn trang trí hiện đại (trắng xám chủ đạo điểm xuyết các mảng khối cam gạch, xanh dương hoặc vàng nghệ). Mặt sàn sân thượng phẳng đặt cụm tum thang máy kỹ thuật nhô cao và các bồn nước inox sáng loáng. Giữa các khối tháp là quảng trường đi bộ lát đá hoa văn hình học và hệ thống hành lang cầu kính nối trên cao6.
+   * Kích thước Bounding Box: 68m x 62m x 52m (Khối tháp đôi 16 tầng kết hợp đế thương mại).
+   * Điểm neo tọa độ (Pivot Point): Điểm trung tâm sảnh đón khối đế tầng 1 (0, 0, 0).
+   * Primitive khởi tạo: Khối Cube dẹt lớn cho khối đế Podium; tổ hợp 2 khối Cube chữ H cho thân tháp 16 tầng; Box nhỏ cho tum kỹ thuật sân thượng; Cylinder nằm ngang cho bồn nước inox.
+   * Thao tác Blender chính: Phân vùng mặt đứng bằng kỹ thuật Multi-Material ID để gán dải màu sơn ngoại thất riêng biệt cho từng phân nhánh tháp; sử dụng Array Modifier 16 bước theo phương thẳng đứng cho hệ ban công lam kính; bo viền sắc cạnh bằng Bevel Modifier góc nhỏ (0.1m).
+Trạm xe buýt
+Bến xe buýt ĐHQG (đầu mối giao thông kết nối các bến Khu A và Khu B) là huyết mạch di chuyển kết nối sinh viên toàn đô thị với các tuyến trọng điểm như xe buýt số 08, 10, 19, 33, 52, 5339. Trong game, Trạm xe buýt đóng vai trò Cổng Trung chuyển / Trạm Dịch chuyển nhanh (Fast-Travel Hub), cho phép điều chuyển tức thời binh lực và tài nguyên giữa các trạm trung chuyển thuộc cùng một phe kiểm soát.
+Mô hình gồm một đảo chờ khách trung tâm hình bầu dục (Oval Island) bằng bê tông ốp đá bó vỉa bo tròn nhô cao 0.25m so với mặt đường39. Phía trên là hệ thống mái che mưa nắng kết cấu dầm thép uốn cong lượn sóng (Wave Cantilever Canopy), lợp các tấm polycarbonate lấy sáng màu xanh lơ mờ. Dưới mái bố trí các dãy băng ghế chờ inox dài, cột gắn biển thông tin lộ trình và bảng điện tử LED hiển thị số hiệu tuyến xe phát sáng màu đỏ rực. Chạy ôm vòng quanh đảo chờ là làn đường nhựa màu xám đen với các vạch sơn vàng đón trả khách và các mũi tên chỉ hướng vòng xoay quay đầu (Turnaround Loop)39. Đỗ sẵn tại làn chờ là mô hình xe buýt xanh Sài Gòn low-poly (tỷ lệ 1:1 cách điệu) với hai mảng màu xanh lá cây đậm và trắng kem đặc trưng.
+   * Kích thước Bounding Box: 32m x 16m x 5.8m.
+   * Điểm neo tọa độ (Pivot Point): Trọng tâm mặt sàn đảo bê tông đón khách tại cốt Z = 0 (0, 0, 0).
+   * Primitive khởi tạo: Cylinder dẹt kéo dài làm đảo oval đón khách; Curve biên dạng làm dầm thép lượn sóng; Plane có gán Solidify làm mái che lấy sáng cong; Cube gọt tỉa làm mô hình xe buýt low-poly.
+   * Thao tác Blender chính: Sử dụng công cụ Spin hoặc Curve Extrude để tạo sống mái vòm uốn lượn; áp dụng shader truyền sáng bán phần cho mái nhựa (Transmission Weight = 0.6, Roughness = 0.2); gán vật liệu phát xạ Emission cho bảng điện tử LED báo số tuyến.
+Nút giao cổng chính ĐHQG
+Nằm trên trục Xa lộ Hà Nội rẽ vào đường 621 (Đại lộ Đại học), Nút giao cổng chính là cửa ngõ biểu tượng định danh toàn bộ không gian đô thị tri thức với mạng lưới giao thông liên vùng39. Trong tựa game, đây là Cửa ngõ Phòng tuyến / Điểm kiểm soát biên giới (Frontier Chokepoint Gate), kiểm soát toàn bộ hướng tiến công thâm nhập từ vùng rìa bản đồ vào lõi trung tâm.
+Hình khối công trình tích hợp hai tầng không gian: Hạ tầng giao thông lập thể và Tượng đài cổng chào ĐHQG-HCM44. Hạ tầng giao thông gồm các nhánh cầu vượt dầm hộp bê tông đúc hẫng uốn cong vượt nhịp bắc qua Xa lộ Hà Nội đan xen các tuyến hầm chui cắt sâu xuống nền đất44. Tọa lạc tại đảo cảnh quan trung tâm là khối bệ tượng đài ốp đá hoa cương granite màu đỏ ngọc thẫm dựng nghiêng, bên trên gắn biểu tượng logo ĐHQG-HCM cách điệu từ hình tượng trang sách mở nâng đỡ quả địa cầu14. Thân tường đá khắc dòng chữ khối 3D kim loại mạ đồng ánh kim "ĐẠI HỌC QUỐC GIA TP. HỒ CHÍ MINH"48. Bao bọc xung quanh chân đế tượng đài là vòng xoay giao thông kết hợp các vòng tròn thảm hoa trang trí đồng tâm rực rỡ49.
+   * Kích thước Bounding Box: 64m x 42m x 14m (Bao gồm tĩnh không nhịp cầu vượt và khối biểu tượng cổng).
+   * Điểm neo tọa độ (Pivot Point): Trọng tâm chân bệ đá tượng đài cổng chào (0, 0, 0).
+   * Primitive khởi tạo: Bezier Curve vuốt dài làm dầm cầu vượt bê tông; Cube vát mép làm bệ đá biểu tượng; Cylinder phân tầng cho bùng binh hoa; Text chuyển đổi sang Mesh cho hàng chữ danh hiệu 3D.
+   * Thao tác Blender chính: Lệnh Curve Bevel Profile quét tiết diện mặt cầu bê tông theo dải cong chữ S; áp dụng Boolean Difference khoét rãnh hầm chui xuyên cắt mặt đất; gán vật liệu kim loại ánh vàng (Metallic = 0.9, Roughness = 0.2) cho logo và hàng chữ nổi.
+Ma trận tham số kỹ thuật và thuộc tính địa bàn chiến lược
+Bảng ma trận dưới đây hệ thống hóa các chỉ số hình học và thuộc tính trò chơi cho toàn bộ 10 địa danh, làm cơ sở dữ liệu định chuẩn để AI Agent truy vấn và điều khiển tự động:
+Biểu tượng không gian
+	Bounding Box chuẩn (Dài x Rộng x Cao)
+	Primitive cơ sở
+	Kỹ thuật bpy / Modifiers then chốt
+	Ngân sách Lưới (Tris)
+	Cơ chế chiếm đất trong Gameplay
+	Hồ Đá
+	50m x 40m x 16m
+	Grid, Plane
+	Extrude âm Z, Displace Noise, Decimate Planar
+	2.200
+	Vật cản địa hình không thể vượt qua / Mỏ nước
+	Dốc tình Nhân Văn
+	42m x 12m x 7.5m
+	Curve, Cube, Cylinder
+	Curve Deform, Array Path, Bevel Edges
+	1.400
+	Hành lang tăng tốc hành quân / Vị trí mai phục
+	Con đường danh nhân
+	48m x 10m x 3.6m
+	Plane, Cube, Cylinder
+	Mirror Modifier, Array X, Bisect gọt diện
+	1.800
+	Đại lộ ban buff tăng tốc nghiên cứu khoa học
+	Khu nhà điều hành
+	46m x 36m x 44m
+	Cube, Prism, Cylinder
+	Loop Cut phân tầng, Extrude lam, Boolean
+	4.200
+	Đại bản doanh tối cao / Căn cứ chỉ huy trung ương
+	Nhà văn hoá sinh viên
+	62m x 56m x 25m
+	Cylinder-6, Cylinder elip
+	Boolean Diff giếng trời, Wireframe vỏ tổ ong
+	3.600
+	Căn cứ tinh thần / Trạm hồi phục sinh lực
+	Chợ đêm Làng ĐH
+	36m x 28m x 4.2m
+	Cube, Pyramid, Curve
+	2D Array Kiosk, Transform Random, Emission
+	3.400
+	Điểm nút kinh tế / Sản sinh ngân sách tự động
+	KTX Khu A
+	52m x 44m x 22m
+	Cube, Plane
+	Boolean hốc ban công, Array Z, Sân chữ U
+	2.800
+	Doanh trại quân sự / Đào tạo bộ binh cơ bản
+	KTX Khu B
+	68m x 62m x 52m
+	Tổ hợp Cube chữ H, Box
+	Multi-Material ID, Array phân tầng, Bevel
+	4.600
+	Siêu pháo đài phòng thủ / Kho dự trữ lực lượng
+	Trạm xe buýt
+	32m x 16m x 5.8m
+	Cylinder, Curve, Cube
+	Spin uốn cong, Solidify mái kính, Curve Path
+	1.900
+	Điểm dịch chuyển nhanh (Fast-Travel Gateway)
+	Nút giao cổng chính
+	64m x 42m x 14m
+	Curve Sweep, Cube, Text
+	Curve Sweep dầm cầu, Boolean hầm, Text Mesh
+	3.200
+	Cửa ngõ phòng tuyến / Chốt kiểm soát ranh giới
+	Kiến trúc điều khiển MCP và mã Python tự động sinh mô hình
+Quy trình giao tiếp giữa AI Agent và phần mềm Blender vận hành khép kín theo giao thức Model Context Protocol (MCP)7. Tiến trình điều khiển bao gồm bốn giai đoạn kỹ thuật tuần tự:
+Ở giai đoạn khởi tạo, AI Client (như Claude Desktop hoặc Cursor IDE) phân tích prompt yêu cầu từ người phát triển game, đối chiếu với cơ sở dữ liệu đặc tả hình học để tạo ra mã script Python chuẩn định dạng cho Blender8. Giai đoạn truyền dẫn đóng gói payload mã nguồn vào khung tin nhắn JSON-RPC tiêu chuẩn của giao thức MCP và truyền qua kênh vào/ra chuẩn (stdio) tới tiến trình máy chủ trung gian blender-mcp (khởi chạy thông qua trình quản lý gói Python uvx)8. Giai đoạn kết nối socket chứng kiến tiến trình blender-mcp chuyển tiếp cấu trúc dữ liệu JSON qua giao thức mạng TCP socket cục bộ (mặc định tại cổng localhost:9876) tới Add-on "Interface: MCP for Blender" đang lắng nghe bên trong ứng dụng Blender8. Cuối cùng, tại giai đoạn thực thi nội bộ, Add-on tiếp nhận payload, đưa câu lệnh vào hàng đợi an toàn tuyến trình queue.Queue()9. Bộ điều phối thời gian bpy.app.timers của Blender định kỳ quét hàng đợi sau mỗi 5 mili-giây trên tuyến trình chính (Main Thread) để thực thi đoạn mã Python mà không xung đột với biểu đồ phụ thuộc (Dependency Graph)9, sau đó chụp lại ảnh khung nhìn (Viewport Screenshot) trả về cho AI Agent nghiệm thu chất lượng mô hình8.
+
+
+Giai đoạn đường ống MCP
+	Tác nhân điều phối
+	Giao thức / Cơ chế thực thi
+	Trạng thái dữ liệu đầu ra
+	1. Trừu tượng hóa lệnh
+	AI Agent (Claude/Cursor)
+	Phân rã prompt thành script tham số hóa bpy
+	Khối mã nguồn Python hoàn chỉnh
+	2. Đóng gói giao thức
+	Client MCP Driver
+	JSON-RPC đóng gói qua stdio transport
+	Payload JSON chứa công cụ execute_blender_code
+[cite: 8]
+	3. Cầu nối Socket
+	blender-mcp Server
+	TCP Socket localhost:9876 tới Blender Add-on8
+	Luồng byte stream truyền tải mạng nội bộ
+	4. Luồng chính Blender
+	bpy.app.timers Worker
+	Giải mã hàng đợi, thực thi lệnh bpy trên Main Thread9
+	Lưới hình học 3D, Modifier và Shader gán hoàn tất
+	Để hiện thực hóa quy trình này, script Python dưới đây được thiết kế chuyên biệt để AI Agent gửi qua MCP, tự động tạo lập hoàn chỉnh biểu tượng có độ phức tạp hình học cao nhất: Nhà văn hóa sinh viên với kết cấu lăng trụ lục giác tổ ong, giếng trời elip thông tầng khí động học, công viên trên mái và vật liệu đổi màu phe phái động1:
+
+
+
+
+
+
+Python
+import bpy
+import math
+
+def reset_scene_meshes():
+   """Xóa các lưới hình học cũ nhằm bảo đảm môi trường sinh dựng sạch sẽ."""
+   bpy.ops.object.select_all(action='DESELECT')
+   bpy.ops.object.select_by_type(type='MESH')
+   bpy.ops.object.delete()
+
+def build_material(name, hex_color, roughness=0.8, metallic=0.0, transmission=0.0):
+   """Khởi tạo Shader Principled BSDF theo đúng chuẩn Linear sRGB PBR."""
+   mat = bpy.data.materials.get(name)
+   if not mat:
+       mat = bpy.data.materials.new(name=name)
+       mat.use_nodes = True
+       nodes = mat.node_tree.nodes
+       nodes.clear()
+       
+       output_node = nodes.new(type='ShaderNodeOutputMaterial')
+       bsdf_node = nodes.new(type='ShaderNodeBsdfPrincipled')
+       
+       # Chuyển đổi mã màu sRGB HEX sang Linear Float RGB
+       r_srgb = int(hex_color[1:3], 16) / 255.0
+       g_srgb = int(hex_color[3:5], 16) / 255.0
+       b_srgb = int(hex_color[5:7], 16) / 255.0
+       r_lin = math.pow(r_srgb, 2.2)
+       g_lin = math.pow(g_srgb, 2.2)
+       b_lin = math.pow(b_srgb, 2.2)
+       
+       bsdf_node.inputs['Base Color'].default_value = (r_lin, g_lin, b_lin, 1.0)
+       bsdf_node.inputs['Roughness'].default_value = roughness
+       bsdf_node.inputs['Metallic'].default_value = metallic
+       
+       # Tương thích cấu trúc thuộc tính Transmission giữa các phiên bản Blender 3.x và 4.x
+       if 'Transmission Weight' in bsdf_node.inputs:
+           bsdf_node.inputs['Transmission Weight'].default_value = transmission
+       elif 'Transmission' in bsdf_node.inputs:
+           bsdf_node.inputs['Transmission'].default_value = transmission
+           
+       mat.node_tree.links.new(bsdf_node.outputs['BSDF'], output_node.inputs['Surface'])
+   return mat
+
+def generate_nvh_sinh_vien(faction_color_hex="#1488D8"):
+   """
+   Sinh dựng tham số hóa Nhà văn hóa Sinh viên:
+   Lục giác cách điệu, giếng trời elip, công viên mái và dải viền màu phe phái chiếm đóng.
+   """
+   reset_scene_meshes()
+   
+   # 1. Khởi tạo kho vật liệu
+   mat_facade = build_material("Mat_NVHSV_WhiteShell", "#ECEFF1", roughness=0.6)
+   mat_roof_lawn = build_material("Mat_NVHSV_RoofLawn", "#2E7D32", roughness=0.9)
+   mat_base_plaza = build_material("Mat_NVHSV_BasePlaza", "#607D8B", roughness=0.85)
+   mat_faction = build_material("Mat_NVHSV_FactionAccent", faction_color_hex, roughness=0.4, metallic=0.2)
+
+   # 2. Tạo khối bệ móng quảng trường tầng trệt (Hexagon Base)
+   bpy.ops.mesh.primitive_cylinder_add(
+       vertices=6,
+       radius=31.0,
+       depth=1.0,
+       location=(0.0, 0.0, 0.5)
+   )
+   obj_base = bpy.context.active_object
+   obj_base.name = "NVHSV_GroundPlaza"
+   obj_base.data.materials.append(mat_base_plaza)
+
+   # 3. Tạo khối thân chính 5 tầng (Main Shell)
+   bpy.ops.mesh.primitive_cylinder_add(
+       vertices=6,
+       radius=28.0,
+       depth=20.0,
+       location=(0.0, 0.0, 11.0)
+   )
+   obj_main = bpy.context.active_object
+   obj_main.name = "NVHSV_MainStructure"
+   obj_main.data.materials.append(mat_facade)
+
+   # 4. Tạo khối dao cắt giếng trời hình elip xuyên suốt (Atrium Cutter)
+   bpy.ops.mesh.primitive_cylinder_add(
+       vertices=32,
+       radius=9.5,
+       depth=32.0,
+       location=(0.0, 0.0, 15.0)
+   )
+   obj_cutter = bpy.context.active_object
+   obj_cutter.name = "Cutter_Atrium_Volume"
+   obj_cutter.scale = (1.45, 0.85, 1.0)
+   bpy.ops.object.transform_apply(scale=True)
+
+   # Thực hiện phép đục khoét Boolean rỗng ruột
+   mod_bool = obj_main.modifiers.new(name="Bool_Atrium", type='BOOLEAN')
+   mod_bool.operation = 'DIFFERENCE'
+   mod_bool.object = obj_cutter
+   bpy.context.view_layer.objects.active = obj_main
+   bpy.ops.object.modifier_apply(modifier="Bool_Atrium")
+   
+   # Xóa khối dao cắt sau khi hoàn thành phép tính
+   bpy.data.objects.remove(obj_cutter, do_unlink=True)
+
+   # 5. Tạo sàn công viên sân thượng giật cấp (Roof Garden)
+   bpy.ops.mesh.primitive_cylinder_add(
+       vertices=6,
+       radius=26.5,
+       depth=0.6,
+       location=(0.0, 0.0, 21.3)
+   )
+   obj_roof = bpy.context.active_object
+   obj_roof.name = "NVHSV_RoofPark"
+   obj_roof.data.materials.append(mat_roof_lawn)
+
+   # Khoét lỗ giếng trời trên bề mặt thảm cỏ sân thượng
+   bpy.ops.mesh.primitive_cylinder_add(
+       vertices=32,
+       radius=9.5,
+       depth=2.0,
+       location=(0.0, 0.0, 21.3)
+   )
+   roof_cutter = bpy.context.active_object
+   roof_cutter.scale = (1.45, 0.85, 1.0)
+   bpy.ops.object.transform_apply(scale=True)
+
+   mod_roof_bool = obj_roof.modifiers.new(name="Bool_RoofAtrium", type='BOOLEAN')
+   mod_roof_bool.operation = 'DIFFERENCE'
+   mod_roof_bool.object = roof_cutter
+   bpy.context.view_layer.objects.active = obj_roof
+   bpy.ops.object.modifier_apply(modifier="Bool_RoofAtrium")
+   bpy.data.objects.remove(roof_cutter, do_unlink=True)
+
+   # 6. Tạo dải pano viền mái đổi màu theo phe phái kiểm soát (Faction Ring)
+   bpy.ops.mesh.primitive_cylinder_add(
+       vertices=6,
+       radius=28.2,
+       depth=1.2,
+       location=(0.0, 0.0, 20.4)
+   )
+   obj_faction_ring = bpy.context.active_object
+   obj_faction_ring.name = "NVHSV_FactionRing"
+   obj_faction_ring.data.materials.append(mat_faction)
+
+   # Đục rỗng tâm dải viền phe phái
+   bpy.ops.mesh.primitive_cylinder_add(
+       vertices=6,
+       radius=27.4,
+       depth=2.0,
+       location=(0.0, 0.0, 20.4)
+   )
+   ring_cutter = bpy.context.active_object
+   mod_ring_bool = obj_faction_ring.modifiers.new(name="Bool_RingHole", type='BOOLEAN')
+   mod_ring_bool.operation = 'DIFFERENCE'
+   mod_ring_bool.object = ring_cutter
+   bpy.context.view_layer.objects.active = obj_faction_ring
+   bpy.ops.object.modifier_apply(modifier="Bool_RingHole")
+   bpy.data.objects.remove(ring_cutter, do_unlink=True)
+
+   # 7. Áp dụng Bevel Modifier định hình góc cạnh sắc phẳng Low-Poly
+   for target_obj in [obj_main, obj_base, obj_faction_ring]:
+       bev = target_obj.modifiers.new(name="LP_EdgeBevel", type='BEVEL')
+       bev.width = 0.25
+       bev.segments = 1
+       bev.limit_method = 'ANGLE'
+       bev.angle_limit = math.radians(35.0)
+
+   # 8. Hợp nhất vào Collection chuyên biệt của game
+   target_collection_name = "Gameplay_Node_NVHSV"
+   landmark_collection = bpy.data.collections.get(target_collection_name)
+   if not landmark_collection:
+       landmark_collection = bpy.data.collections.new(target_collection_name)
+       bpy.context.scene.collection.children.link(landmark_collection)
+       
+   for model_component in [obj_base, obj_main, obj_roof, obj_faction_ring]:
+       for parent_coll in model_component.users_collection:
+           parent_coll.unlink(model_component)
+       landmark_collection.objects.link(model_component)
+
+# Lệnh thực thi mẫu với màu nhận diện của Trường Đại học Bách Khoa
+generate_nvh_sinh_vien(faction_color_hex="#1488D8")
+
+Bản đặc tả kỹ thuật và kiến trúc tham số hóa này cung cấp một khuôn khổ dựng hình hình học khép kín, biến các biểu tượng không gian thực tế của ĐHQG-HCM thành hệ sinh thái tài nguyên 3D tối ưu hóa toàn diện cho công nghệ AI Agent qua kết nối Model Context Protocol. Việc kết hợp chặt chẽ giữa tỷ lệ bao phủ thực địa, quy chuẩn thể tích Bounding Box, điểm neo tọa độ mặt sàn chuẩn tắc và các kênh vật liệu nhận diện phe phái động không chỉ loại bỏ triệt để nguy cơ phát sinh lỗi hình học khi xuất bản đồ trò chơi, mà còn tái hiện trọn vẹn bản sắc đô thị đại học trong một trải nghiệm chiến thuật chiếm đất có tính cạnh tranh thị giác và chiều sâu gameplay cao.
+Nguồn trích dẫn
+   1. Nhà Văn hóa Sinh viên tại ĐHQG-HCM: Vẻ đẹp của hình khối và, https://www.nhavanhoasinhvien.vn/giai-tri-dich-vu/nha-van-hoa-sinh-vien-tai-dhqg-hcm.html
+   2. Rùng mình cuộc chơi ở 'hồ ma ám' - VietNamNet, https://vietnamnet.vn/rung-minh-cuoc-choi-o-ho-ma-am-19138.html
+   3. Danh sách tai nạn tại hồ Đá – Wikipedia tiếng Việt, https://vi.wikipedia.org/wiki/Danh_s%C3%A1ch_tai_n%E1%BA%A1n_t%E1%BA%A1i_h%E1%BB%93_%C4%90%C3%A1
+   4. Nhà Điều hành - hcmussh, https://hcmussh.edu.vn/news/item/1562
+   5. Khám phá ký túc xá Khu B và những điều bạn cần biết - Tuyển sinh, https://tuyensinh.uel.edu.vn/kham-pha-ky-tuc-xa-khu-b-va-nhung-dieu-ban-can-biet/
+   6. Giới thiệu về ký túc xá khu B Đại học Quốc gia TP.HCM - UEL, https://onthisinhvien.com/gioi-thieu-ve-ky-tuc-xa-b-dhqg
+   7. BlenderMCP - Blender Model Context Protocol Integration - LobeHub, https://lobehub.com/mcp/cetfgcw-blender-mcp
+   8. Blender MCP Server — How It Works & Technical Deep Dive, https://blendermcp.org/server
+   9. Blender MCP for n8n - See Hiong's Blog, https://seehiong.github.io/posts/2026/02/blender-mcp-for-n8n/
+   10. ĐHBK HCM - Trường Đại học Bách khoa ĐHQG HCM - hcmut, https://hcmut.edu.vn/gioi-thieu/nhan-dien-thuong-hieu
+   11. KHOA HỌC XÃ HỘI VÀ NHÂN VĂN - hcmussh, https://hcmussh.edu.vn/static/document/17565.pdf
+   12. Hệ thống nhận diện thương hiệu - Trường Đại học Khoa ... - hcmus, https://hcmus.edu.vn/he-thong-nhan-dien-thuong-hieu/
+   13. bộ nhận diện thương hiệu - hcmut, https://hcmut.edu.vn/download/B%E1%BB%98%20NH%E1%BA%ACN%20DI%E1%BB%86N%20TH%C6%AF%C6%A0NG%20HI%E1%BB%86U%20TR%C6%AF%E1%BB%9CNG%20%C4%90%E1%BA%A0I%20H%E1%BB%8CC%20B%C3%81CH%20KHOA%20-%20%C4%90HQG-HCM.pdf
+   14. Logo ĐHQG-HCM, https://vnuhcm.edu.vn/ve-dhqg-hcm?t=logo-dhqg-hcm
+   15. 2 địa điểm thơ mộng nhưng nguy hiểm trong làng đại học TP.HCM, https://kenh14.vn/hoc-duong/2-dia-diem-tho-mong-nhung-nguy-hiem-trong-lang-dai-hoc-tphcm-20131007115319123.chn
+   16. Vẻ đẹp xanh ngọc bí ẩn ở hồ đá làng đại học TPHCM | Báo Dân trí, https://dantri.com.vn/thoi-su/ve-dep-xanh-ngoc-bi-an-o-ho-da-lang-dai-hoc-tphcm-20260516221929955.htm
+   17. bảng giá ngoại cảnh hồ đá thủ đức - Nắng Wedding, https://nangwedding.vn/ngoai-canh-ho-da-thu-duc
+   18. 4 'đặc sản' ở làng đại học mà sinh viên không thể bỏ lỡ - Mực Tím, https://muctim.tuoitre.vn/4-dac-san-o-lang-dai-hoc-ma-sinh-vien-khong-the-bo-lo-10124092900023461.htm
+   19. Làng đại học Thủ Đức gồm những trường nào? 5 địa điểm thú vị, https://muaban.net/blog/lang-dai-hoc-thu-duc-172854/
+   20. Đến những nơi này ở làng đại học tha hồ có ảnh đẹp, https://thanhnien.vn/den-nhung-noi-nay-o-lang-dai-hoc-tha-ho-co-anh-dep-185241123132337089.htm
+   21. Làng đại học: Thanh xuân của hàng triệu sinh viên TPHCM - Dân trí, https://dantri.com.vn/doi-song/lang-dai-hoc-thanh-xuan-cua-hang-trieu-sinh-vien-tphcm-20221206152414254.htm
+   22. Cả đời sinh viên sống ở làng Đại học Thủ Đức nhưng bạn đã thử, https://baomoi.com/ca-doi-sinh-vien-song-o-lang-dai-hoc-thu-duc-nhung-ban-da-thu-xach-ba-lo-len-va-di-het-nhung-con-duong-sieu-thu-vi-o-day-c25803077.epi
+   23. Diện mạo Đại học Quốc gia TP.HCM sau 3 thập kỷ - Báo Tuổi Trẻ, https://tuoitre.vn/dai-hoc-quoc-gia-tp-hcm-sau-3-thap-ky-dien-mao-dep-hon-voi-cac-cum-truong-ky-tuc-xa-20241021154029763.htm
+   24. Sinh viên làng ĐH Thủ Đức nói gì về những bức tượng trên "con, https://kenh14.vn/xa-hoi/sinh-vien-lang-dh-thu-duc-noi-gi-ve-nhung-buc-tuong-tren-con-duong-danh-nhan-2015111510271965.chn
+   25. Độc đáo con đường danh nhân ở làng đại học Thủ Đức, https://congdoan.vnuhcm.edu.vn/doc-dao-con-duong-danh-nhan-o-lang-dai-hoc-thu-duc
+   26. Cận cảnh Con đường danh nhân độc đáo ở Sài Gòn - 2SaiGon.vn, https://2saigon.vn/xa-hoi/cafe-sang-saigon/can-canh-con-duong-danh-nhan-doc-dao-o-sai-gon.html
+   27. Boek Data | PDF - Scribd, https://www.scribd.com/document/643660969/Boek-Data-xlsx
+   28. TRUNG TÂM KHẢO THÍ TIẾNG ANH, https://www.etcvnu.edu.vn/
+   29. Quy hoạch phát triển Trường Đại học Kinh tế - Luật - UEL, https://uel.edu.vn/quy-hoach-phat-trien-truong-dai-hoc-kinh-te-luat
+   30. Nhà văn hóa sinh viên Hồ Chí Minh - GK Archi, http://gka.vn/projects/nha-van-hoa-sinh-vien/
+   31. Nhà Văn hóa Sinh viên Làng Đại học Thủ Đức, TP.HCM giành giải, https://saigoneer.com/vn/vietnam-architecture/16619-nh%C3%A0-v%C4%83n-h%C3%B3a-sinh-vi%C3%AAn-l%C3%A0ng-%C4%91%E1%BA%A1i-h%E1%BB%8Dc-th%E1%BB%A7-%C4%91%E1%BB%A9c,-tp-hcm-gi%C3%A0nh-gi%E1%BA%A3i-ki%E1%BA%BFn-tr%C3%BAc-th%E1%BA%BF-gi%E1%BB%9Bi
+   32. Nhà văn hóa Sinh viên TPHCM đoạt giải kiến trúc thế giới, https://nangluongsachvietnam.vn/d6/vi-VN/news/Nha-van-hoa-Sinh-vien-TPHCM-doat-giai-kien-truc-the-gioi-6-1959-8770
+   33. Nhà văn hóa Sinh Viên TP. HCM – Sáng tạo mới cho làng đại học, https://www.tapchikientruc.com.vn/tac-gia-tac-pham/nha-van-hoa-sinh-vien-tp-hcm-sang-tao-moi-cho-lang-dai-hoc.html
+   34. Chợ đêm Làng Đại Học: Thiên đường mua sắm giá rẻ của sinh viên, https://kinhdoanh.ahamove.com/cho-dem-lang-dai-hoc
+   35. Review 10 chợ đêm Sài Gòn hấp dẫn nhất, không thể bỏ lỡ, https://www.greensm.com/vn-vi/news/cho-dem-sai-gon
+   36. 5 khu chợ giá rẻ nhất dành cho công nhân, sinh viên ở TP HCM, https://baophapluat.vn/5-khu-cho-gia-re-nhat-danh-cho-cong-nhan-sinh-vien-o-tp-hcm-post238116.html
+   37. Ký túc xá Đại học Quốc gia Thành phố Hồ Chí Minh - Wikipedia, https://vi.wikipedia.org/wiki/K%C3%BD_t%C3%BAc_x%C3%A1_%C4%90%E1%BA%A1i_h%E1%BB%8Dc_Qu%E1%BB%91c_gia_Th%C3%A0nh_ph%E1%BB%91_H%E1%BB%93_Ch%C3%AD_Minh
+   38. Trung tâm Quản lý Ký túc xá và Khu đô thị ĐHQG-HCM, https://ktxhcm.edu.vn/
+   39. Đổi lộ trình 10 tuyến xe buýt khu vực Đại học Quốc gia, sinh viên TP, https://thanhnien.vn/doi-lo-trinh-10-tuyen-xe-buyt-khu-vuc-dai-hoc-quoc-gia-sinh-vien-tphcm-luu-y-185260730102127741.htm
+   40. Tuyến xe buýt đi Đại học Quốc Gia TPHCM: Lộ trình, giá vé 2025, https://blog.vexere.com/tuyen-xe-buyt-di-dai-hoc-quoc-gia-tphcm/
+   41. Bến Xe Buýt Đại Học Quốc Gia - CỘNG ĐỒNG TPHCM, https://quanthuductphcm.weebly.com/ben-xe-buyt-dai-hoc-quoc-gia-tphcm.html
+   42. Thông tin hoạt động tuyến xe buýt số 170 Bến xe buýt Khu A, https://iuoss.com/thong-tin-hoat-dong-tuyen-xe-buyt-so-170-ben-xe-buyt-khu-a-ben-xe-buyt-khu-b/
+   43. Thông tin Tuyến xe buýt Đại Học Quốc Gia TPHCM Mới nhất, https://tuyensinh.wiki/tuyen-xe-buyt-dai-hoc-quoc-gia-tphcm/
+   44. Hoàn thiện nút giao cổng Đại học Quốc gia TPHCM, https://tphcm.chinhphu.vn/hoan-thien-nut-giao-cong-dai-hoc-quoc-gia-tphcm-10114806.htm
+   45. Thông xe nút giao Đại học Quốc gia TP HCM, cửa ngõ phía Đông, https://tuoitre.vn/nld/thoi-su/thong-xe-nut-giao-dai-hoc-quoc-gia-tp-hcm-cua-ngo-phia-dong-rong-mo-20191108124920835.htm
+   46. Nghịch lý ở 'đô thị tri thức' Tp.HCM: Bên trong đã vận hành, cổng, https://baomoi.com/nghich-ly-o-do-thi-tri-thuc-tp-hcm-ben-trong-da-van-hanh-cong-chinh-van-dang-do-c55349330.epi
+   47. Cổng chào KTX Đại Học Quốc Gia, https://archieco.com.vn/cong-chao-ktx-dai-hoc-quoc-gia
+   48. CHƯƠNG TRÌNH ĐÀO TẠO - HNCC, https://www.hncc.edu.vn/Uploads/files/ChuongTrinhDT/CD/03.CNTT/03_CD_CNTT.pdf
+   49. Những cổng chào của thành phố - Ashui.com, https://ashui.com/nhung-cong-chao-cua-thanh-pho/
+   50. blender-mcp - PyPI, https://pypi.org/project/blender-mcp/
+   51. GitHub - ahujasid/blender-mcp, https://github.com/ahujasid/blender-mcp

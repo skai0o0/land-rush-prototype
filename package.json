@@ -1,0 +1,13 @@
+{
+  "name": "dhqg-land-rush",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"cyan,green\" \"npm run start --prefix server\" \"npm run dev --prefix client\"",
+    "build": "npm run build --prefix server && npm run build --prefix client",
+    "assets:generate": "blender --background --python scripts/generators/landmarks/build_all_landmarks.py && blender --background --python scripts/generators/hqs/build_all_hqs.py && python scripts/create_manifests.py"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

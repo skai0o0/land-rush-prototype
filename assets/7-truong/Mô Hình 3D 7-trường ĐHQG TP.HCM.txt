@@ -1,0 +1,615 @@
+﻿Hệ Thống Đặc Tả Kiến Trúc 3D Và Tham Số Procedural Cho Tổng Hành Dinh 7 Trường ĐHQG-HCM Trong Game Chiếm Đất
+Quy chuẩn tạo hình tổng hành dinh (Base HQ) cho 7 trường thành viên Đại học Quốc gia Thành phố Hồ Chí Minh (ĐHQG-HCM) trong một tựa game chiến thuật chiếm đất (Territory Control RTS) đòi hỏi việc chuyển đổi các thực thể kiến trúc đời thực thành những công trình viễn tưởng chiến lược (Stylized Sci-Fi RTS Architecture). Mỗi đại bản doanh đóng vai trò là trung tâm tái sinh quân số, trạm điều phối công nghệ và cột mốc trực quan xác lập chủ quyền lãnh thổ. Để đảm bảo tính phân cấp thị giác khi người chơi quan sát từ camera đẳng cự góc nghiêng   , cấu trúc hình học của mọi đại bản doanh được thiết kế theo tỷ lệ khối bao ngoài (Bounding Box) tiêu chuẩn    trên mặt đất và chiều cao vươn từ    đến   . Hệ thống phân rã thành bốn tầng hình học lắp ghép: Chân đế công trình (Sub-structure Plinth), Khối thân điều phối (Core Habitation), Điểm nhấn biểu trưng trên đỉnh (Apex Sigil), và Các phân khu phụ trợ ngoại vi (Functional Modules).
+Mô hình kỹ thuật điều khiển qua giao thức Model Context Protocol (MCP) cho phép AI Agent giao tiếp trực tiếp với không gian bộ nhớ của Blender thông qua API Python (bpy). Bằng cách giải trừ các chi tiết vụn vặt và tập trung vào các khối hình học nguyên thủy (Primitives: Box, Cylinder, Torus, UV/Ico Sphere) kết hợp với các phép toán Boole (Boolean Operations) và vát cạnh Bevel góc   , AI Agent có thể kích hoạt các đoạn mã Python để tái tạo tức thì các mô hình có độ tối ưu cao (   đa giác), hỗ trợ tự động gán vật liệu PBR theo màu sắc nhận diện chính thức và định hình ranh giới lãnh thổ một cách cơ động.
+Bản sắc 7 phe phái học thuật được phân bổ thành 7 phong cách công trình đặc thù: Trường Đại học Bách khoa mang hình dáng pháo đài cơ khí Brutalist với kết cấu tổ ong lục giác hạng nặng; Trường Đại học Khoa học Tự nhiên định hình như một trạm quan sát lượng tử với hệ vành đai nguyên tử chuyển động; Trường Đại học Khoa học Xã hội và Nhân văn tái hiện một đền đài văn hiến với tam cấp Ziggurat và lầu Khuê Văn Các; Trường Đại học Công nghệ Thông tin sở hữu khối tháp máy chủ Monolith nguyên khối dát mạch vi cơ điện tử; Trường Đại học Kinh tế - Luật uy nghiêm với khối bán nguyệt nghị viện và tháp đôi cán cân kết nối qua cầu trái tim tri thức; Trường Đại học Quốc tế rực rỡ với tổ hợp khối hộp mô-đun đỏ son liên kết bằng ống skywalk; và Trường Đại học Khoa học Sức khỏe thanh khiết với mặt bằng chữ thập cứu thương bao bọc bởi khung xương xoắn kép DNA.
+Chuẩn Hóa Không Gian Tọa Độ Và Đường Ống Màu Tuyến Tính Blender API
+Đường ống tự động hóa MCP-Blender vận hành trên hệ tọa độ Descartes mét tiêu chuẩn, trong đó trục Z hướng thẳng đứng (  -Up). Mọi công trình khi được khởi tạo phải đặt điểm gốc (Origin / Pivot Point) nằm chính xác tại tâm mặt đáy (  ). Việc đồng bộ này ngăn ngừa hiện tượng chân móng công trình bị lún xuyên qua lưới địa hình bản đồ game khi các tập lệnh chuyển đổi vị trí thực thi.
+Vấn đề sai lệch màu sắc khi kết xuất đồ họa bắt nguồn từ cơ chế quản lý màu của Blender. Blender xử lý ánh sáng trong không gian màu tuyến tính (Linear sRGB), trong khi các thông số nhận diện thương hiệu của các trường được phát hành ở không gian màu chuẩn sRGB phi tuyến. Do đó, tập lệnh điều khiển qua MCP phải thực thi thuật toán giải mã gamma từng kênh màu trước khi truyền giá trị vào cổng Base Color hoặc Emission Color của bộ đổ bóng Principled BSDF:
+  
+
+Thuộc Tính Shader PBR
+	Mục Đích Kỹ Thuật Trong Game Engine
+	Khoảng Giá Trị Chuẩn Hóa
+	Base Color (Linear RGBA)
+	Xác định màu sắc khuếch tán bề mặt phản ánh nhận diện trường
+	Vector 4 chiều   
+	Metallic
+	Tách biệt các mảng bê tông, kính phủ phản quang và hợp kim giáp thép
+	  
+ (Bê tông),    (Giáp kim loại)
+	Roughness
+	Kiểm soát độ sắc nét của vệt phản xạ ánh sáng mặt trời góc nhìn từ trên
+	  
+ (Bề mặt tráng men),    (Vữa/Đá)
+	Emission Color & Strength
+	Tạo điểm nhấn thị giác ban đêm, báo hiệu trạng thái hoạt động của căn cứ
+	Màu dạ quang, Cường độ   
+	Tổng Hành Dinh Pháo Đài Cơ Khí Kỹ Thuật Trường Đại Học Bách Khoa (HCMUT)
+Bản sắc kiến trúc thực tế của Trường Đại học Bách khoa ghi dấu ấn sâu sắc bởi sự giao thoa giữa kết cấu bê tông Brutalist dầm lộ thiên vững chắc của Cơ sở 1 Lý Thường Kiệt (nhà A1, A4, Hội trường BKA)1 và tổ hợp giảng đường mô-đun công nghiệp hiện đại H1, H2, H6 cùng dự án trọng điểm BK.B7 tại Cơ sở 2 Dĩ An3. Hình tượng nhận diện cốt lõi của nhà trường là khối không gian ba chiều bắt nguồn từ cấu trúc tổ ong và các khối phân rã lục giác đều nội tiếp vòng tròn – biểu tượng của tính kỷ luật kỹ thuật, sự chăm chỉ và liên kết cấu trúc logic bền vững5.
+Quy chuẩn nhận diện thương hiệu quy định hai sắc độ màu xanh chủ đạo: Xanh Coban sáng rực rỡ #1488D8 (Sky Blue) kết hợp cùng Xanh Hải quân đậm #030391 (Deep Navy Blue)5. Khi chuyển dịch sang ngôn ngữ game RTS, hai tông màu này trở thành lớp sơn phủ chiến thuật trên nền hợp kim xám mờ #4A5568 và giáp thép đen #1A202C.
+Công trình tổng hành dinh Bách khoa được cấu trúc như một pháo đài công binh cơ khí kiên cố. Tầng chân đế là một khối lăng trụ lục giác đều 6 mặt trải rộng, đóng vai trò nền móng chống pháo kích hạng nặng. Vươn lên từ tâm chân đế là khối tháp trung tâm hình lục giác chia làm ba phân đoạn dầm chìa vươn ra ngoài theo các góc   ,    và   , tạo thế đứng ba chân vững chãi. Bề mặt mặt tiền được đục khoét các mảng lam chắn nắng dạng mắt lưới tổ ong rỗng thông qua các phép toán Boole hiệu số (Difference), cho phép ánh sáng huỳnh quang xanh coban từ lõi phản ứng hạt nhân bên trong tràn ra ngoài qua các khe hở cơ khí.
+Trên đỉnh tháp pháo đài là một buồng phản ứng hình trụ tròn bằng kính chịu lực dày, nơi chứa lõi năng lượng kỹ thuật xoay vòng. Bao bọc quanh buồng phản ứng là hệ thống ba vành đai xích tải cơ khí chuyển động đồng bộ. Đỉnh cao nhất của công trình kết thúc bằng một tháp ăng-ten viễn thông dạng giàn thép hình nón nhọn vươn thẳng lên bầu trời, khẳng định quyền kiểm soát công nghệ và hậu cần chiến trường.
+
+
+Tên Khối Mô-đun
+	Loại Primitive Blender
+	Kích Thước Tương Đối (X,Y,Z) (m)
+	Tọa Độ Gốc (X,Y,Z) (m)
+	Vật Liệu Áp Dụng
+	Mã Màu Hex / PBR Spec
+	BK_Base_Plinth
+	Cylinder (Vertices: 6)
+	  
+
+	  
+
+	MAT_BK_Concrete
+	#4A5568, Met: 0.1, Rough: 0.85
+	BK_Hex_Core
+	Cylinder (Vertices: 6)
+	  
+
+	  
+
+	MAT_BK_ArmorNavy
+	#0303915, Met: 0.65, Rough: 0.35
+	BK_Support_Beams
+	Cube (Array 3, Rot   )
+	  
+
+	Bán kính   
+	MAT_BK_DarkSteel
+	#1A202C, Met: 0.85, Rough: 0.25
+	BK_Plasma_Chamber
+	Cylinder (Vertices: 32)
+	  
+
+	  
+
+	MAT_BK_GlowCyan
+	#1488D85, Emission: 8.0
+	BK_Apex_Antenna
+	Cone (Vertices: 8)
+	  
+
+	  
+
+	MAT_BK_DarkSteel
+	#1A202C, Met: 0.9, Rough: 0.2
+	Tổng Hành Dinh Trạm Đài Thiên Văn Lượng Tử Trường Đại Học Khoa Học Tự Nhiên (HCMUS)
+Trường Đại học Khoa học Tự nhiên kế thừa bề dày nghiên cứu khoa học cơ bản với hai khuôn viên biểu tượng: Nguyễn Văn Cừ cổ kính và Linh Trung mở rộng theo quy hoạch hiện đại7. Điểm nhận diện cốt lõi gắn liền với bản sắc đào tạo là biểu tượng ngọn đuốc tri thức, trang sách mở và hệ thống các quỹ đạo hạt nhân nguyên tử elip đan chéo xoay quanh tâm9.
+Hệ thống nhận diện thương hiệu sử dụng tông màu Xanh Dương học thuật đậm nét #0054A6 (Science Royal Blue) làm màu chủ đạo, tượng trưng cho chiều sâu trí tuệ và sự vững bền của khoa học vũ trụ8. Màu bổ trợ là sắc Trắng titan #E2E8F0 và các dải phát quang Plasma Xanh hồ quang #00B4D8 cùng hạt điện tử Hổ phách rực lửa #FFC1079.
+Công trình bản doanh Khoa học Tự nhiên được kiến tạo như một Trạm Nghiên cứu và Đài Quan sát Vũ trụ Lượng tử. Chân đế công trình không dùng dạng tường thành dày đặc mà bao gồm 5 khối phòng thí nghiệm tinh thể đa diện xếp tỏa tròn quanh trục tâm, mô phỏng các cấu trúc mạng tinh thể khoáng vật và tổ chức phòng lab hiện đại. Bề mặt các phòng lab được phủ lớp sơn trắng phản quang chống bức xạ không gian, vát nghiêng mặt dựng để giảm thiểu tiết diện cản gió bão.
+Trục trung tâm của căn cứ là một tháp trụ tròn gia tốc hạt vươn thẳng lên tầng không, dọc thân tháp xẻ các khe rãnh tản nhiệt song song phát xạ ánh sáng xanh ngọc. Tầng trên cùng là một đài thiên văn với vòm bán cầu mạ chrome bóng gương cắt đôi, trang bị cửa trượt cơ khí mở góc nhìn lên bầu trời.
+Bao bọc xung quanh khối đài vòm là ba vành đai quỹ đạo nguyên tử khổng lồ bằng kim loại siêu dẫn được đặt nghiêng ở các góc Euler khác biệt (  ,   ,   ). Trên mỗi vành đai gắn một hạt nút năng lượng hình cầu phát sáng liên tục trượt theo quỹ đạo tròn, tạo nên dấu ấn nhận diện không thể trộn lẫn khi căn cứ vận hành các năng lực khoa học chiến thuật.
+
+
+Tên Khối Mô-đun
+	Loại Primitive Blender
+	Kích Thước Tương Đối (X,Y,Z) (m)
+	Tọa Độ Gốc (X,Y,Z) (m)
+	Vật Liệu Áp Dụng
+	Mã Màu Hex / PBR Spec
+	US_Sub_Labs
+	Cube (x5 Radial Clustered)
+	  
+
+	Bán kính   
+	MAT_US_TitaniumWhite
+	#E2E8F0, Met: 0.3, Rough: 0.4
+	US_Core_Tower
+	Cylinder (Vertices: 32)
+	  
+
+	  
+
+	MAT_US_DeepNavy
+	#0054A68, Met: 0.5, Rough: 0.3
+	US_Obs_Dome
+	UV Sphere (Cut Half)
+	  
+
+	  
+
+	MAT_US_PolishedChrome
+	#CBD5E1, Met: 0.95, Rough: 0.1
+	US_Orbital_Rings
+	Torus (x3 Intersecting)
+	Major   , Minor   
+	  
+
+	MAT_US_PlasmaGlow
+	#00B4D8, Emission: 10.0
+	US_Orbital_Nodes
+	Ico Sphere (Subdiv: 2)
+	  
+
+	Đính trên vành Torus
+	MAT_US_AmberFlare
+	#FFC1079, Emission: 12.0
+	Tổng Hành Dinh Đền Đài Tri Thức Văn Hiến Trường Đại Học Khoa Học Xã Hội Và Nhân Văn (HCMUSSH)
+Không gian học thuật của Trường Đại học Khoa học Xã hội và Nhân văn gắn liền với chiều sâu nhân văn, lịch sử và địa lý nhân văn, trải dài từ khối kiến trúc tòa nhà K cổ điển tại Đinh Tiên Hoàng11 đến khuôn viên sinh thái thanh bình tại Linh Trung với các công trình nhà B1, B4 và bờ hồ Ánh Dương thơ mộng13. Biểu trưng nhận diện chính thức của nhà trường hội tụ ba thành tố văn hiến: cụm chữ USSH lồng bên trong công trình Khuê Văn Các cách điệu, ngự trên nền Quả địa cầu rộng mở và bao bọc bởi dải viền trang trọng16.
+Bảng màu quy chuẩn của thương hiệu Nhân văn phản ánh sự kết hợp hài hòa giữa truyền thống phương Đông và hội nhập quốc tế: Sắc Vàng Hoàng Gia #FDB813 của Khuê Văn Các, sắc Đỏ Thắm #C1272D của Quả địa cầu, và sắc Xanh Hải Quân #002060 của dải nền tri thức đại học16, bổ trợ bởi chất liệu đá cát sa thạch tự nhiên #D8CBB5.
+Thiết kế đại bản doanh Nhân văn tái hiện một Đền đài Tri thức Văn hiến bề thế nhưng được vát cạnh sắc nét theo ngôn ngữ viễn tưởng. Toàn bộ nền móng công trình ngự trên một đài tam cấp giật cấp (Stepped Ziggurat) đồ sộ xây từ các khối phiến đá cổ điển. Phía trước móng đá là mặt nước gương phản chiếu không gian tĩnh lặng, lấy cảm hứng từ hồ Ánh Dương của khuôn viên Thủ Đức15.
+Từ đài móng đá, 16 cột trụ tròn mảnh dẻ vươn lên đỡ lấy tầng sảnh chính, tái hiện hàng cột học viện cổ điển. Khối kiến trúc trung tâm mô phỏng cấu trúc hai tầng mái ngói giật cấp của Khuê Văn Các với các góc mái hếch nhẹ vươn xa khỏi thân tường. Bốn mặt của gian chính được cắt thủng 4 ô cửa sổ tròn hướng nhật lớn bằng các khối trụ cắt ngang. Đỉnh cao nhất của công trình được ngự trị bởi một Quả cầu Nhân văn phát ánh sáng đỏ thắm huyền ảo, đóng vai trò như khối tinh thể tâm thức lan tỏa trường bảo hộ văn hóa và mở rộng biên giới kiểm soát lãnh thổ.
+
+
+Tên Khối Mô-đun
+	Loại Primitive Blender
+	Kích Thước Tương Đối (X,Y,Z) (m)
+	Tọa Độ Gốc (X,Y,Z) (m)
+	Vật Liệu Áp Dụng
+	Mã Màu Hex / PBR Spec
+	NV_Stone_Base
+	Cube (x3 Tiered Slabs)
+	  
+,   
+	  
+
+	MAT_NV_Sandstone
+	#D8CBB5, Met: 0.05, Rough: 0.9
+	NV_Colonnade
+	Cylinder (x16 Array)
+	  
+
+	Bán kính biên,   
+	MAT_NV_DeepBlue
+	#00206016, Met: 0.2, Rough: 0.5
+	NV_KhueVan_Hall
+	Cube (với 4 cửa tròn)
+	  
+
+	  
+
+	MAT_NV_ImperialGold
+	#FDB81316, Met: 0.7, Rough: 0.3
+	NV_Tiered_Roofs
+	Cube (Beveled Slanted)
+	  
+
+	  
+
+	MAT_NV_Terracotta
+	#8B2500, Met: 0.1, Rough: 0.7
+	NV_Globe_Apex
+	UV Sphere (Vertices: 32)
+	  
+
+	  
+
+	MAT_NV_CrimsonGlow
+	#C1272D16, Emission: 6.0
+	Tổng Hành Dinh Thành Trì Dữ Liệu Cyber Core Trường Đại Học Công Nghệ Thông Tin (UIT)
+Tọa lạc tại đỉnh đồi cửa ngõ Linh Trung nhìn xuống Xa lộ Hà Nội, Trường Đại học Công nghệ Thông tin sở hữu dấu ấn trực quan mạnh mẽ nhất qua Tòa nhà Điều hành E hiện đại – một khối cao ốc kính bề thế vươn cao với các nan thép thông tầng phản quang18. Dáng dấp công trình tượng trưng cho tư duy công nghệ mũi nhọn, sự dứt khoát và dòng chảy số hóa liên tục18.
+Hệ thống nhận diện thương hiệu của UIT được chuẩn hóa tuyệt đối với mã màu RGB chính thức dành cho bản web: Sắc Xanh Biểu trưng RGB (47, 107, 255) tương đương #2F6BFF và sắc Xanh Đậm Chữ viết RGB (0, 0, 253) tương đương #0000FD21. Bên cạnh đó, các ấn phẩm số hóa và hoạt động phong trào của trường luôn tích hợp dải màu Cam Cảnh báo #FF5722 thể hiện tính năng động và ngọn lửa xung kích chuyển đổi số20.
+Công trình bản doanh UIT được hình tượng hóa thành một Tòa tháp Máy chủ Nguyên khối (Monolith Cyber Datacenter) mang âm hưởng kiến trúc Cyberpunk tối giản. Chân đế công trình là cụm các hộp máy chủ phụ trợ bề mặt màu đen chì graphite cứng cáp, bố trí các rãnh tản nhiệt sâu chạy vòng quanh đáy. Khối tháp chính E-Monolith là một khối hộp chữ nhật thanh mảnh đứng vút lên độ cao   , với mặt trước được vát xiên chéo    ở các tầng chóp đỉnh.
+Toàn bộ mặt dựng tòa tháp được bọc vật liệu kính phản quang xanh thẫm. Dọc theo các cạnh góc và các rãnh kỹ thuật âm tường là 8 đường bus dẫn truyền dữ liệu quang học siêu mỏng chạy thẳng đứng từ nền móng lên đỉnh tháp, liên tục nhấp nháy ánh sáng Neon Cyan cực sáng. Đỉnh tòa tháp tích hợp một đài radar vi sóng dạng đĩa parabol sâu lòng và 4 đèn hiệu trạng thái màu cam neon, phát tín hiệu điều phối drone và kích hoạt các đòn tấn công mạng áp chế đối phương.
+
+
+Tên Khối Mô-đun
+	Loại Primitive Blender
+	Kích Thước Tương Đối (X,Y,Z) (m)
+	Tọa Độ Gốc (X,Y,Z) (m)
+	Vật Liệu Áp Dụng
+	Mã Màu Hex / PBR Spec
+	IT_Server_Plinth
+	Cube (Beveled Slits)
+	  
+
+	  
+
+	MAT_IT_GraphiteCase
+	#111827, Met: 0.8, Rough: 0.3
+	IT_Monolith_E
+	Cube (Top Slanted Cut)
+	  
+
+	  
+
+	MAT_IT_GlassBlue
+	#0000FD21, Met: 0.9, Rough: 0.1
+	IT_Circuit_Bus
+	Cube (x8 Linear Array)
+	  
+
+	Bề mặt tháp   
+	MAT_IT_NeonCyan
+	#2F6BFF21, Emission: 15.0
+	IT_Quantum_Dish
+	Cylinder (Hollow Bowl)
+	  
+
+	  
+
+	MAT_IT_WhitePlates
+	#F9FAFB, Met: 0.4, Rough: 0.2
+	IT_Status_Beacons
+	Ico Sphere (x4 Array)
+	  
+
+	Góc tháp đỉnh
+	MAT_IT_AlertOrange
+	#FF572220, Emission: 10.0
+	Tổng Hành Dinh Viện Pháp Lý Và Tháp Tài Chính Trường Đại Học Kinh Tế - Luật (UEL)
+Trường Đại học Kinh tế - Luật án ngữ vị trí cửa ngõ Tây Nam của Khu đô thị ĐHQG-HCM tại phường Linh Xuân với quần thể hạ tầng quy mô, nổi bật với Khối Nhà điều hành A1 cao 9 tầng bề thế23, các khối giảng đường B1-B2 uốn lượn trang bị hệ lam khí động học24, cùng dự án biểu tượng KTL.A3 mang kiến trúc mô phỏng hình dáng "trái tim tri thức"26. Không gian trước tòa nhà mở rộng với Quảng trường 6 tháng 11, tạo nên thế đứng uy nghiêm của một trung tâm nghiên cứu kinh tế và tư vấn chính sách pháp lý hàng đầu23.
+Bản sắc màu sắc nhận diện của UEL đại diện cho trật tự thể chế và sự thịnh vượng: Sắc Xanh Hoàng Gia #0055A5 (Royal Blue) kết hợp cùng sắc Trắng tinh khôi #F1F5F928, điểm xuyết ánh Vàng Kim #DAA520 tượng trưng cho sự tăng trưởng tài chính và chuẩn mực pháp đình tối cao29.
+Mô hình bản doanh UEL được phát triển theo ý niệm Tòa Nghị viện Tối cao và Tháp Tài chính Đôi. Chân đế công trình là một khối vòng cung bán nguyệt trải rộng mô phỏng một đại hội trường nghị viện lập pháp, mặt trước giật bậc thang mở lối lên sảnh đón danh dự.
+Vươn lên từ lưng khối bán nguyệt là hai khối tháp chữ nhật cao    đứng song song đối xứng nhau qua trục trung tâm, đại diện cho hai trụ cột Kinh tế và Pháp luật, đồng thời mô phỏng hình ảnh hai đĩa cân công lý. Tại độ cao   , hai tòa tháp được kết nối vĩnh cửu bởi một nhịp cầu kính trên không (Skybridge) uốn cong elip hướng về phía quảng trường, tái hiện trực quan biểu tượng "trái tim tri thức" của dự án KTL.A326. Chạy dọc mặt dựng ngoài của tháp đôi là hệ lam che nắng dạng thanh đứng mạ vàng kim xoay góc   , tạo nên những dải khúc xạ ánh sáng lộng lẫy và đóng vai trò tích lũy tài nguyên tài chính cho người chơi.
+
+
+Tên Khối Mô-đun
+	Loại Primitive Blender
+	Kích Thước Tương Đối (X,Y,Z) (m)
+	Tọa Độ Gốc (X,Y,Z) (m)
+	Vật Liệu Áp Dụng
+	Mã Màu Hex / PBR Spec
+	EL_Parliament_Arc
+	Cylinder (Half Arc)
+	  
+
+	  
+
+	MAT_EL_CleanWhite
+	#F1F5F9, Met: 0.1, Rough: 0.3
+	EL_Twin_Tower_L
+	Cube
+	  
+
+	  
+
+	MAT_EL_RoyalBlue
+	#0055A528, Met: 0.5, Rough: 0.2
+	EL_Twin_Tower_R
+	Cube
+	  
+
+	  
+
+	MAT_EL_RoyalBlue
+	#0055A528, Met: 0.5, Rough: 0.2
+	EL_Heart_Bridge
+	Cube (Beveled Convex)
+	  
+
+	  
+
+	MAT_EL_MirrorGlass
+	#94A3B8, Met: 0.95, Rough: 0.05
+	EL_Apex_Scales
+	Cone (Vertices: 4)
+	  
+
+	  
+
+	MAT_EL_GoldLeaf
+	#DAA52029, Met: 0.9, Rough: 0.15
+	Tổng Hành Dinh Khu Phức Hợp Không Gian Toàn Cầu Trường Đại Học Quốc Tế (IU)
+Khuôn viên Trường Đại học Quốc tế sở hữu đặc điểm nhận diện độc nhất trong ĐHQG-HCM: toàn bộ các tòa nhà học tập và điều hành thực tế đều được phủ một lớp sơn màu "đỏ gạch son" đặc trưng vô cùng nổi bật khi nhìn từ trên cao giữa thung lũng xanh30. Hình khối kiến trúc trường mang đậm phong cách campus đại học phương Tây hiện đại với các khối nhà hộp chữ nhật giật cấp, kết nối linh hoạt bằng các hành lang trên cao30.
+Trái ngược với màu sơn đỏ thực địa30, hệ thống nhận diện thương hiệu số của IU quy chuẩn hai sắc màu toàn cầu: Xanh Navy Thẫm RGB (50, 51, 147) tương đương #323393 và Xanh Lơ Cyan Tươi RGB (0, 156, 209) tương đương #009CD132. Khi đưa vào không gian đồ họa game, sự va chạm tương phản giữa sắc đỏ gạch son của bê tông bao che và sắc xanh công nghệ của các ống kính mang lại hiệu ứng thị giác sắc sảo và hiện đại.
+Căn cứ tổng hành dinh IU được tạo tác như một Tổ hợp Mô-đun Ngoại giao và Công nghệ Đa trục (Global Nexus Scarlet Complex). Khối thân công trình bao gồm ba khối hộp chữ nhật màu đỏ son terra-cotta bố trí giật cấp so le (cantilevered offset), tạo các khoảng hẫng không gian hiện đại và giải phóng luồng lưu thông bên dưới chân đế.
+Điểm mấu chốt liên kết các khối nhà đỏ là hệ thống hai ống trụ hành lang kính tròn (Skywalk Tubes) nằm ngang đâm xuyên giữa các tầng cao, bọc kính màu cyan trong suốt. Trên nóc khối nhà phía Tây đặt một vòm bán cầu trắc địa (Geodesic Bio-Dome) bằng khung thép tam giác xanh navy, đại diện cho không gian hội thảo không biên giới. Đỉnh khối tháp phía Đông được bố trí một bãi đáp máy bay không người lái lục giác dẹt (VTOL Landing Pad), sẵn sàng cho các chiến thuật tiếp tế lính dù và viện binh đường không.
+
+
+Tên Khối Mô-đun
+	Loại Primitive Blender
+	Kích Thước Tương Đối (X,Y,Z) (m)
+	Tọa Độ Gốc (X,Y,Z) (m)
+	Vật Liệu Áp Dụng
+	Mã Màu Hex / PBR Spec
+	IU_Block_West
+	Cube (Cantilevered)
+	  
+
+	  
+
+	MAT_IU_ScarletRed
+	#B8322730, Met: 0.1, Rough: 0.6
+	IU_Block_East
+	Cube (Tower Shape)
+	  
+
+	  
+
+	MAT_IU_ScarletRed
+	#B8322730, Met: 0.1, Rough: 0.6
+	IU_Skywalk_1
+	Cylinder (Rot   )
+	  
+
+	  
+
+	MAT_IU_CyanGlass
+	#009CD132, Met: 0.9, Rough: 0.05
+	IU_Geodesic_Dome
+	Ico Sphere (Cut Half)
+	  
+
+	  
+
+	MAT_IU_NavyFrame
+	#32339332, Met: 0.7, Rough: 0.2
+	IU_VTOL_Pad
+	Cylinder (Vertices: 6)
+	  
+
+	  
+
+	MAT_IU_LandingGrey
+	#374151, Met: 0.4, Rough: 0.5
+	Tổng Hành Dinh Tháp Cứu Sinh Y Sinh Học Trường Đại Học Khoa Học Sức Khỏe (UHS)
+Trường Đại học Khoa học Sức khỏe (tiền thân là Khoa Y ĐHQG-HCM tọa lạc tại trục đường Hải Thượng Lãn Ông, Dĩ An) phát triển trên mô hình tiên tiến Viện - Trường với hệ thống tòa nhà hành chính YA1 và quy hoạch cụm phức hợp bệnh viện thực hành ba tòa nhà hiện đại33. Ngôn ngữ thiết kế gắn liền với sự chuẩn xác y học, tính vô trùng tuyệt đối và sứ mệnh chăm lo sự sống của con người37.
+Bộ nhận diện thương hiệu của trường kế thừa từ Khoa Y với nền tảng chủ đạo là chiếc áo blouse Trắng vô trùng #FFFFFF và sắc Xanh Y tế37. Đặc biệt, bảng màu phụ trợ phản ánh 5 chuyên ngành sức khỏe trọng yếu: Y khoa (Xanh Kelly #4CBB17), Dược học (Xanh Olive #61A444), Răng Hàm Mặt (Tím Lilac #BF86BF), Y học Cổ truyền (Xanh Rêu Đậm #204E4B), và Điều dưỡng (Xanh Ngọc Thẫm #008B8B)37.
+Đại bản doanh UHS mang hình tượng Tháp Khiên Cứu Sinh Y Sinh Học (Biomedical Aegis Spire). Nền móng công trình được thiết kế trực diện từ biểu tượng Chữ Thập Cứu Thương với hai khối hộp dài    cắt chéo vuông góc tại tâm, tạo thành mặt bằng 4 cánh tỏa đều ra bốn hướng chiến trường. Toàn bộ lớp vỏ ngoài được chế tác từ vật liệu composite nano màu trắng sứ mịn màng chống bám bẩn.
+Tọa lạc tại tâm chữ thập là một trụ nuôi cấy sinh học hình trụ tròn cao vút làm bằng kính hữu cơ trong suốt, chứa dịch chất phát xạ màu xanh ngọc Kelly (#4CBB17). Điểm nhấn cấu trúc của công trình là hệ khung xương ngoại vi xoắn kép mô phỏng chuỗi ADN (Double-Helix Exoskeleton) ôm chặt lấy trụ kính từ mặt đất lên đỉnh tháp. Đỉnh công trình kết thúc bằng một biểu tượng chữ thập cứu thương phát quang màu tím Lilac (#BF86BF), kích hoạt hào quang hồi máu và kháng vũ khí sinh hóa trên diện rộng cho các đơn vị quân đồng minh xung quanh căn cứ.
+
+
+Tên Khối Mô-đun
+	Loại Primitive Blender
+	Kích Thước Tương Đối (X,Y,Z) (m)
+	Tọa Độ Gốc (X,Y,Z) (m)
+	Vật Liệu Áp Dụng
+	Mã Màu Hex / PBR Spec
+	HS_Cross_Base
+	Cube (Union x2 Cross)
+	  
+
+	  
+
+	MAT_HS_SterileWhite
+	#FFFFFF37, Met: 0.1, Rough: 0.15
+	HS_Bio_Column
+	Cylinder (Vertices: 32)
+	  
+
+	  
+
+	MAT_HS_EmeraldFluid
+	#4CBB1737, Transmission: 0.8, Emission: 5.0
+	HS_Helix_Ribs
+	Cube (Array helical path)
+	  
+
+	  
+, xoắn ốc quanh Z
+	MAT_HS_CaduceusTeal
+	#008B8B37, Met: 0.6, Rough: 0.3
+	HS_Nano_Shields
+	Cube (Beveled Slanted)
+	  
+
+	Bốn góc chữ thập
+	MAT_HS_SterileWhite
+	#F8FAFC, Met: 0.2, Rough: 0.2
+	HS_Crest_Cross
+	Cube (x2 Cross Emissive)
+	  
+
+	  
+
+	MAT_HS_LilacAccent
+	#BF86BF37, Emission: 8.0
+	Ma Trận Đối Soát Tham Số Và Cân Bằng Thị Giác Đa Chiều Game RTS
+Bảng ma trận sau đồng bộ hóa các chỉ tiêu hình học, ngân sách đa giác (Polygon Budget), bảng màu khuếch tán bề mặt và hiệu ứng phát xạ năng lượng cho toàn bộ 7 thế lực học thuật trong game:
+
+
+Trường
+	Concept Game
+	Dấu Ấn Hình Khối Đặc Trưng (Silhouette)
+	Kích Thước Bounding Box (X×Y×Z)
+	Mục Tiêu Đa Giác (Triangles)
+	Tông Màu Chủ Đạo (PBR Albedo)
+	Màu Phát Quang (Emission Hue)
+	Vai Trò Chiến Thuật Căn Cứ
+	HCMUT
+	Pháo Đài Cơ Khí Kỹ Thuật
+	Khối đa giác lục giác dầm sàn Brutalist5
+	  
+
+	  
+
+	#030391 / #4A5568
+[cite: 5, 6]
+	#1488D8 (Cobalt Blue)5
+	Giáp phòng thủ kiên cố, sửa chữa cơ giới
+	HCMUS
+	Trạm Đài Thiên Văn Lượng Tử
+	Chóp vòm cầu và hệ 3 vành đai nguyên tử bay9
+	  
+
+	  
+
+	#0054A6 / #E2E8F0
+[cite: 8, 9]
+	#00B4D8 / #FFC107
+[cite: 9]
+	Quét sương mù bản đồ, pháo xung điện
+	HCMUSSH
+	Đền Đài Tri Thức Văn Hiến
+	Đài móng Ziggurat tam cấp và mái Khuê Văn Các16
+	  
+
+	  
+
+	#FDB813 / #D8CBB5
+[cite: 16]
+	#C1272D (Ruby Crimson)16
+	Mở rộng ranh giới chiếm đất, tăng sĩ khí
+	UIT
+	Trung Tâm Dữ Liệu Cyber Core
+	Khối tháp chữ nhật cao vút cắt xiên và rãnh LED18
+	  
+
+	  
+
+	#0000FD / #111827
+[cite: 21]
+	#2F6BFF (Cyan Electric)21
+	Áp chế mạng điện tử, trinh sát tự hành
+	UEL
+	Viện Pháp Lý & Tháp Tài Chính
+	Khối cung nghị viện kết hợp tháp đôi và cầu kính23
+	  
+
+	  
+
+	#0055A5 / #F1F5F9
+[cite: 28, 29]
+	#DAA520 (Financial Gold)29
+	Gia tăng tích lũy tài chính, tạo lá chắn
+	IU
+	Tổ Hợp Không Gian Toàn Cầu
+	Khối hộp giật cấp đỏ son nối bằng ống skywalk30
+	  
+
+	  
+
+	#B83227 / #374151
+[cite: 30]
+	#009CD1 (Global Cyan)32
+	Tiếp vận lính dù, giao thương tài nguyên
+	UHS
+	Tháp Cứu Sinh Y Sinh Học
+	Khối chữ thập cứu thương và khung xoắn kép DNA33
+	  
+
+	  
+
+	#FFFFFF / #008B8B
+[cite: 37]
+	#4CBB17 (Kelly Green)37
+	Hào quang hồi phục sinh lực, giải độc
+	Quy Trình Triển Khai Kịch Bản Lập Trình Tự Động Qua Giao Thức MCP
+Quy trình tự động hóa giữa AI Agent và Blender thông qua máy chủ MCP diễn ra theo trình tự đồng bộ dữ liệu chặt chẽ. Khi Agent tiếp nhận chỉ thị dựng mô hình căn cứ từ hệ thống game, Agent kích hoạt công cụ thực thi mã Python của Blender (execute_blender_script). Kịch bản trước tiên dọn sạch các đối tượng rác trong bối cảnh, khởi tạo bộ sưu tập (Collection) dành riêng cho phe phái, giải mã bảng màu sRGB sang tuyến tính và biên dịch vật liệu Principled BSDF. Tiếp theo, các toán tử hình học lưới (bpy.ops.mesh) tạo lập các khối nguyên thủy theo đúng tọa độ gốc, liên kết thuộc tính vật liệu và thực hiện phép nhóm phân cấp (Parenting) về đối tượng chân đế trung tâm.
+
+
+
+
+
+
+Python
+import bpy
+import math
+
+def srgb_to_linear(c_srgb):
+   """Giải mã gamma sRGB sang Linear sRGB cho hệ thống Shading của Blender."""
+   if c_srgb <= 0.04045:
+       return c_srgb / 12.92
+   else:
+       return math.pow((c_srgb + 0.055) / 1.055, 2.4)
+
+def hex_to_linear_rgb(hex_str, alpha=1.0):
+   """Chuyển đổi chuỗi Hex thành vector RGBA tuyến tính."""
+   hex_clean = hex_str.lstrip('#')
+   r = int(hex_clean[0:2], 16) / 255.0
+   g = int(hex_clean[2:4], 16) / 255.0
+   b = int(hex_clean[4:6], 16) / 255.0
+   return (srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b), alpha)
+
+def create_pbr_material(name, base_hex, metallic=0.0, roughness=0.5, emit_hex=None, emit_strength=0.0):
+   """Khởi tạo vật liệu Principled BSDF với chuẩn kết xuất PBR hiện đại."""
+   mat = bpy.data.materials.get(name)
+   if mat is None:
+       mat = bpy.data.materials.new(name=name)
+       mat.use_nodes = True
+       
+   nodes = mat.node_tree.nodes
+   bsdf = nodes.get("Principled BSDF")
+   
+   if bsdf:
+       bsdf.inputs["Base Color"].default_value = hex_to_linear_rgb(base_hex)
+       bsdf.inputs["Metallic"].default_value = metallic
+       bsdf.inputs["Roughness"].default_value = roughness
+       if emit_hex and emit_strength > 0.0:
+           bsdf.inputs["Emission Color"].default_value = hex_to_linear_rgb(emit_hex)
+           bsdf.inputs["Emission Strength"].default_value = emit_strength
+           
+   return mat
+
+def build_hcmut_hq(collection):
+   """Hàm tham chiếu: Khởi tạo mô hình Tổng hành dinh Đại học Bách khoa (HCMUT)."""
+   # Khởi tạo bảng vật liệu
+   mat_concrete = create_pbr_material("MAT_BK_Concrete", "#4A5568", metallic=0.1, roughness=0.85)
+   mat_armor = create_pbr_material("MAT_BK_ArmorNavy", "#030391", metallic=0.65, roughness=0.35)
+   mat_glow = create_pbr_material("MAT_BK_GlowCyan", "#000000", emit_hex="#1488D8", emit_strength=10.0)
+
+   # 1. Chân đế pháo đài lục giác
+   bpy.ops.mesh.primitive_cylinder_add(vertices=6, radius=22.0, depth=4.0, location=(0.0, 0.0, 2.0))
+   base_obj = bpy.context.active_object
+   base_obj.name = "HCMUT_Plinth"
+   base_obj.data.materials.append(mat_concrete)
+   collection.objects.link(base_obj)
+   bpy.context.scene.collection.objects.unlink(base_obj)
+
+   # 2. Tháp chính Hex-Core
+   bpy.ops.mesh.primitive_cylinder_add(vertices=6, radius=14.0, depth=24.0, location=(0.0, 0.0, 16.0))
+   core_obj = bpy.context.active_object
+   core_obj.name = "HCMUT_HexCore"
+   core_obj.data.materials.append(mat_armor)
+   collection.objects.link(core_obj)
+   bpy.context.scene.collection.objects.unlink(core_obj)
+
+   # 3. Buồng phản ứng phát quang
+   bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=6.0, depth=8.0, location=(0.0, 0.0, 32.0))
+   reactor_obj = bpy.context.active_object
+   reactor_obj.name = "HCMUT_Reactor"
+   reactor_obj.data.materials.append(mat_glow)
+   collection.objects.link(reactor_obj)
+   bpy.context.scene.collection.objects.unlink(reactor_obj)
+
+   # Thiết lập phân cấp quan hệ
+   core_obj.parent = base_obj
+   reactor_obj.parent = base_obj
+
+   return base_obj
+
+def execute_pipeline():
+   """Điểm kích hoạt chính từ giao thức MCP."""
+   col_name = "VNU_Base_HQ_Collection"
+   hq_collection = bpy.data.collections.get(col_name)
+   if not hq_collection:
+       hq_collection = bpy.data.collections.new(col_name)
+       bpy.context.scene.collection.children.link(hq_collection)
+       
+   build_hcmut_hq(hq_collection)
+
+execute_pipeline()
+
+Việc tích hợp đồng bộ các tham số hình khối, giải mã màu tuyến tính và cơ chế lắp ghép mô-đun trong tài liệu đặc tả này tạo nền tảng trực tiếp để AI Agent điều khiển Blender qua MCP, thiết lập một thế giới game chiến thuật chiếm đất có độ đồng nhất cao về đồ họa, trong đó bản sắc văn hóa học thuật của từng trường thành viên ĐHQG-HCM vừa giữ được sự tôn trọng tuyệt đối với kiến trúc đời thực, vừa thăng hoa thành những pháo đài chiến tranh viễn tưởng độc đáo và ấn tượng trên sa bàn tác chiến số.
+Nguồn trích dẫn
+1. ĐHBK HCM - Trường Đại học Bách khoa ĐHQG HCM, https://hcmut.edu.vn/
+2. CÁC CÔNG VIỆC NHẬP HỌC CHO TÂN SINH VIÊN KHÓA 2026, https://hcmut.edu.vn/news/item/12564
+3. Trường ĐH Bách khoa khởi công xây dựng Nhà học tập và thí, https://vnuhcm.edu.vn/bai-viet/truong-dh-bach-khoa-khoi-cong-xay-dung-nha-hoc-tap-va-thi-nghiem-bk-b7
+4. Hạ tầng mạng máy tính, https://netadm.hcmut.edu.vn/page/gioi-thieu/ha-tang-mang-may-tinh
+5. ĐHBK HCM - Trường Đại học Bách khoa ĐHQG HCM - hcmut, https://hcmut.edu.vn/gioi-thieu/nhan-dien-thuong-hieu
+6. bộ nhận diện thương hiệu - hcmut, https://hcmut.edu.vn/download/B%E1%BB%98%20NH%E1%BA%ACN%20DI%E1%BB%86N%20TH%C6%AF%C6%A0NG%20HI%E1%BB%86U%20TR%C6%AF%E1%BB%9CNG%20%C4%90%E1%BA%A0I%20H%E1%BB%8CC%20B%C3%81CH%20KHOA%20-%20%C4%90HQG-HCM.pdf
+7. Bộ Xây dựng phê duyệt điều chỉnh Quy hoạch chi tiết xây ... - hcmus, https://hcmus.edu.vn/bo-xay-dung-phe-duyet-dieu-chinh-quy-hoach-chi-tiet-xay-dung-truong-dai-hoc-khoa-hoc-tu-nhien-va-truong-pho-thong-nang-khieu-dhqg-hcm/
+8. Hệ thống nhận diện thương hiệu - Trường Đại học Khoa ... - hcmus, https://hcmus.edu.vn/he-thong-nhan-dien-thuong-hieu/
+9. Tổng Hợp 80+ Logo HCMUS Vector, PNG Nền Trong Suốt, File AI, https://tailieustore.com/logo-hcmus-vector-png-nen-trong-suot/
+10. HCMUS Merchandise - Trung tâm Phát triển thương hiệu và Kết nối, https://uscihub.vn/hcmus-merchandise/
+11. Trường đại học Khoa học xã hội & Nhân văn TP.HCM - IELTS Fighter, https://ielts-fighter.com/tin-tuc/dai-hoc-khoa-hoc-xa-hoi-nhan-van-tp-hcm_mt1641797478.html
+12. (PDF) Tòa nhà K Trường Đại học Khoa học Xã hội và Nhân văn, Đại, https://www.researchgate.net/publication/384562898_Toa_nha_K_Truong_Dai_hoc_Khoa_hoc_Xa_hoi_va_Nhan_van_Dai_hoc_Quoc_gia_Thanh_pho_Ho_Chi_Minh
+13. Trường công lập gì mà như resort thế này? Góc nào cũng đầy chất, https://kenh14.vn/truong-cong-lap-gi-ma-nhu-resort-the-nay-goc-nao-cung-day-chat-tho-khien-hon-5-nghin-nguoi-phai-vao-xuyt-xoa-het-co-215260112114149132.chn
+14. Giới thiệu về cơ sở vật chất Trường ĐH KHXH&NV, cơ sở Thủ Đức, https://hcmussh.edu.vn/news/item/3720
+15. Giới thiệu về cơ sở vật chất Trường ĐH KHXH&NV, cơ sở Thủ Đức, https://hcmussh.edu.vn/tin-tuc/gioithieucsvc_thuduc
+16. KHOA HỌC XÃ HỘI VÀ NHÂN VĂN - hcmussh, https://hcmussh.edu.vn/static/document/20861.pdf
+17. KHOA HỌC XÃ HỘI VÀ NHÂN VĂN - hcmussh, https://hcmussh.edu.vn/static/document/17565.pdf
+18. Review Trường Đại học Công nghệ Thông tin, https://huongnghiep.hocmai.vn/review-truong-dai-hoc-cong-nghe-thong-tin-dai-hoc-quoc-gia-tp-hcm-uit-ngoi-truong-dai-hoc-dang-mo-uoc
+19. Giới thiệu chung - UIT, https://www.uit.edu.vn/bai-viet/gioi-thieu-chung
+20. Công bố biểu trưng chính thức Đại hội Đại biểu Hội sinh viên Việt, https://www.uit.edu.vn/bai-viet/cong-bo-bieu-trung-chinh-thuc-dai-hoi-dai-bieu-hoi-sinh-vien-viet-nam-truong-dai-hoc-cong-nghe-thong-tin-dhqg-hcm-lan-thu-vi-nhiem-ky-2023-2025
+21. Trường Đại học Công nghệ thông tin - UIT, https://www.uit.edu.vn/gioi-thieu
+22. Đồng Phục UIT: Trẻ Trung, Hiện Đại Và Thanh Lịch, https://dongphuchaianh.vn/mau-ao-thun-dong-phuc-uit-dai-hoc-cong-nghe-thong-tin-nam-hoc-moi
+23. Trường Đại học Kinh tế – Luật, Đại học Quốc gia Thành phố Hồ Chí, https://vi.wikipedia.org/wiki/Tr%C6%B0%E1%BB%9Dng_%C4%90%E1%BA%A1i_h%E1%BB%8Dc_Kinh_t%E1%BA%BF_%E2%80%93_Lu%E1%BA%ADt,_%C4%90%E1%BA%A1i_h%E1%BB%8Dc_Qu%E1%BB%91c_gia_Th%C3%A0nh_ph%E1%BB%91_H%E1%BB%93_Ch%C3%AD_Minh
+24. Quy hoạch phát triển Trường Đại học Kinh tế - Luật - UEL, https://uel.edu.vn/quy-hoach-phat-trien-truong-dai-hoc-kinh-te-luat
+25. Lễ cất nóc hạng mục công trình khối lớp học KTL.B1 của ... - UEL, https://www.uel.edu.vn/le-cat-noc-hang-muc-cong-trinh-khoi-lop-hoc-ktlb1-cua-truong-dai-hoc-kinh-te-luat
+26. Khởi công dự án KTL.A3 - trái tim tri thức của Trường Đại học Kinh tế, https://uel.edu.vn/khoi-cong-du-an-ktla3-trai-tim-tri-thuc-cua-truong-dai-hoc-kinh-te-luat
+27. UEL đặt tên Quảng trường 6 tháng 11: Dấu ấn lịch sử và khát vọng, https://uel.edu.vn/uel-dat-ten-quang-truong-6-thang-11
+28. Khám phá 7+ mẫu đồng phục UEL mới nhất 2026, https://dongphucgau.vn/dong-phuc-uel/
+29. 50+ Mẫu Backdrop Lễ Tốt Nghiệp Đẹp, Ấn Tượng & Thi Công Trọn, https://thegioiquangcao.vn/backdrop-le-tot-nghiep
+30. Về làng đại học, thăm 6 ngôi trường lớn của ĐHQG TP.HCM - REVER, https://blog.rever.vn/meta_author/ve-lang-dai-hoc-tham-6-ngoi-truong-lon-cua-dhqg-tp-hcm
+31. Thông báo v/v tiếp nhận đăng ký KTX trường Đại học Quốc tế (Thủ, https://iuoss.com/thong-bao-v-v-tiep-nhan-dang-ky-ktx-truong-dai-hoc-quoc-te-thu-duc/
+32. Bộ nhận diện thương hiệu – Trường Đại Học Quốc Tế - ĐHQG-HCM, https://ai4life.id.vn/gioi-thieu/bo-nhan-dien-thuong-hieu/
+33. Search - thanh lap truong suc khoe thuoc dai hoc quoc gia tp hcm, https://www.uhsvnu.edu.vn/search/thanh-lap-truong-suc-khoe-thuoc-dai-hoc-quoc-gia-tp-hcm
+34. Khoa Y - Trường Đại Học Khoa Học Sức Khỏe - UHS, https://khoay.uhsvnu.edu.vn/
+35. Trường Đại học Khoa học Sức khỏe, ĐHQG-HCM nâng tầm mô hình, https://www.uhsvnu.edu.vn/tin-tuc/tin-hoc-tap-nghien-cuu/truong-dai-hoc-khoa-hoc-suc-khoe-dhqg-hcm-nang-tam-mo-hinh-truong-vien-va-tien-phong-dao-tao-lien-nganh-trong-dao-tao-sau-dai-hoc-13042026
+36. Vì sao lại có tên gọi Trường Đại học Khoa học Sức khỏe? - UHS, https://www.uhsvnu.edu.vn/search/vi-sao-lai-co-ten-goi-truong-dai-hoc-khoa-hoc-suc-khoe
+37. Search - nhan dien thuong hieu - UHS, https://www.uhsvnu.edu.vn/search/nhan-dien-thuong-hieu
