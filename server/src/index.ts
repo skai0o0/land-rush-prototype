@@ -22,7 +22,16 @@ const gameServer = new Server({
 // Register the authoritative campus room
 gameServer.define("campus_room", CampusRoom);
 
-httpServer.listen(port, () => {
+httpServer.listen(port, "0.0.0.0", () => {
   console.log(`[Colyseus Server] DHQG Land Rush listening on ws://localhost:${port}`);
   console.log(`[Colyseus Server] Room "campus_room" defined and ready for battles.`);
 });
+
+// Clean shutdown handlers to release port on Windows / ts-node-dev reload
+const cleanup = () => {
+  httpServer.close();
+  process.exit(0);
+};
+process.on("SIGINT", cleanup);
+process.on("SIGTERM", cleanup);
+

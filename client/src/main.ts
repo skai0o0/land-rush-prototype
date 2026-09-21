@@ -143,6 +143,9 @@ async function bootstrap() {
       },
       onError: (msg) => {
         showToast(msg);
+      },
+      onDisconnected: (_code) => {
+        showToast("⚠️ Mất kết nối server. Đang tự động kết nối lại...");
       }
     }
   );
@@ -260,9 +263,10 @@ async function bootstrap() {
     }
   };
 
-  // 7. Connect to Colyseus Server
+  // 7. Connect to Colyseus Server (with auto-retry)
   try {
     const room = await colyseusClient.connect(playerSchoolId);
+    showToast("✅ Đã kết nối Colyseus Server!");
 
     // Initial check for HQ coordinates
     setTimeout(() => {
@@ -276,8 +280,8 @@ async function bootstrap() {
       }
     }, 200);
   } catch (err) {
-    console.warn("[App] Could not connect to Colyseus server. Waiting for server...", err);
-    showToast("Đang kết nối tới Colyseus Server ws://localhost:2567...");
+    console.error("[App] Could not connect to Colyseus server:", err);
+    showToast("❌ Không thể kết nối tới server sau nhiều lần thử. Vui lòng kiểm tra terminal!");
   }
 }
 

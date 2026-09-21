@@ -8,6 +8,7 @@ import { PlayerRole } from "../../../shared/types";
 
 export interface NetworkCallbacks {
   onConnected?: (room: Room) => void;
+  onDisconnected?: (code: number) => void;
   onStateChange?: (state: any) => void;
   onSchoolTroopsChange?: (schoolId: string, troops: number) => void;
   onTerritoryChange?: (territoryCounts: Record<string, number>) => void;
@@ -36,20 +37,34 @@ export class ColyseusClient {
     this.client = new Client(endpoint);
   }
 
-  public async connect(selectedSchool = "hcmut"): Promise<Room> {
-    console.log("[ColyseusClient] Connecting to campus_room...");
+  public async connect(selectedSchool = "hcmut", maxRetries = 20, retryDelay = 1000): Promise<Room> {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+      attempt++;
+      try {
+        console.log(`[ColyseusClient] Connecting to campus_room (attempt ${attempt}/${maxRetries})...`);
 
-    this.room = await this.client.joinOrCreate("campus_room", {
-      schoolId: selectedSchool
-    });
+        this.room = await this.client.joinOrCreate("campus_room", {
+          schoolId: selectedSchool
+        });
 
-    console.log(`[ColyseusClient] Connected successfully! Session ID: ${this.room.sessionId}`);
-    if (this.callbacks.onConnected) {
-      this.callbacks.onConnected(this.room);
+        console.log(`[ColyseusClient] Connected successfully! Session ID: ${this.room.sessionId}`);
+        if (this.callbacks.onConnected) {
+          this.callbacks.onConnected(this.room);
+        }
+
+        this.setupStateListeners();
+        return this.room;
+      } catch (err) {
+        if (attempt >= maxRetries) {
+          console.error(`[ColyseusClient] All ${maxRetries} connection attempts failed.`);
+          throw err;
+        }
+        console.warn(`[ColyseusClient] Server not ready yet. Retrying in ${retryDelay}ms... (attempt ${attempt}/${maxRetries})`);
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      }
     }
-
-    this.setupStateListeners();
-    return this.room;
+    throw new Error("Could not connect to Colyseus server");
   }
 
   private setupStateListeners() {
@@ -166,6 +181,17 @@ export class ColyseusClient {
       if (this.callbacks.onError) {
         this.callbacks.onError(data.message);
       }
+    });
+
+    // Listen to room disconnect
+    room.onLeave((code) => {
+      console.warn(`[ColyseusClient] Disconnected from room (code ${code}). Attempting auto-reconnect in 1.5s...`);
+      if (this.callbacks.onDisconnected) {
+        this.callbacks.onDisconnected(code);
+      }
+      setTimeout(() => {
+        this.connect().catch((e) => console.error("[ColyseusClient] Reconnect failed:", e));
+      }, 1500);
     });
   }
 
