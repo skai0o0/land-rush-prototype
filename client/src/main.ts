@@ -5,7 +5,7 @@ import { ModelLoader } from "./engine/modelLoader";
 import { SceneManager, TileClickEvent } from "./engine/sceneManager";
 import { ColyseusClient } from "./network/colyseusClient";
 import { StatsOverlay } from "./ui/statsOverlay";
-import { StudentActionDock } from "./ui/studentActionDock";
+import { StudentActionDock, ACTION_MODES, ActionMode } from "./ui/studentActionDock";
 import { TileTooltip } from "./ui/tileTooltip";
 import { MiniMap } from "./ui/miniMap";
 import { DevToolsPanel } from "./ui/devToolsPanel";
@@ -41,12 +41,28 @@ async function bootstrap() {
   // Build baseline nature vegetation immediately so map is vibrant from frame 1
   natureGridManager.buildProps();
 
+  let userPoints = 500;
+  let isBotSimulationRunning = false;
+
+  // Toast notification helper (100% no emojis)
+  function showActionToast(message: string, type: "success" | "error" | "warning" = "success") {
+    const toast = document.createElement("div");
+    toast.className = `action-toast toast-${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.classList.add("show"), 10);
+    setTimeout(() => {
+      toast.classList.remove("show");
+      setTimeout(() => toast.remove(), 300);
+    }, 2200);
+  }
+
   // 2. Initialize UI components
   const statsOverlay = new StatsOverlay(appEl, {
     schoolId: playerSchoolId,
     schoolName: SCHOOL_ROSTER[playerSchoolId]?.name,
     schoolColor: SCHOOL_ROSTER[playerSchoolId]?.colorHex,
-    points: 500
+    points: userPoints
   });
   const actionDock = new StudentActionDock(appEl);
   const tileTooltip = new TileTooltip(appEl);
@@ -57,44 +73,52 @@ async function bootstrap() {
     () => flyToPlayerHQ()
   );
 
-  // 3. Initialize DevTools
-  const devTools = new DevToolsPanel(appEl, {
-    onSpeedSelect: (speed) => colyseusClient.setSimulationSpeed(speed),
-    onBulkDispatch: (amount) => colyseusClient.bulkDispatch(amount),
-    onSoftReset: () => colyseusClient.softReset()
-  });
-
-  // Toast notification helper (no emojis)
-  function showToast(msg: string) {
-    const toast = document.createElement("div");
-    toast.className = "toast-msg";
-    toast.textContent = msg;
-    appEl.appendChild(toast);
-    setTimeout(() => toast.remove(), 2600);
-  }
+  // 3. Initialize DevTools Dropdown (hidden by default, bot off by default)
+  const devTools = new DevToolsPanel(
+    {
+      onToggleBot: (running) => {
+        isBotSimulationRunning = running;
+        colyseusClient.toggleBots(running);
+        showActionToast(running ? "Đã bật giả lập bot" : "Đã tắt giả lập bot");
+      },
+      onAddPoints: (amount) => {
+        userPoints += amount;
+        statsOverlay.updateStats({ points: userPoints });
+        colyseusClient.addPoints(amount);
+        showActionToast(`Đã nhận +${amount} điểm cống hiến!`);
+      },
+      onResetMap: () => {
+        colyseusClient.softReset();
+        showActionToast("Đã đặt lại toàn bộ bản đồ về trạng thái ban đầu");
+      },
+      onResetCamera: () => {
+        flyToPlayerHQ();
+      },
+      onToggleGrid: (show) => {
+        chunkGridManager.group.visible = show;
+        showActionToast(show ? "Đã hiển thị lưới ô đất" : "Đã ẩn lưới ô đất");
+      }
+    },
+    appEl
+  );
 
   // Fly to Player HQ handler (Click card or press [H] / [Space])
   function flyToPlayerHQ() {
     if (playerHQCoords) {
       sceneManager.panTo(playerHQCoords.x, playerHQCoords.y);
-      showToast(`Bay về Căn cứ HQ ${SCHOOL_ROSTER[playerSchoolId]?.shortName} [${playerHQCoords.x}, ${playerHQCoords.y}]`);
+      showActionToast(`Bay về Căn cứ HQ ${SCHOOL_ROSTER[playerSchoolId]?.shortName} [${playerHQCoords.x}, ${playerHQCoords.y}]`);
     } else if (colyseusClient.room) {
       const hq = colyseusClient.room.state.hqs.get(playerSchoolId);
       if (hq) {
         playerHQCoords = { x: hq.x, y: hq.y };
         sceneManager.panTo(hq.x, hq.y);
-        showToast(`Bay về Căn cứ HQ ${SCHOOL_ROSTER[playerSchoolId]?.shortName} [${hq.x}, ${hq.y}]`);
+        showActionToast(`Bay về Căn cứ HQ ${SCHOOL_ROSTER[playerSchoolId]?.shortName} [${hq.x}, ${hq.y}]`);
       }
     }
   }
 
   statsOverlay.onFlyToHQRequested = flyToPlayerHQ;
   sceneManager.onFlyToHQRequested = flyToPlayerHQ;
-  actionDock.onResetCamera(() => flyToPlayerHQ());
-  actionDock.onClaim((tile) => {
-    colyseusClient.claimTile(tile.x, tile.z);
-    showToast(`Đổi điểm nhận ô đất (${tile.x}, ${tile.z})`);
-  });
 
   // Frame update for rotating banners/crystals
   sceneManager.onFrameUpdate = (delta) => {
@@ -148,8 +172,8 @@ async function bootstrap() {
       },
       onSchoolTroopsChange: (schoolId, troops) => {
         if (schoolId === playerSchoolId) {
+          userPoints = troops;
           statsOverlay.updateTroops(troops);
-          actionDock.setPoints(troops);
         }
       },
       onTerritoryChange: (territoryCounts) => {
@@ -159,10 +183,10 @@ async function bootstrap() {
         }
       },
       onError: (msg) => {
-        showToast(msg);
+        showActionToast(msg, "error");
       },
       onDisconnected: (_code) => {
-        showToast("Mất kết nối server. Đang tự động kết nối lại...");
+        showActionToast("Mất kết nối server. Đang tự động kết nối lại...", "warning");
       }
     }
   );
@@ -188,8 +212,8 @@ async function bootstrap() {
     colyseusClient.selectSchool(schoolId);
     if (colyseusClient.room) {
       const troops = colyseusClient.room.state.schoolTroops.get(schoolId) || 0;
+      userPoints = troops;
       statsOverlay.updateTroops(troops);
-      actionDock.setPoints(troops);
 
       // Smoothly pan camera to player's new HQ & update beacon
       const hq = colyseusClient.room.state.hqs.get(schoolId);
@@ -264,77 +288,103 @@ async function bootstrap() {
     tileTooltip.hide();
   };
 
-  sceneManager.onTileClick = (event: TileClickEvent) => {
-    if (!colyseusClient.room) return;
-    const { x, y } = event;
-    const tile = colyseusClient.room.state.claimedTiles.get(`${x},${y}`);
-
-    // Check adjacency
+  function isAdjacentToSchool(x: number, y: number, schoolId: string): boolean {
+    if (!colyseusClient.room) return true;
     const neighbors = [
       [x + 1, y],
       [x - 1, y],
       [x, y + 1],
       [x, y - 1]
     ];
-    let isAdjacent = false;
     for (const [nx, ny] of neighbors) {
       const n = colyseusClient.room.state.claimedTiles.get(`${nx},${ny}`);
-      if (n && n.ownerId === playerSchoolId) {
-        isAdjacent = true;
+      if (n && n.ownerId === schoolId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 6. One-Click Action: Click on 3D grid immediately validates, deducts points, and executes action
+  sceneManager.onTileClick = (event: TileClickEvent) => {
+    const { x, y } = event;
+    const currentMode = actionDock.getActiveMode();
+    const config = ACTION_MODES[currentMode];
+
+    // 1. Point check
+    if (userPoints < config.cost) {
+      showActionToast(`Không đủ điểm! Cần ${config.cost} điểm để ${config.title.toLowerCase()}.`, "error");
+      return;
+    }
+
+    const tile = colyseusClient.room?.state.claimedTiles.get(`${x},${y}`);
+    const ownerSchool = tile?.ownerId;
+
+    // 2. Execute according to selected mode
+    switch (currentMode) {
+      case "claim": {
+        if (ownerSchool === playerSchoolId) {
+          showActionToast("Ô này đã thuộc quyền kiểm soát của trường bạn!", "warning");
+          return;
+        }
+        if (!isAdjacentToSchool(x, y, playerSchoolId)) {
+          showActionToast("Chỉ có thể mở rộng các ô đất liền kề với trường bạn!", "warning");
+          return;
+        }
+
+        userPoints -= config.cost;
+        statsOverlay.updateStats({ points: userPoints });
+        colyseusClient.claimTile(x, y);
+
+        const schoolColor = SCHOOL_ROSTER[playerSchoolId]?.colorHex || "#0055a5";
+        chunkGridManager.setTileColor(x, y, schoolColor);
+        showActionToast(`Đã mở rộng thành công ô (${x}, ${y})! -${config.cost} điểm`);
+        break;
+      }
+
+      case "fortify": {
+        if (ownerSchool !== playerSchoolId) {
+          showActionToast("Chỉ có thể gia cố các ô đất thuộc trường của bạn!", "warning");
+          return;
+        }
+        userPoints -= config.cost;
+        statsOverlay.updateStats({ points: userPoints });
+        colyseusClient.fortifyTile(x, y);
+
+        const currentTier = tile?.defenseTier || 0;
+        chunkGridManager.setTileElevation(x, y, (currentTier + 1) * 0.15);
+        showActionToast(`Đã gia cố phòng thủ ô (${x}, ${y})! -${config.cost} điểm`);
+        break;
+      }
+
+      case "attack": {
+        if (ownerSchool === playerSchoolId) {
+          showActionToast("Không thể tấn công ô đất của chính trường bạn!", "warning");
+          return;
+        }
+        if (!ownerSchool) {
+          showActionToast("Ô đất tự do, hãy dùng chế độ Chiếm Đất để đổi!", "warning");
+          return;
+        }
+        userPoints -= config.cost;
+        statsOverlay.updateStats({ points: userPoints });
+        colyseusClient.claimTile(x, y); // sends attack to enemy tile
+
+        showActionToast(`Đã xuất kích tấn công ô (${x}, ${y}) của đối thủ! -${config.cost} điểm`);
         break;
       }
     }
-
-    // Check landmark
-    let landmarkName: string | undefined;
-    colyseusClient.room.state.landmarks.forEach((lm: any) => {
-      const conf = LANDMARK_ROSTER[lm.landmarkKey];
-      const w = conf?.footprint.width || 6;
-      const h = conf?.footprint.height || 6;
-      if (x >= lm.x && x < lm.x + w && y >= lm.y && y < lm.y + h) {
-        landmarkName = conf?.name || lm.landmarkKey;
-      }
-    });
-
-    const ownerConfig = tile?.ownerId ? SCHOOL_ROSTER[tile.ownerId] : null;
-    const ownerSchoolName = ownerConfig ? ownerConfig.name : null;
-    const isMySchool = tile?.ownerId === playerSchoolId;
-    const cost = landmarkName ? 50 : 10;
-
-    let canClaim = false;
-    let reasonDisabled: string | undefined;
-
-    if (isMySchool) {
-      canClaim = false;
-      reasonDisabled = "Lãnh thổ đã sở hữu";
-    } else if (!isAdjacent && (!tile || !tile.ownerId)) {
-      canClaim = false;
-      reasonDisabled = "Chưa tiếp giáp lãnh thổ";
-    } else {
-      canClaim = true;
-    }
-
-    actionDock.setSelectedTile({
-      x,
-      z: y,
-      cost,
-      ownerId: tile?.ownerId || null,
-      ownerSchoolName,
-      isMySchool,
-      canClaim,
-      reasonDisabled
-    });
   };
 
   // 7. Connect to Colyseus Server (with auto-retry)
   try {
     const room = await colyseusClient.connect(playerSchoolId);
-    showToast("Đã kết nối Colyseus Server thành công");
+    showActionToast("Đã kết nối Colyseus Server thành công");
 
     // Update initial troop points
     const troops = room.state.schoolTroops.get(playerSchoolId) || 500;
+    userPoints = troops;
     statsOverlay.updateTroops(troops);
-    actionDock.setPoints(troops);
 
     // Initial check for HQ coordinates
     setTimeout(() => {
@@ -349,7 +399,7 @@ async function bootstrap() {
     }, 200);
   } catch (err) {
     console.error("[App] Could not connect to Colyseus server:", err);
-    showToast("Không thể kết nối tới server sau nhiều lần thử. Vui lòng kiểm tra terminal!");
+    showActionToast("Không thể kết nối tới server sau nhiều lần thử. Vui lòng kiểm tra terminal!", "error");
   }
 }
 

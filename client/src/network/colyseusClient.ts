@@ -230,4 +230,12 @@ export class ColyseusClient {
   public setRole(role: PlayerRole) {
     this.room?.send("set_role", { role });
   }
+
+  public toggleBots(enabled: boolean) {
+    this.room?.send("toggle_bots", { enabled });
+  }
+
+  public addPoints(amount: number) {
+    this.room?.send("add_points", { amount });
+  }
 }

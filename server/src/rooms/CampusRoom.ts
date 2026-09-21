@@ -17,6 +17,7 @@ export class CampusRoom extends Room<GameState> {
   private gameInterval?: Delayed;
   private botManager = new BotManager();
   private initialHQTiles: Map<string, { x: number; y: number }[]> = new Map();
+  private botsEnabled = false;
 
   onCreate(options: any) {
     this.setState(new GameState());
@@ -203,8 +204,10 @@ export class CampusRoom extends Room<GameState> {
       }
     }
 
-    // Run Bot autonomous simulation
-    this.botManager.processBots(this.state, this);
+    // Run Bot autonomous simulation (only if enabled)
+    if (this.botsEnabled) {
+      this.botManager.processBots(this.state, this);
+    }
   }
 
   private registerMessages() {
@@ -369,6 +372,21 @@ export class CampusRoom extends Room<GameState> {
       const player = this.state.players.get(client.sessionId);
       if (player && ["assault", "fortify", "support"].includes(data.role)) {
         player.currentRole = data.role;
+      }
+    });
+
+    // 8. toggle_bots
+    this.onMessage("toggle_bots", (client, data: { enabled: boolean }) => {
+      this.botsEnabled = !!data.enabled;
+      console.log(`[CampusRoom] Bot simulation enabled: ${this.botsEnabled}`);
+    });
+
+    // 9. add_points
+    this.onMessage("add_points", (client, data: { amount: number }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) {
+        const cur = this.state.schoolTroops.get(player.schoolId) || 0;
+        this.state.schoolTroops.set(player.schoolId, cur + (data.amount || 100));
       }
     });
   }

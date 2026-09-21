@@ -1,132 +1,116 @@
 // client/src/ui/studentActionDock.ts
 import { Icons } from './icons';
 
-export interface SelectedTileInfo {
-  x: number;
-  z: number;
+export type ActionMode = 'claim' | 'fortify' | 'attack';
+
+export interface ModeConfig {
+  id: ActionMode;
+  title: string;
   cost: number;
-  ownerId?: string | null;
-  ownerSchoolName?: string | null;
-  isMySchool: boolean;
-  canClaim: boolean;
-  reasonDisabled?: string;
+  icon: (size: any) => string;
+  description: string;
 }
+
+export const ACTION_MODES: Record<ActionMode, ModeConfig> = {
+  claim: {
+    id: 'claim',
+    title: 'Chiếm đất',
+    cost: 10,
+    icon: Icons.claim,
+    description: 'Mở rộng sang ô trống lân cận'
+  },
+  fortify: {
+    id: 'fortify',
+    title: 'Gia cố',
+    cost: 15,
+    icon: Icons.shield,
+    description: 'Tăng phòng thủ ô đất của trường'
+  },
+  attack: {
+    id: 'attack',
+    title: 'Tấn công',
+    cost: 25,
+    icon: Icons.sword,
+    description: 'Tranh chấp ô đất của đối thủ'
+  }
+};
 
 export class StudentActionDock {
   private container: HTMLElement;
-  private currentPoints = 100;
-  private selectedTile: SelectedTileInfo | null = null;
-  private onClaimCallback?: (tile: SelectedTileInfo) => void;
-  private onResetCameraCallback?: () => void;
+  private currentMode: ActionMode = 'claim';
+  private onModeChangeCallback?: (mode: ActionMode) => void;
 
   constructor(parent?: HTMLElement) {
     this.container = document.createElement('div');
-    this.container.className = 'student-action-dock';
+    this.container.className = 'student-mode-dock';
     this.render();
     (parent || document.body).appendChild(this.container);
+    this.bindEvents();
   }
 
-  public setPoints(points: number): void {
-    this.currentPoints = points;
-    this.update();
+  public getActiveMode(): ActionMode {
+    return this.currentMode;
   }
 
-  public setSelectedTile(tile: SelectedTileInfo | null): void {
-    this.selectedTile = tile;
-    this.update();
-  }
-
-  public onClaim(cb: (tile: SelectedTileInfo) => void): void {
-    this.onClaimCallback = cb;
-  }
-
-  public onResetCamera(cb: () => void): void {
-    this.onResetCameraCallback = cb;
-  }
-
-  private update(): void {
+  public setMode(mode: ActionMode): void {
+    this.currentMode = mode;
     this.render();
+    this.bindEvents();
   }
+
+  public onModeChange(cb: (mode: ActionMode) => void): void {
+    this.onModeChangeCallback = cb;
+  }
+
+  // Compatibility helpers
+  public setPoints(_points: number): void {}
+  public setSelectedTile(_tile: any): void {}
+  public onClaim(_cb: (tile: any) => void): void {}
+  public onResetCamera(_cb: () => void): void {}
 
   private render(): void {
-    if (!this.selectedTile) {
-      this.container.innerHTML = `
-        <div class="dock-idle-card">
-          <div class="dock-icon-hint">${Icons.crosshair('md')}</div>
-          <span class="dock-hint-text">Chọn một ô trên bản đồ để xem thông tin và đổi đất</span>
-          <button class="dock-btn-icon btn-reset-cam" title="Căn giữa góc nhìn">
-            ${Icons.compass('md')}
-          </button>
-        </div>
-      `;
-      this.bindIdleEvents();
-      return;
-    }
-
-    const { x, z, cost, isMySchool, canClaim, reasonDisabled } = this.selectedTile;
-    const hasEnoughPoints = this.currentPoints >= cost;
-    const claimable = canClaim && hasEnoughPoints && !isMySchool;
-
-    let buttonText = 'ĐỔI ĐIỂM CHIẾM ĐẤT';
-    let statusBadge = '';
-
-    if (isMySchool) {
-      buttonText = 'LÃNH THỔ CỦA TRƯỜNG';
-      statusBadge = `<span class="badge badge-owned">${Icons.check('sm')} Đã sở hữu</span>`;
-    } else if (!hasEnoughPoints) {
-      buttonText = 'KHÔNG ĐỦ ĐIỂM CỐNG HIẾN';
-      statusBadge = `<span class="badge badge-warning">${Icons.lock('sm')} Cần thêm ${cost - this.currentPoints} điểm</span>`;
-    } else if (!canClaim && reasonDisabled) {
-      buttonText = reasonDisabled.toUpperCase();
-      statusBadge = `<span class="badge badge-disabled">${Icons.lock('sm')} ${reasonDisabled}</span>`;
-    } else {
-      statusBadge = `<span class="badge badge-available">${Icons.tile('sm')} Sẵn sàng đổi</span>`;
-    }
+    const modes = Object.values(ACTION_MODES);
 
     this.container.innerHTML = `
-      <div class="dock-active-panel">
-        <div class="dock-tile-meta">
-          <div class="tile-coords">
-            ${Icons.crosshair('sm')}
-            <span>Tọa độ: <strong>(${x}, ${z})</strong></span>
-          </div>
-          ${statusBadge}
+      <div class="mode-dock-bar">
+        <div class="dock-label-hint">
+          <span class="hint-text">Chế độ thao tác khi click vào ô đất:</span>
         </div>
-
-        <div class="dock-main-action">
-          <button id="btn-claim-tile" class="btn-claim ${claimable ? 'is-active' : 'is-disabled'}" ${!claimable ? 'disabled' : ''}>
-            <span class="claim-icon">${Icons.claim('md')}</span>
-            <span class="claim-label">${buttonText}</span>
-            <span class="claim-cost">
-              ${Icons.point('sm')}
-              <strong>${cost}</strong>
-            </span>
-          </button>
-
-          <button class="dock-btn-icon btn-reset-cam" title="Căn lại camera">
-            ${Icons.compass('md')}
-          </button>
+        <div class="mode-buttons-group">
+          ${modes.map((mode) => {
+            const isActive = this.currentMode === mode.id;
+            return `
+              <button 
+                class="mode-btn ${isActive ? 'is-active' : ''}" 
+                data-mode="${mode.id}"
+                title="${mode.description}"
+              >
+                <span class="mode-icon">${mode.icon('sm')}</span>
+                <span class="mode-name">${mode.title}</span>
+                <span class="mode-cost">
+                  ${Icons.point(14)}
+                  <strong>${mode.cost}</strong>
+                </span>
+              </button>
+            `;
+          }).join('')}
         </div>
       </div>
     `;
-
-    this.bindActiveEvents();
   }
 
-  private bindIdleEvents(): void {
-    const btnReset = this.container.querySelector('.btn-reset-cam');
-    btnReset?.addEventListener('click', () => this.onResetCameraCallback?.());
-  }
-
-  private bindActiveEvents(): void {
-    const btnClaim = this.container.querySelector('#btn-claim-tile');
-    btnClaim?.addEventListener('click', () => {
-      if (this.selectedTile && this.onClaimCallback) {
-        this.onClaimCallback(this.selectedTile);
-      }
+  private bindEvents(): void {
+    const buttons = this.container.querySelectorAll('.mode-btn');
+    buttons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-mode') as ActionMode;
+        if (mode && mode !== this.currentMode) {
+          this.currentMode = mode;
+          this.render();
+          this.bindEvents();
+          this.onModeChangeCallback?.(this.currentMode);
+        }
+      });
     });
-
-    const btnReset = this.container.querySelector('.btn-reset-cam');
-    btnReset?.addEventListener('click', () => this.onResetCameraCallback?.());
   }
 }
