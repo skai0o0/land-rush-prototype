@@ -12,6 +12,7 @@ import { DevToolsPanel } from "./ui/devToolsPanel";
 import { PlayerRole } from "../../shared/types";
 import { LANDMARK_ROSTER } from "../../shared/constants/landmarks";
 import { SCHOOL_ROSTER } from "../../shared/constants/schools";
+import { getTerrainType } from "./engine/terrainNoise";
 
 async function bootstrap() {
   const container = document.getElementById("canvas-container")!;
@@ -41,10 +42,20 @@ async function bootstrap() {
   natureGridManager.buildProps();
 
   // 2. Initialize UI components
-  const statsOverlay = new StatsOverlay(appEl);
+  const statsOverlay = new StatsOverlay(appEl, {
+    schoolId: playerSchoolId,
+    schoolName: SCHOOL_ROSTER[playerSchoolId]?.name,
+    schoolColor: SCHOOL_ROSTER[playerSchoolId]?.colorHex,
+    points: 500
+  });
   const actionDock = new StudentActionDock(appEl);
   const tileTooltip = new TileTooltip(appEl);
-  const miniMap = new MiniMap(appEl);
+  const miniMap = new MiniMap(
+    appEl,
+    () => sceneManager.zoomIn(),
+    () => sceneManager.zoomOut(),
+    () => flyToPlayerHQ()
+  );
 
   // 3. Initialize DevTools
   const devTools = new DevToolsPanel(appEl, {
@@ -53,7 +64,7 @@ async function bootstrap() {
     onSoftReset: () => colyseusClient.softReset()
   });
 
-  // Toast notification helper
+  // Toast notification helper (no emojis)
   function showToast(msg: string) {
     const toast = document.createElement("div");
     toast.className = "toast-msg";
@@ -66,19 +77,24 @@ async function bootstrap() {
   function flyToPlayerHQ() {
     if (playerHQCoords) {
       sceneManager.panTo(playerHQCoords.x, playerHQCoords.y);
-      showToast(`🎯 Bay về Căn cứ HQ ${SCHOOL_ROSTER[playerSchoolId]?.shortName} [${playerHQCoords.x}, ${playerHQCoords.y}]`);
+      showToast(`Bay về Căn cứ HQ ${SCHOOL_ROSTER[playerSchoolId]?.shortName} [${playerHQCoords.x}, ${playerHQCoords.y}]`);
     } else if (colyseusClient.room) {
       const hq = colyseusClient.room.state.hqs.get(playerSchoolId);
       if (hq) {
         playerHQCoords = { x: hq.x, y: hq.y };
         sceneManager.panTo(hq.x, hq.y);
-        showToast(`🎯 Bay về Căn cứ HQ ${SCHOOL_ROSTER[playerSchoolId]?.shortName} [${hq.x}, ${hq.y}]`);
+        showToast(`Bay về Căn cứ HQ ${SCHOOL_ROSTER[playerSchoolId]?.shortName} [${hq.x}, ${hq.y}]`);
       }
     }
   }
 
   statsOverlay.onFlyToHQRequested = flyToPlayerHQ;
   sceneManager.onFlyToHQRequested = flyToPlayerHQ;
+  actionDock.onResetCamera(() => flyToPlayerHQ());
+  actionDock.onClaim((tile) => {
+    colyseusClient.claimTile(tile.x, tile.z);
+    showToast(`Đổi điểm nhận ô đất (${tile.x}, ${tile.z})`);
+  });
 
   // Frame update for rotating banners/crystals
   sceneManager.onFrameUpdate = (delta) => {
@@ -133,6 +149,7 @@ async function bootstrap() {
       onSchoolTroopsChange: (schoolId, troops) => {
         if (schoolId === playerSchoolId) {
           statsOverlay.updateTroops(troops);
+          actionDock.setPoints(troops);
         }
       },
       onTerritoryChange: (territoryCounts) => {
@@ -145,7 +162,7 @@ async function bootstrap() {
         showToast(msg);
       },
       onDisconnected: (_code) => {
-        showToast("⚠️ Mất kết nối server. Đang tự động kết nối lại...");
+        showToast("Mất kết nối server. Đang tự động kết nối lại...");
       }
     }
   );
@@ -172,6 +189,7 @@ async function bootstrap() {
     if (colyseusClient.room) {
       const troops = colyseusClient.room.state.schoolTroops.get(schoolId) || 0;
       statsOverlay.updateTroops(troops);
+      actionDock.setPoints(troops);
 
       // Smoothly pan camera to player's new HQ & update beacon
       const hq = colyseusClient.room.state.hqs.get(schoolId);
@@ -185,10 +203,6 @@ async function bootstrap() {
     }
   };
 
-  actionDock.onRoleSelect = (role) => {
-    playerRole = role;
-    colyseusClient.setRole(role);
-  };
 
   miniMap.onPanRequested = (x, y) => {
     sceneManager.panTo(x, y);
@@ -203,8 +217,56 @@ async function bootstrap() {
   };
 
   // 6. Raycast Hover & Click Handlers
-  sceneManager.onTileHover = (x, y) => {
+  sceneManager.onTileHover = (x, y, screenX, screenY) => {
     if (!colyseusClient.room) return;
+    const tile = colyseusClient.room.state.claimedTiles.get(`${x},${y}`);
+
+    // Check if within any landmark footprint
+    let landmarkName: string | undefined;
+    colyseusClient.room.state.landmarks.forEach((lm: any) => {
+      const conf = LANDMARK_ROSTER[lm.landmarkKey];
+      const w = conf?.footprint.width || 6;
+      const h = conf?.footprint.height || 6;
+      if (x >= lm.x && x < lm.x + w && y >= lm.y && y < lm.y + h) {
+        landmarkName = conf?.name || lm.landmarkKey;
+      }
+    });
+
+    const tType = getTerrainType(x, y);
+    let terrainType = "Đồng bằng";
+    if (tType === "water") terrainType = "Lòng Hồ Đá";
+    else if (tType === "hill") terrainType = "Đồi bazan";
+    else if (tType === "road") terrainType = "Đại lộ giao thông";
+
+    const ownerConfig = tile?.ownerId ? SCHOOL_ROSTER[tile.ownerId] : null;
+    const ownerSchoolName = ownerConfig ? ownerConfig.name : null;
+    const ownerColor = ownerConfig ? ownerConfig.colorHex : undefined;
+    const isOwnedByMe = tile?.ownerId === playerSchoolId;
+    const cost = landmarkName ? 50 : 10;
+
+    tileTooltip.show(
+      {
+        x,
+        z: y,
+        terrainType,
+        landmarkName,
+        ownerSchoolName,
+        ownerColor,
+        cost,
+        isOwnedByMe
+      },
+      screenX,
+      screenY
+    );
+  };
+
+  sceneManager.onTileLeave = () => {
+    tileTooltip.hide();
+  };
+
+  sceneManager.onTileClick = (event: TileClickEvent) => {
+    if (!colyseusClient.room) return;
+    const { x, y } = event;
     const tile = colyseusClient.room.state.claimedTiles.get(`${x},${y}`);
 
     // Check adjacency
@@ -223,50 +285,56 @@ async function bootstrap() {
       }
     }
 
-    // Check if within any landmark footprint
-    let landmarkId: string | undefined;
+    // Check landmark
+    let landmarkName: string | undefined;
     colyseusClient.room.state.landmarks.forEach((lm: any) => {
       const conf = LANDMARK_ROSTER[lm.landmarkKey];
       const w = conf?.footprint.width || 6;
       const h = conf?.footprint.height || 6;
       if (x >= lm.x && x < lm.x + w && y >= lm.y && y < lm.y + h) {
-        landmarkId = lm.landmarkKey;
+        landmarkName = conf?.name || lm.landmarkKey;
       }
     });
 
-    tileTooltip.update(
-      {
-        x,
-        y,
-        ownerId: tile?.ownerId,
-        defenseTier: tile?.defenseTier,
-        hp: tile?.hp,
-        maxHp: tile?.maxHp,
-        isAdjacent,
-        landmarkId
-      },
-      playerSchoolId
-    );
-  };
+    const ownerConfig = tile?.ownerId ? SCHOOL_ROSTER[tile.ownerId] : null;
+    const ownerSchoolName = ownerConfig ? ownerConfig.name : null;
+    const isMySchool = tile?.ownerId === playerSchoolId;
+    const cost = landmarkName ? 50 : 10;
 
-  sceneManager.onTileClick = (event: TileClickEvent) => {
-    if (!colyseusClient.room) return;
-    const { x, y } = event;
-    const tile = colyseusClient.room.state.claimedTiles.get(`${x},${y}`);
+    let canClaim = false;
+    let reasonDisabled: string | undefined;
 
-    if (tile && tile.ownerId === playerSchoolId) {
-      // Friendly tile: Fortify
-      colyseusClient.fortifyTile(x, y);
+    if (isMySchool) {
+      canClaim = false;
+      reasonDisabled = "Lãnh thổ đã sở hữu";
+    } else if (!isAdjacent && (!tile || !tile.ownerId)) {
+      canClaim = false;
+      reasonDisabled = "Chưa tiếp giáp lãnh thổ";
     } else {
-      // Wild or Enemy tile: Claim / Attack
-      colyseusClient.claimTile(x, y);
+      canClaim = true;
     }
+
+    actionDock.setSelectedTile({
+      x,
+      z: y,
+      cost,
+      ownerId: tile?.ownerId || null,
+      ownerSchoolName,
+      isMySchool,
+      canClaim,
+      reasonDisabled
+    });
   };
 
   // 7. Connect to Colyseus Server (with auto-retry)
   try {
     const room = await colyseusClient.connect(playerSchoolId);
-    showToast("✅ Đã kết nối Colyseus Server!");
+    showToast("Đã kết nối Colyseus Server thành công");
+
+    // Update initial troop points
+    const troops = room.state.schoolTroops.get(playerSchoolId) || 500;
+    statsOverlay.updateTroops(troops);
+    actionDock.setPoints(troops);
 
     // Initial check for HQ coordinates
     setTimeout(() => {
@@ -281,7 +349,7 @@ async function bootstrap() {
     }, 200);
   } catch (err) {
     console.error("[App] Could not connect to Colyseus server:", err);
-    showToast("❌ Không thể kết nối tới server sau nhiều lần thử. Vui lòng kiểm tra terminal!");
+    showToast("Không thể kết nối tới server sau nhiều lần thử. Vui lòng kiểm tra terminal!");
   }
 }
 

@@ -1,149 +1,151 @@
-import { SCHOOL_ROSTER, SCHOOL_IDS, SchoolConfig } from "../../../shared/constants/schools";
-import { iconSword, iconMapGrid, iconTrophy, iconFlag } from "./icons";
+// client/src/ui/statsOverlay.ts
+import { Icons } from './icons';
+import { SCHOOL_ROSTER, SCHOOL_IDS } from '../../../shared/constants/schools';
+
+export interface StudentStats {
+  studentName: string;
+  schoolId: string;
+  schoolName: string;
+  schoolColor: string;
+  points: number;
+  claimedTiles: number;
+  totalSchoolTiles: number;
+  controlPercentage: number;
+}
 
 export class StatsOverlay {
   public element: HTMLElement;
-  private troopCountEl!: HTMLElement;
-  private tileCountEl!: HTMLElement;
-  private domPctEl!: HTMLElement;
-  private schoolNameEl!: HTMLElement;
-  private schoolBadgeEl!: HTMLElement;
-  private dominanceBarEl!: HTMLElement;
-  private schoolSelectEl!: HTMLSelectElement;
+  private stats: StudentStats;
 
-  private currentSchoolId = "hcmut";
-  public onSchoolChange?: (schoolId: string) => void;
   public onFlyToHQRequested?: () => void;
+  public onSchoolChange?: (schoolId: string) => void;
 
-  constructor(container: HTMLElement) {
-    this.element = document.createElement("div");
-    this.element.className = "stats-overlay";
-    this.element.innerHTML = `
-      <div class="top-hud-main">
-        <div class="school-profile" id="schoolProfileCard" title="Nhấp vào để Bay về Căn cứ HQ (Phím tắt [H] hoặc [Space])" style="cursor: pointer;">
-          <div class="school-badge" id="schoolBadge">BK</div>
-          <div class="school-info">
-            <div class="school-title-row">
-              <span class="school-name" id="schoolName">ĐH Bách Khoa</span>
-              <span class="hq-fly-pill" title="Phím tắt: [H] hoặc [Space]">🎯 [H] Về HQ</span>
-              <select id="schoolSelect" class="school-select-btn" title="Đổi trường đại diện">
-                ${SCHOOL_IDS.map((id) => `<option value="${id}">${SCHOOL_ROSTER[id].shortName}</option>`).join("")}
-              </select>
-            </div>
-            <span class="sub-label">ĐHQG-HCM LAND RUSH • CHIẾN DỊCH TRANH HÙNG</span>
-          </div>
-        </div>
+  constructor(parent?: HTMLElement, initialStats?: Partial<StudentStats>) {
+    const defaultSchool = SCHOOL_ROSTER["hcmut"];
+    this.stats = {
+      studentName: "Chiến binh ĐHQG",
+      schoolId: "hcmut",
+      schoolName: defaultSchool?.name || "ĐH Bách Khoa",
+      schoolColor: defaultSchool?.colorHex || "#0055a5",
+      points: 500,
+      claimedTiles: 0,
+      totalSchoolTiles: 9,
+      controlPercentage: 10.0,
+      ...initialStats
+    };
 
-        <div class="tactical-metrics">
-          <div class="metric-card metric-troops" title="Quân lực hiện có của trường">
-            <span class="metric-icon">${iconSword(18, "#ffd166")}</span>
-            <div class="metric-content">
-              <span class="metric-val" id="troopCount">500</span>
-              <span class="metric-lbl">QUÂN LỰC</span>
-            </div>
-          </div>
-
-          <div class="metric-card metric-territory" title="Số ô lãnh thổ đang kiểm soát">
-            <span class="metric-icon">${iconMapGrid(18, "#06d6a0")}</span>
-            <div class="metric-content">
-              <span class="metric-val" id="tileCount">9</span>
-              <span class="metric-lbl">LÃNH THỔ</span>
-            </div>
-          </div>
-
-          <div class="metric-card metric-dominance" title="Thị phần kiểm soát toàn bản đồ">
-            <span class="metric-icon">${iconTrophy(18, "#118ab2")}</span>
-            <div class="metric-content">
-              <span class="metric-val" id="domPct">10.0%</span>
-              <span class="metric-lbl">THỊ PHẦN</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Dominance Bar (Thanh Thị Phần Lãnh Thổ) -->
-      <div class="dominance-bar-container" title="Thị phần lãnh thổ 10 trường ĐHQG">
-        <div class="dominance-bar" id="dominanceBar"></div>
-      </div>
-    `;
-
-    container.appendChild(this.element);
-
-    this.troopCountEl = this.element.querySelector("#troopCount")!;
-    this.tileCountEl = this.element.querySelector("#tileCount")!;
-    this.domPctEl = this.element.querySelector("#domPct")!;
-    this.schoolNameEl = this.element.querySelector("#schoolName")!;
-    this.schoolBadgeEl = this.element.querySelector("#schoolBadge")!;
-    this.dominanceBarEl = this.element.querySelector("#dominanceBar")!;
-    this.schoolSelectEl = this.element.querySelector("#schoolSelect") as HTMLSelectElement;
-
-    this.setupEvents();
-    this.setSchool(this.currentSchoolId);
+    this.element = document.createElement('header');
+    this.element.className = 'stats-top-hud';
+    this.render();
+    (parent || document.body).appendChild(this.element);
   }
 
-  private setupEvents() {
-    this.schoolSelectEl.addEventListener("change", (e) => {
-      const target = e.target as HTMLSelectElement;
-      this.setSchool(target.value);
-      if (this.onSchoolChange) {
-        this.onSchoolChange(target.value);
-      }
-    });
+  public updateStats(newStats: Partial<StudentStats>): void {
+    this.stats = { ...this.stats, ...newStats };
+    this.render();
+  }
 
-    const card = this.element.querySelector("#schoolProfileCard");
-    card?.addEventListener("click", (e) => {
-      // Don't trigger if user was interacting with the select dropdown
-      if ((e.target as HTMLElement).tagName === "SELECT") return;
-      if (this.onFlyToHQRequested) {
-        this.onFlyToHQRequested();
-      }
+  public updateTroops(points: number): void {
+    this.updateStats({ points });
+  }
+
+  public setSchool(schoolId: string): void {
+    const school = SCHOOL_ROSTER[schoolId];
+    if (!school) return;
+    this.updateStats({
+      schoolId,
+      schoolName: school.name,
+      schoolColor: school.colorHex
     });
   }
 
-  public setSchool(schoolId: string) {
-    this.currentSchoolId = schoolId;
-    const config = SCHOOL_ROSTER[schoolId];
-    if (!config) return;
-
-    this.schoolNameEl.textContent = config.name;
-    this.schoolBadgeEl.textContent = config.shortName.slice(0, 4);
-    this.schoolBadgeEl.style.backgroundColor = config.colorHex;
-    this.schoolBadgeEl.style.borderColor = config.accentHex;
-    this.schoolSelectEl.value = schoolId;
-  }
-
-  public updateTroops(troops: number) {
-    this.troopCountEl.textContent = troops.toLocaleString();
-  }
-
-  public updateTerritory(territoryCounts: Record<string, number>) {
+  public updateTerritory(territoryCounts: Record<string, number>): void {
     let totalClaimed = 0;
     for (const id of SCHOOL_IDS) {
       totalClaimed += territoryCounts[id] || 0;
     }
 
-    const myTiles = territoryCounts[this.currentSchoolId] || 0;
-    this.tileCountEl.textContent = myTiles.toLocaleString();
+    const myTiles = territoryCounts[this.stats.schoolId] || 0;
+    const pct = totalClaimed > 0 ? parseFloat(((myTiles / totalClaimed) * 100).toFixed(1)) : 0;
 
-    const myPct = totalClaimed > 0 ? ((myTiles / totalClaimed) * 100).toFixed(1) : "0.0";
-    this.domPctEl.textContent = `${myPct}%`;
+    this.updateStats({
+      totalSchoolTiles: myTiles,
+      controlPercentage: pct
+    });
+  }
 
-    // Render multi-segment dominance bar
-    this.dominanceBarEl.innerHTML = "";
-    if (totalClaimed === 0) return;
+  private render(): void {
+    this.element.innerHTML = `
+      <div class="hud-left">
+        <div class="school-pill" id="btnFlyHQ" style="--school-color: ${this.stats.schoolColor}; cursor: pointer;" title="Bay về Căn cứ HQ [H / Space]">
+          <div class="school-icon-wrapper">
+            ${Icons.school('md')}
+          </div>
+          <div class="school-info">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="school-code">${this.stats.schoolId.toUpperCase()}</span>
+              <select id="headerSchoolSelect" class="header-school-select" title="Đổi trường đại diện">
+                ${SCHOOL_IDS.map((id) => `<option value="${id}" ${id === this.stats.schoolId ? "selected" : ""}>${SCHOOL_ROSTER[id].shortName}</option>`).join("")}
+              </select>
+            </div>
+            <span class="student-name">${this.stats.schoolName}</span>
+          </div>
+        </div>
+      </div>
 
-    for (const id of SCHOOL_IDS) {
-      const count = territoryCounts[id] || 0;
-      if (count === 0) continue;
+      <div class="hud-center">
+        <!-- Điểm cống hiến hiện có -->
+        <div class="stat-badge stat-points">
+          <div class="stat-icon-box point-glow">
+            ${Icons.point('md')}
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">ĐIỂM CỐNG HIẾN</span>
+            <span class="stat-value point-number">${this.stats.points.toLocaleString()}</span>
+          </div>
+        </div>
 
-      const pct = (count / totalClaimed) * 100;
-      const school = SCHOOL_ROSTER[id];
-      const segment = document.createElement("div");
-      segment.className = "dom-segment";
-      segment.style.width = `${pct}%`;
-      segment.style.backgroundColor = school.colorHex;
-      segment.title = `${school.shortName}: ${count} ô (${pct.toFixed(1)}%)`;
-      this.dominanceBarEl.appendChild(segment);
-    }
+        <!-- Ô đất trường đang kiểm soát -->
+        <div class="stat-badge stat-territory">
+          <div class="stat-icon-box">
+            ${Icons.tile('md')}
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">LÃNH THỔ TRƯỜNG</span>
+            <span class="stat-value">${this.stats.totalSchoolTiles} <small style="font-size:11px; color:var(--text-secondary);">ô (${this.stats.controlPercentage}%)</small></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-right">
+        <div class="stat-badge stat-rank">
+          <div class="stat-icon-box">
+            ${Icons.trophy('md')}
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">ĐÃ ĐỔI</span>
+            <span class="stat-value">${this.stats.claimedTiles} ô</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    this.bindEvents();
+  }
+
+  private bindEvents(): void {
+    const pill = this.element.querySelector('#btnFlyHQ');
+    pill?.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).tagName === "SELECT") return;
+      this.onFlyToHQRequested?.();
+    });
+
+    const select = this.element.querySelector('#headerSchoolSelect') as HTMLSelectElement;
+    select?.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const val = (e.target as HTMLSelectElement).value;
+      this.setSchool(val);
+      this.onSchoolChange?.(val);
+    });
   }
 }

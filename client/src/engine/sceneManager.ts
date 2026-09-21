@@ -35,12 +35,16 @@ export class SceneManager {
   private beaconRing?: THREE.Mesh;
 
   // Callbacks
-  public onTileHover?: (x: number, y: number) => void;
+  public onTileHover?: (x: number, y: number, screenX: number, screenY: number) => void;
+  public onTileLeave?: () => void;
   public onTileClick?: (event: TileClickEvent) => void;
   public onCameraMove?: (targetX: number, targetZ: number, frustumSize: number) => void;
   public onFpsUpdate?: (fps: number) => void;
   public onFlyToHQRequested?: () => void;
   public onFrameUpdate?: (delta: number) => void;
+
+  private lastClientX = 0;
+  private lastClientY = 0;
 
   private lastTime = performance.now();
   private frameCount = 0;
@@ -163,6 +167,16 @@ export class SceneManager {
     this.updateCameraPosition();
   }
 
+  public zoomIn() {
+    this.zoomLevel = THREE.MathUtils.clamp(this.zoomLevel * 0.85, this.minZoom, this.maxZoom);
+    this.updateCameraPosition();
+  }
+
+  public zoomOut() {
+    this.zoomLevel = THREE.MathUtils.clamp(this.zoomLevel * 1.15, this.minZoom, this.maxZoom);
+    this.updateCameraPosition();
+  }
+
   private setupInputEvents() {
     window.addEventListener("resize", () => {
       if (!this.container) return;
@@ -188,6 +202,9 @@ export class SceneManager {
     });
 
     window.addEventListener("mousemove", (e) => {
+      this.lastClientX = e.clientX;
+      this.lastClientY = e.clientY;
+
       // Calculate normalized mouse coords
       const rect = dom.getBoundingClientRect();
       this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -281,10 +298,15 @@ export class SceneManager {
           if (isClick && this.onTileClick) {
             this.onTileClick({ x: coords.x, y: coords.y, button });
           } else if (!isClick && this.onTileHover) {
-            this.onTileHover(coords.x, coords.y);
+            this.onTileHover(coords.x, coords.y, this.lastClientX, this.lastClientY);
           }
+          return;
         }
       }
+    }
+
+    if (!isClick && this.onTileLeave) {
+      this.onTileLeave();
     }
   }
 
