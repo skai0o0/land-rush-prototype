@@ -24,21 +24,40 @@ export class NatureGridManager {
 
   // Set of exclusion coordinate keys: "x,y"
   private exclusionSet: Set<string> = new Set();
+  private currentHQs: { x: number; y: number }[] = [];
+  private currentLandmarks: { x: number; y: number; width: number; height: number }[] = [];
 
   constructor() {
     this.group.name = "NaturePropsGroup";
+  }
+
+  public isExcluded(x: number, y: number): boolean {
+    if (this.exclusionSet.has(`${x},${y}`)) return true;
+    for (let i = 0; i < this.currentHQs.length; i++) {
+      const hq = this.currentHQs[i];
+      if (Math.abs(x - hq.x) <= 12 && Math.abs(y - hq.y) <= 12) return true;
+    }
+    for (let i = 0; i < this.currentLandmarks.length; i++) {
+      const lm = this.currentLandmarks[i];
+      if (x >= lm.x - 2 && x <= lm.x + lm.width + 2 && y >= lm.y - 2 && y <= lm.y + lm.height + 2) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public setExclusionZones(
     hqs: { x: number; y: number }[],
     landmarks: { x: number; y: number; width: number; height: number }[]
   ) {
+    this.currentHQs = [...hqs];
+    this.currentLandmarks = [...landmarks];
     this.exclusionSet.clear();
 
-    // Exclude HQs (7x7 buffer)
+    // Exclude HQs: HQ models have ~20 tiles diameter (radius 10). Use 12x12 buffer to fully clear the school grounds
     for (const hq of hqs) {
-      for (let dx = -4; dx <= 4; dx++) {
-        for (let dy = -4; dy <= 4; dy++) {
+      for (let dx = -12; dx <= 12; dx++) {
+        for (let dy = -12; dy <= 12; dy++) {
           this.exclusionSet.add(`${hq.x + dx},${hq.y + dy}`);
         }
       }
@@ -53,12 +72,16 @@ export class NatureGridManager {
       }
     }
 
-    // Rebuild or build props
+    // Rebuild props with new exclusion boundaries
     this.buildProps();
   }
 
   public buildProps() {
     if (this.isBuilt) {
+      if (this.melaleucaMesh) this.melaleucaMesh.geometry.dispose();
+      if (this.poincianaMesh) this.poincianaMesh.geometry.dispose();
+      if (this.graniteMesh) this.graniteMesh.geometry.dispose();
+      if (this.grassMesh) this.grassMesh.geometry.dispose();
       this.group.clear();
     }
 
@@ -92,8 +115,7 @@ export class NatureGridManager {
         const jx = x + Math.floor(pseudoRandom(x, y, 1.1) * 3);
         const jy = y + Math.floor(pseudoRandom(x, y, 2.2) * 3);
 
-        const key = `${jx},${jy}`;
-        if (this.exclusionSet.has(key)) continue;
+        if (this.isExcluded(jx, jy)) continue;
         if (isRoad(jx, jy)) continue;
         if (isHoDaLake(jx, jy)) continue;
 

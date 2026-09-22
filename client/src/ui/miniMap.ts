@@ -13,13 +13,20 @@ export class MiniMap {
   private landmarkList: { x: number; y: number }[] = [];
   private claimedTilesRef: Map<string, any> = new Map();
   private playerHQ: { schoolId: string; x: number; y: number } | null = null;
+  private isDrawPending = false;
 
   // Camera frustum position in 0..1000 world space
   private camX = 500;
   private camZ = 500;
   private camFrustum = 70;
 
+  // Live Drag & Pan state (Vuốt & Lia)
+  private isDragging = false;
+  private dragMoved = 0;
+  private isExpanded = false;
+
   public onPanRequested?: (x: number, y: number) => void;
+  public onPanLive?: (x: number, y: number, isDragging: boolean) => void;
   public onZoomIn?: () => void;
   public onZoomOut?: () => void;
   public onRecenter?: () => void;
@@ -64,30 +71,136 @@ export class MiniMap {
     return this.canvas;
   }
 
+  public toggleExpand(): void {
+    this.isExpanded = !this.isExpanded;
+    this.element.classList.toggle('is-expanded', this.isExpanded);
+    this.requestRedraw();
+  }
+
+  private calcWorldCoords(clientX: number, clientY: number): { worldX: number; worldY: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    const scaleX = rect.width || this.size;
+    const scaleY = rect.height || this.size;
+    const normX = Math.max(0, Math.min(1, (clientX - rect.left) / scaleX));
+    const normY = Math.max(0, Math.min(1, (clientY - rect.top) / scaleY));
+    return {
+      worldX: Math.round(normX * 960 + 20),
+      worldY: Math.round(normY * 960 + 20)
+    };
+  }
+
   private setupEvents(): void {
-    this.canvas.addEventListener("click", (e) => {
-      const rect = this.canvas.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const clickY = e.clientY - rect.top;
+    // 1. Mouse Drag & Pan
+    this.canvas.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.isDragging = true;
+      this.dragMoved = 0;
+      this.canvas.classList.add("is-dragging");
 
-      // Convert 0..size to 0..1000
-      const worldX = (clickX / this.size) * 1000;
-      const worldY = (clickY / this.size) * 1000;
+      const { worldX, worldY } = this.calcWorldCoords(e.clientX, e.clientY);
+      this.camX = worldX;
+      this.camZ = worldY;
+      this.requestRedraw();
+      this.onPanLive?.(worldX, worldY, true);
+    });
 
-      if (this.onPanRequested) {
+    window.addEventListener("mousemove", (e) => {
+      if (!this.isDragging) return;
+      this.dragMoved += Math.hypot(e.movementX, e.movementY);
+      const { worldX, worldY } = this.calcWorldCoords(e.clientX, e.clientY);
+      this.camX = worldX;
+      this.camZ = worldY;
+      this.requestRedraw();
+      this.onPanLive?.(worldX, worldY, true);
+    });
+
+    window.addEventListener("mouseup", (e) => {
+      if (!this.isDragging) return;
+      this.isDragging = false;
+      this.canvas.classList.remove("is-dragging");
+      const { worldX, worldY } = this.calcWorldCoords(e.clientX, e.clientY);
+      this.onPanLive?.(worldX, worldY, false);
+      if (this.dragMoved < 6 && this.onPanRequested) {
         this.onPanRequested(worldX, worldY);
       }
     });
 
+    // 2. Touch Swipe & Live Pan (Vuốt & Lia)
+    this.canvas.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.isDragging = true;
+        this.dragMoved = 0;
+        this.canvas.classList.add("is-dragging");
+
+        const touch = e.touches[0];
+        const { worldX, worldY } = this.calcWorldCoords(touch.clientX, touch.clientY);
+        this.camX = worldX;
+        this.camZ = worldY;
+        this.requestRedraw();
+        this.onPanLive?.(worldX, worldY, true);
+      }
+    }, { passive: false });
+
+    window.addEventListener("touchmove", (e) => {
+      if (!this.isDragging || e.touches.length !== 1) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      this.dragMoved += 4;
+      const { worldX, worldY } = this.calcWorldCoords(touch.clientX, touch.clientY);
+      this.camX = worldX;
+      this.camZ = worldY;
+      this.requestRedraw();
+      this.onPanLive?.(worldX, worldY, true);
+    }, { passive: false });
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (!this.isDragging) return;
+      this.isDragging = false;
+      this.canvas.classList.remove("is-dragging");
+      const touch = e.changedTouches[0];
+      if (touch) {
+        const { worldX, worldY } = this.calcWorldCoords(touch.clientX, touch.clientY);
+        this.onPanLive?.(worldX, worldY, false);
+        if (this.dragMoved < 10 && this.onPanRequested) {
+          this.onPanRequested(worldX, worldY);
+        }
+      }
+    };
+
+    window.addEventListener("touchend", handleTouchEnd);
+    window.addEventListener("touchcancel", handleTouchEnd);
+
+    // 3. MiniMap Controls
     const controls = this.element.querySelector('.minimap-controls');
-    controls?.querySelector('#mbtn-zoom-in')?.addEventListener('click', () => this.onZoomIn?.());
-    controls?.querySelector('#mbtn-zoom-out')?.addEventListener('click', () => this.onZoomOut?.());
-    controls?.querySelector('#mbtn-recenter')?.addEventListener('click', () => this.onRecenter?.());
+    controls?.querySelector('#mbtn-zoom-in')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.onZoomIn?.();
+    });
+    controls?.querySelector('#mbtn-zoom-out')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.onZoomOut?.();
+    });
+    controls?.querySelector('#mbtn-recenter')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.onRecenter?.();
+    });
+  }
+
+  public requestRedraw(): void {
+    if (this.isDrawPending) return;
+    this.isDrawPending = true;
+    requestAnimationFrame(() => {
+      this.isDrawPending = false;
+      this.draw();
+    });
   }
 
   public setPlayerHQ(schoolId: string, x: number, y: number): void {
     this.playerHQ = { schoolId, x, y };
-    this.draw();
+    this.requestRedraw();
   }
 
   public setStaticFeatures(
@@ -96,19 +209,19 @@ export class MiniMap {
   ): void {
     this.hqList = hqs;
     this.landmarkList = landmarks;
-    this.draw();
+    this.requestRedraw();
   }
 
   public updateCamera(camX: number, camZ: number, frustumSize: number): void {
     this.camX = camX;
     this.camZ = camZ;
     this.camFrustum = frustumSize;
-    this.draw();
+    this.requestRedraw();
   }
 
   public setClaimedTiles(claimedTiles: any): void {
     this.claimedTilesRef = claimedTiles;
-    this.draw();
+    this.requestRedraw();
   }
 
   public draw(): void {

@@ -9,18 +9,65 @@ import { StudentActionDock, ACTION_MODES, ActionMode } from "./ui/studentActionD
 import { TileTooltip } from "./ui/tileTooltip";
 import { MiniMap } from "./ui/miniMap";
 import { DevToolsPanel } from "./ui/devToolsPanel";
-import { PlayerRole } from "../../shared/types";
+import { DatabaseModal } from "./ui/databaseModal";
+import { RunningDatabase } from "./services/runningDatabase";
+import { PlayerRole, GameMode } from "../../shared/types";
 import { LANDMARK_ROSTER } from "../../shared/constants/landmarks";
-import { SCHOOL_ROSTER } from "../../shared/constants/schools";
+import { SCHOOL_ROSTER, getSchoolIdFromEmail } from "../../shared/constants/schools";
 import { getTerrainType } from "./engine/terrainNoise";
 
 async function bootstrap() {
   const container = document.getElementById("canvas-container")!;
   const appEl = document.getElementById("app")!;
 
+  // Parse URL Query Params for Student Identity & Mode
+  const urlParams = new URLSearchParams(window.location.search);
+  const emailParam = urlParams.get("email");
+  const kmParam = urlParams.get("km");
+  const pointsParam = urlParams.get("points");
+  const devParam = urlParams.get("dev");
+  const modeParam = urlParams.get("mode");
+
+  let currentGameMode: GameMode = (modeParam === "normal" || (!devParam && emailParam)) ? "normal" : "dev";
+  let playerEmail = emailParam || (currentGameMode === "normal" ? "sinhvien01@hcmut.edu.vn" : "");
+  
+  // Running points: 1 km = 1 point from database
+  let userPoints = 500;
+  if (playerEmail) {
+    let initialKm = 50;
+    if (kmParam) {
+      const parsedKm = parseFloat(kmParam);
+      if (!isNaN(parsedKm) && parsedKm >= 0) initialKm = parsedKm;
+    } else if (pointsParam) {
+      const parsedPts = parseInt(pointsParam, 10);
+      if (!isNaN(parsedPts) && parsedPts >= 0) initialKm = parsedPts;
+    }
+    RunningDatabase.getOrCreate(playerEmail, initialKm);
+    if (kmParam && !isNaN(parseFloat(kmParam))) {
+      RunningDatabase.updateKm(playerEmail, parseFloat(kmParam));
+    }
+    userPoints = RunningDatabase.getStudentBalance(playerEmail);
+  } else if (kmParam) {
+    const km = parseFloat(kmParam);
+    if (!isNaN(km) && km >= 0) userPoints = Math.round(km);
+  } else if (pointsParam) {
+    const pts = parseInt(pointsParam, 10);
+    if (!isNaN(pts) && pts >= 0) userPoints = pts;
+  }
+
+  // Derive initial school from email or query param
   let playerSchoolId = "hcmut";
+  const emailSchool = playerEmail ? getSchoolIdFromEmail(playerEmail) : null;
+  const schoolParam = urlParams.get("school");
+  if (emailSchool && SCHOOL_ROSTER[emailSchool]) {
+    playerSchoolId = emailSchool;
+  } else if (schoolParam && SCHOOL_ROSTER[schoolParam]) {
+    playerSchoolId = schoolParam;
+  }
+
   let playerRole: PlayerRole = "assault";
   let playerHQCoords: { x: number; y: number } | null = null;
+  const schoolHQMap = new Map<string, { x: number; y: number }>();
 
   // 1. Initialize Engine subsystems
   const chunkGridManager = new ChunkGridManager();
@@ -41,7 +88,6 @@ async function bootstrap() {
   // Build baseline nature vegetation immediately so map is vibrant from frame 1
   natureGridManager.buildProps();
 
-  let userPoints = 500;
   let isBotSimulationRunning = false;
 
   // Toast notification helper (100% no emojis)
@@ -62,7 +108,10 @@ async function bootstrap() {
     schoolId: playerSchoolId,
     schoolName: SCHOOL_ROSTER[playerSchoolId]?.name,
     schoolColor: SCHOOL_ROSTER[playerSchoolId]?.colorHex,
-    points: userPoints
+    points: userPoints,
+    mode: currentGameMode,
+    studentEmail: playerEmail,
+    isLocked: currentGameMode === "normal"
   });
   const actionDock = new StudentActionDock(appEl);
   const tileTooltip = new TileTooltip(appEl);
@@ -73,8 +122,115 @@ async function bootstrap() {
     () => flyToPlayerHQ()
   );
 
-  // 3. Initialize DevTools Dropdown (hidden by default, bot off by default)
-  const devTools = new DevToolsPanel(
+  let colyseusClient: ColyseusClient;
+
+  // Helper to sync HQ coordinates map from room state
+  function updateHQMapFromRoom() {
+    if (colyseusClient?.room?.state?.hqs) {
+      colyseusClient.room.state.hqs.forEach((hq: any) => {
+        schoolHQMap.set(hq.schoolId, { x: hq.x, y: hq.y });
+      });
+    }
+  }
+
+  // Fly to Player HQ handler (Click card, click button or press [H] / [Space])
+  function flyToPlayerHQ() {
+    updateHQMapFromRoom();
+    let target = schoolHQMap.get(playerSchoolId) || null;
+    if (!target && colyseusClient.room && colyseusClient.room.state && colyseusClient.room.state.hqs) {
+      const hq = colyseusClient.room.state.hqs.get(playerSchoolId);
+      if (hq) {
+        target = { x: hq.x, y: hq.y };
+        schoolHQMap.set(playerSchoolId, target);
+      }
+    }
+
+    if (target) {
+      playerHQCoords = target;
+      sceneManager.panTo(target.x, target.y, { duration: 1.25, zoom: 0.72, arc: true });
+      const school = SCHOOL_ROSTER[playerSchoolId];
+      sceneManager.setPlayerHQBeacon(target.x, target.y, school?.accentHex || "#1488D8");
+      miniMap.setPlayerHQ(playerSchoolId, target.x, target.y);
+      showActionToast(`Bay về Căn cứ HQ ${school?.shortName || playerSchoolId.toUpperCase()} [${target.x}, ${target.y}]`);
+    } else {
+      showActionToast(`Đang định vị Căn cứ HQ của ${playerSchoolId.toUpperCase()}...`, "warning");
+    }
+  }
+
+  statsOverlay.onFlyToHQRequested = flyToPlayerHQ;
+  sceneManager.onFlyToHQRequested = flyToPlayerHQ;
+
+  let devTools: DevToolsPanel;
+
+  function loginAsStudent(email: string, schoolId?: string, km?: number) {
+    playerEmail = email.trim();
+    const resolvedSchool = (schoolId && SCHOOL_ROSTER[schoolId])
+      ? schoolId
+      : (getSchoolIdFromEmail(playerEmail) || playerSchoolId || "hcmut");
+    playerSchoolId = resolvedSchool;
+
+    if (km !== undefined) {
+      RunningDatabase.getOrCreate(playerEmail, km);
+    }
+    userPoints = RunningDatabase.getStudentBalance(playerEmail);
+
+    // 1. Cập nhật HUD & School
+    statsOverlay.setSchool(playerSchoolId);
+    statsOverlay.updateStats({
+      studentEmail: playerEmail,
+      points: userPoints,
+      isLocked: currentGameMode === "normal"
+    });
+
+    // 2. Cập nhật DevTools dropdown nếu có
+    if (devTools) {
+      devTools.setSelectedAccount(playerEmail);
+    }
+
+    // 3. Đồng bộ đăng nhập sinh viên tới Server qua Colyseus
+    colyseusClient?.loginStudent(playerEmail, playerSchoolId, userPoints, currentGameMode);
+
+    // 4. Cập nhật query parameters trên URL trình duyệt
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("email", playerEmail);
+      url.searchParams.set("school", playerSchoolId);
+      url.searchParams.set("km", userPoints.toString());
+      window.history.pushState({}, "", url.toString());
+    } catch (e) {
+      console.warn("[App] Failed to update browser URL:", e);
+    }
+
+    const schoolConfig = SCHOOL_ROSTER[playerSchoolId];
+    showActionToast(`Đã đăng nhập: ${playerEmail} [${schoolConfig?.shortName || playerSchoolId.toUpperCase()}] - ${userPoints} điểm giải chạy`);
+    flyToPlayerHQ();
+  }
+
+  // Initialize Database Modal
+  const databaseModal = new DatabaseModal({
+    onSelectStudent: (student) => {
+      loginAsStudent(student.email, student.schoolId, student.km);
+    },
+    onOpenNewTab: (schoolId, email, km) => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("school", schoolId);
+      if (email) url.searchParams.set("email", email);
+      if (km) url.searchParams.set("km", km.toString());
+      url.searchParams.set("mode", currentGameMode);
+      window.open(url.toString(), "_blank");
+      showActionToast(`Đang mở phiên mới cho ${schoolId.toUpperCase()} trong tab mới...`);
+    },
+    onStudentUpdated: (student) => {
+      if (playerEmail && student.email.toLowerCase() === playerEmail.toLowerCase()) {
+        userPoints = RunningDatabase.getStudentBalance(playerEmail);
+        statsOverlay.updateStats({ points: userPoints });
+        showActionToast(`Đã đồng bộ điểm giải chạy: ${userPoints} điểm (${student.km} km)`);
+      }
+    }
+  });
+
+  // 3. Initialize DevTools Dropdown
+  devTools = new DevToolsPanel(
     {
       onToggleBot: (running) => {
         isBotSimulationRunning = running;
@@ -82,10 +238,15 @@ async function bootstrap() {
         showActionToast(running ? "Đã bật giả lập bot" : "Đã tắt giả lập bot");
       },
       onAddPoints: (amount) => {
-        userPoints += amount;
+        if (playerEmail) {
+          RunningDatabase.addKm(playerEmail, amount);
+          userPoints = RunningDatabase.getStudentBalance(playerEmail);
+        } else {
+          userPoints += amount;
+        }
         statsOverlay.updateStats({ points: userPoints });
         colyseusClient.addPoints(amount);
-        showActionToast(`Đã nhận +${amount} điểm cống hiến!`);
+        showActionToast(`Đã nhận +${amount} điểm cống hiến (${amount} km)!`);
       },
       onResetMap: () => {
         colyseusClient.softReset();
@@ -97,49 +258,62 @@ async function bootstrap() {
       onToggleGrid: (show) => {
         chunkGridManager.group.visible = show;
         showActionToast(show ? "Đã hiển thị lưới ô đất" : "Đã ẩn lưới ô đất");
+      },
+      onToggleMode: (mode) => {
+        currentGameMode = mode;
+        statsOverlay.updateStats({
+          mode: currentGameMode,
+          isLocked: currentGameMode === "normal",
+          studentEmail: playerEmail
+        });
+        if (playerEmail) {
+          colyseusClient?.loginStudent(playerEmail, playerSchoolId, userPoints, currentGameMode);
+        }
+        showActionToast(mode === "dev" ? "Đã chuyển sang Dev Mode (Tự do đổi trường)" : "Đã chuyển sang Normal Mode (Khóa trường sinh viên)");
+      },
+      onSwitchAccount: (email, schoolId, km) => {
+        loginAsStudent(email, schoolId, km);
+      },
+      onOpenNewTab: (schoolId, email, km) => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("school", schoolId);
+        if (email) url.searchParams.set("email", email);
+        if (km) url.searchParams.set("km", km.toString());
+        url.searchParams.set("mode", currentGameMode);
+        window.open(url.toString(), "_blank");
+        showActionToast(`Đang mở phiên mới cho ${schoolId.toUpperCase()} trong tab mới...`);
+      },
+      onOpenDbEditor: () => {
+        databaseModal.open();
       }
     },
-    appEl
+    appEl,
+    currentGameMode,
+    playerEmail
   );
 
-  // Fly to Player HQ handler (Click card or press [H] / [Space])
-  function flyToPlayerHQ() {
-    if (playerHQCoords) {
-      sceneManager.panTo(playerHQCoords.x, playerHQCoords.y);
-      showActionToast(`Bay về Căn cứ HQ ${SCHOOL_ROSTER[playerSchoolId]?.shortName} [${playerHQCoords.x}, ${playerHQCoords.y}]`);
-    } else if (colyseusClient.room) {
-      const hq = colyseusClient.room.state.hqs.get(playerSchoolId);
-      if (hq) {
-        playerHQCoords = { x: hq.x, y: hq.y };
-        sceneManager.panTo(hq.x, hq.y);
-        showActionToast(`Bay về Căn cứ HQ ${SCHOOL_ROSTER[playerSchoolId]?.shortName} [${hq.x}, ${hq.y}]`);
-      }
-    }
-  }
-
-  statsOverlay.onFlyToHQRequested = flyToPlayerHQ;
-  sceneManager.onFlyToHQRequested = flyToPlayerHQ;
-
-  // Frame update for rotating banners/crystals
+  // Frame update for rotating banners/crystals and animated tile flips
   sceneManager.onFrameUpdate = (delta) => {
+    chunkGridManager.update(delta, performance.now());
     modelLoader.update(delta);
   };
 
   // 4. Initialize Network Client
-  const colyseusClient = new ColyseusClient(
+  colyseusClient = new ColyseusClient(
     chunkGridManager,
     modelLoader,
     natureGridManager,
     {
       onConnected: (room) => {
         console.log(`[App] Joined room: ${room.name}`);
+        updateHQMapFromRoom();
         updateMiniMapStatic();
 
         // Check if player's HQ is already in state on join
-        const existingHQ = room.state.hqs.get(playerSchoolId);
+        const existingHQ = schoolHQMap.get(playerSchoolId) || room.state.hqs.get(playerSchoolId);
         if (existingHQ) {
           playerHQCoords = { x: existingHQ.x, y: existingHQ.y };
-          sceneManager.panTo(existingHQ.x, existingHQ.y);
+          sceneManager.panTo(existingHQ.x, existingHQ.y, { duration: 1.15, zoom: 0.72 });
           const school = SCHOOL_ROSTER[playerSchoolId];
           sceneManager.setPlayerHQBeacon(existingHQ.x, existingHQ.y, school?.accentHex || "#1488D8");
           miniMap.setPlayerHQ(playerSchoolId, existingHQ.x, existingHQ.y);
@@ -152,12 +326,13 @@ async function bootstrap() {
         });
       },
       onHQAdded: (hq) => {
+        schoolHQMap.set(hq.schoolId, { x: hq.x, y: hq.y });
         updateMiniMapStatic();
 
         // 1. Camera Auto-Focus on Player HQ immediately
         if (hq.schoolId === playerSchoolId) {
           playerHQCoords = { x: hq.x, y: hq.y };
-          sceneManager.panTo(hq.x, hq.y);
+          sceneManager.panTo(hq.x, hq.y, { duration: 1.15, zoom: 0.72 });
 
           // 3. Vertical Light Beacon at HQ
           const school = SCHOOL_ROSTER[playerSchoolId];
@@ -171,6 +346,10 @@ async function bootstrap() {
         updateMiniMapStatic();
       },
       onSchoolTroopsChange: (schoolId, troops) => {
+        // Sinh viên không nhận điểm tự động theo thời gian, điểm lấy từ database giải chạy!
+        if (playerEmail || currentGameMode === "normal") {
+          return;
+        }
         if (schoolId === playerSchoolId) {
           userPoints = troops;
           statsOverlay.updateTroops(troops);
@@ -208,28 +387,33 @@ async function bootstrap() {
 
   // 5. Connect UI callbacks
   statsOverlay.onSchoolChange = (schoolId) => {
+    if (currentGameMode === "normal") {
+      showActionToast("Tài khoản sinh viên đã được định danh cố định theo trường!", "warning");
+      return;
+    }
     playerSchoolId = schoolId;
     colyseusClient.selectSchool(schoolId);
     if (colyseusClient.room) {
-      const troops = colyseusClient.room.state.schoolTroops.get(schoolId) || 0;
-      userPoints = troops;
-      statsOverlay.updateTroops(troops);
-
-      // Smoothly pan camera to player's new HQ & update beacon
-      const hq = colyseusClient.room.state.hqs.get(schoolId);
-      if (hq) {
-        playerHQCoords = { x: hq.x, y: hq.y };
-        sceneManager.panTo(hq.x, hq.y);
-        const school = SCHOOL_ROSTER[schoolId];
-        sceneManager.setPlayerHQBeacon(hq.x, hq.y, school?.accentHex || "#1488D8");
-        miniMap.setPlayerHQ(schoolId, hq.x, hq.y);
+      if (!playerEmail) {
+        const troops = colyseusClient.room.state.schoolTroops.get(schoolId) || 0;
+        userPoints = troops;
+        statsOverlay.updateTroops(troops);
       }
+      flyToPlayerHQ();
     }
   };
 
 
+  miniMap.onPanLive = (x, y, isDragging) => {
+    if (isDragging) {
+      sceneManager.setTargetPosition(x, y);
+    } else {
+      sceneManager.panTo(x, y, { duration: 0.35, arc: false });
+    }
+  };
+
   miniMap.onPanRequested = (x, y) => {
-    sceneManager.panTo(x, y);
+    sceneManager.panTo(x, y, { duration: 0.65 });
   };
 
   sceneManager.onCameraMove = (camX, camZ, frustumSize) => {
@@ -247,14 +431,35 @@ async function bootstrap() {
 
     // Check if within any landmark footprint
     let landmarkName: string | undefined;
+    let landmarkConfig: any = null;
+    let isCore = false;
+
     colyseusClient.room.state.landmarks.forEach((lm: any) => {
       const conf = LANDMARK_ROSTER[lm.landmarkKey];
-      const w = conf?.footprint.width || 6;
-      const h = conf?.footprint.height || 6;
+      const w = conf?.footprint.width || 14;
+      const h = conf?.footprint.height || 12;
       if (x >= lm.x && x < lm.x + w && y >= lm.y && y < lm.y + h) {
         landmarkName = conf?.name || lm.landmarkKey;
+        landmarkConfig = conf;
+        const coreX = lm.x + Math.floor(w / 2);
+        const coreY = lm.y + Math.floor(h / 2);
+        if (x === coreX && y === coreY) {
+          isCore = true;
+        }
       }
     });
+
+    // Check if within any school HQ zone (Hexagonal footprint diameter ~20 tiles)
+    if (colyseusClient.room && !landmarkName) {
+      colyseusClient.room.state.hqs.forEach((hq: any) => {
+        const dx = Math.abs(x - hq.x);
+        const dy = Math.abs(y - hq.y);
+        if (dx <= 10 && (dx + Math.sqrt(3) * dy) <= 20) {
+          const sc = SCHOOL_ROSTER[hq.schoolId];
+          landmarkName = `Căn cứ HQ ${sc?.shortName || hq.schoolId.toUpperCase()}`;
+        }
+      });
+    }
 
     const tType = getTerrainType(x, y);
     let terrainType = "Đồng bằng";
@@ -263,25 +468,40 @@ async function bootstrap() {
     else if (tType === "road") terrainType = "Đại lộ giao thông";
 
     const ownerConfig = tile?.ownerId ? SCHOOL_ROSTER[tile.ownerId] : null;
-    const ownerSchoolName = ownerConfig ? ownerConfig.name : null;
+    const ownerSchoolName = ownerConfig ? ownerConfig.name : (landmarkName ? "Cứ điểm Trung Lập" : null);
     const ownerColor = ownerConfig ? ownerConfig.colorHex : undefined;
     const isOwnedByMe = tile?.ownerId === playerSchoolId;
-    const cost = landmarkName ? 50 : 10;
 
-    tileTooltip.show(
-      {
-        x,
-        z: y,
-        terrainType,
-        landmarkName,
-        ownerSchoolName,
-        ownerColor,
-        cost,
-        isOwnedByMe
-      },
-      screenX,
-      screenY
-    );
+    let cost = 10;
+    if (landmarkConfig) {
+      const isEnemyControlled = tile?.ownerId && tile.ownerId !== "" && tile.ownerId !== playerSchoolId;
+      cost = isEnemyControlled ? landmarkConfig.attackCost : landmarkConfig.claimCost;
+    } else if (tile?.ownerId && !isOwnedByMe) {
+      cost = 15;
+    }
+
+    const isMobile = window.innerWidth <= 768;
+    if (!isMobile) {
+      tileTooltip.show(
+        {
+          x,
+          z: y,
+          terrainType,
+          landmarkName,
+          ownerSchoolName,
+          ownerColor,
+          cost,
+          isOwnedByMe,
+          hp: tile?.hp,
+          maxHp: tile?.maxHp,
+          defenseTier: tile?.defenseTier,
+          isCore,
+          buffDescription: landmarkConfig?.buffDescription
+        },
+        screenX,
+        screenY
+      );
+    }
   };
 
   sceneManager.onTileLeave = () => {
@@ -305,97 +525,253 @@ async function bootstrap() {
     return false;
   }
 
-  // 6. One-Click Action: Click on 3D grid immediately validates, deducts points, and executes action
-  sceneManager.onTileClick = (event: TileClickEvent) => {
-    const { x, y } = event;
-    const currentMode = actionDock.getActiveMode();
-    const config = ACTION_MODES[currentMode];
+  // Helper to find landmark at coords
+  function getLandmarkAt(x: number, y: number) {
+    if (!colyseusClient?.room?.state?.landmarks) return null;
+    let found: { config: any; name: string } | null = null;
+    colyseusClient.room.state.landmarks.forEach((lm: any) => {
+      const conf = LANDMARK_ROSTER[lm.landmarkKey];
+      const w = conf?.footprint.width || 14;
+      const h = conf?.footprint.height || 12;
+      if (x >= lm.x && x < lm.x + w && y >= lm.y && y < lm.y + h) {
+        found = { config: conf, name: conf?.name || lm.landmarkKey };
+      }
+    });
+    return found;
+  }
 
-    // 1. Point check
-    if (userPoints < config.cost) {
-      showActionToast(`Không đủ điểm! Cần ${config.cost} điểm để ${config.title.toLowerCase()}.`, "error");
+  // Helper to find school HQ name at coords
+  function getHQNameAt(x: number, y: number) {
+    if (!colyseusClient?.room?.state?.hqs) return null;
+    let foundName: string | null = null;
+    colyseusClient.room.state.hqs.forEach((hq: any) => {
+      const dx = Math.abs(x - hq.x);
+      const dy = Math.abs(y - hq.y);
+      if (dx <= 10 && (dx + Math.sqrt(3) * dy) <= 20) {
+        const sc = SCHOOL_ROSTER[hq.schoolId];
+        foundName = `Căn cứ HQ ${sc?.shortName || hq.schoolId.toUpperCase()}`;
+      }
+    });
+    return foundName;
+  }
+
+  // Evaluate smart context for a given tile
+  function evaluateTileContext(x: number, y: number, modeOverride?: ActionMode) {
+    const tile = colyseusClient.room?.state.claimedTiles.get(`${x},${y}`);
+    const ownerSchool = tile?.ownerId;
+    const isOwnedByMe = ownerSchool === playerSchoolId;
+    const isOwnedByEnemy = !!ownerSchool && ownerSchool !== "" && !isOwnedByMe;
+    const isAdjacent = isAdjacentToSchool(x, y, playerSchoolId);
+
+    const lm = getLandmarkAt(x, y);
+    const landmarkConfig = lm?.config;
+    const landmarkName = lm?.name || getHQNameAt(x, y) || undefined;
+
+    const ownerConfig = ownerSchool ? SCHOOL_ROSTER[ownerSchool] : null;
+    const ownerName = ownerConfig ? ownerConfig.name : (landmarkName ? "Cứ điểm Trung Lập" : "Đất Hoang / Trung Lập");
+    const ownerColor = ownerConfig ? ownerConfig.colorHex : "#94a3b8";
+
+    // Auto infer mode if not overridden
+    let mode: ActionMode;
+    if (modeOverride) {
+      mode = modeOverride;
+    } else {
+      if (isOwnedByMe) mode = "fortify";
+      else if (isOwnedByEnemy) mode = "attack";
+      else mode = "claim";
+    }
+
+    let cost = 10;
+    let title = "Chiếm đất";
+    let actionTitle = "XÁC NHẬN CHIẾM ĐẤT";
+    let description = "Mở rộng quyền kiểm soát sang ô đất trống lân cận";
+    let canExecute = true;
+    let reasonDisabled: string | undefined;
+
+    if (mode === "claim") {
+      cost = landmarkConfig ? landmarkConfig.claimCost : ACTION_MODES.claim.cost;
+      title = "Mở rộng lãnh thổ";
+      actionTitle = landmarkName ? `CHIẾM CỨ ĐIỂM (${cost}đ)` : `XÁC NHẬN CHIẾM ĐẤT (${cost}đ)`;
+      description = landmarkName ? `Mở rộng sang cứ điểm ${landmarkName}` : "Mở rộng sang ô đất trống lân cận";
+      if (isOwnedByMe) {
+        canExecute = false;
+        reasonDisabled = "Ô này đã thuộc quyền kiểm soát của trường bạn";
+      } else if (isOwnedByEnemy) {
+        canExecute = false;
+        reasonDisabled = "Ô này đã bị đối thủ chiếm, cần dùng chế độ TẤN CÔNG";
+      } else if (!isAdjacent) {
+        canExecute = false;
+        reasonDisabled = "Chỉ có thể mở rộng các ô liền kề với trường bạn";
+      } else if (userPoints < cost) {
+        canExecute = false;
+        reasonDisabled = `Không đủ điểm! Cần ${cost} điểm để mở rộng`;
+      }
+    } else if (mode === "fortify") {
+      cost = ACTION_MODES.fortify.cost;
+      title = "Gia cố phòng thủ";
+      const currentTier = tile?.defenseTier || 0;
+      actionTitle = `GIA CỐ PHÒNG THỦ (${cost}đ)`;
+      description = currentTier >= 3 ? "Đã đạt cấp phòng thủ tối đa (Giáp T3)" : `Nâng cấp giáp lên T${currentTier + 1} (+100 HP)`;
+      if (!isOwnedByMe) {
+        canExecute = false;
+        reasonDisabled = "Chỉ có thể gia cố các ô đất thuộc trường của bạn";
+      } else if (currentTier >= 3) {
+        canExecute = false;
+        reasonDisabled = "Ô đất này đã đạt cấp phòng thủ tối đa (T3)";
+      } else if (userPoints < cost) {
+        canExecute = false;
+        reasonDisabled = `Không đủ điểm! Cần ${cost} điểm để gia cố`;
+      }
+    } else if (mode === "attack") {
+      cost = landmarkConfig ? landmarkConfig.attackCost : ACTION_MODES.attack.cost;
+      title = "Công phá đối thủ";
+      actionTitle = `CÔNG PHÁ CỨ ĐIỂM (${cost}đ)`;
+      description = `Tấn công tranh chấp cứ điểm của ${ownerConfig?.shortName || ownerSchool?.toUpperCase() || "đối thủ"}`;
+      if (isOwnedByMe) {
+        canExecute = false;
+        reasonDisabled = "Không thể tấn công ô đất của chính trường bạn";
+      } else if (!ownerSchool || ownerSchool === "") {
+        canExecute = false;
+        reasonDisabled = "Ô này chưa có phe kiểm soát, hãy dùng chế độ CHIẾM ĐẤT";
+      } else if (!isAdjacent) {
+        canExecute = false;
+        reasonDisabled = "Chỉ có thể tấn công các ô liền kề với lãnh thổ của bạn";
+      } else if (userPoints < cost) {
+        canExecute = false;
+        reasonDisabled = `Không đủ điểm! Cần ${cost} điểm để tấn công`;
+      }
+    }
+
+    return {
+      x,
+      y,
+      mode,
+      title,
+      cost,
+      description,
+      actionTitle,
+      ownerName,
+      ownerColor,
+      landmarkName,
+      canExecute,
+      reasonDisabled
+    };
+  }
+
+  // Execute validated action on a tile
+  function executeTileAction(ctx: ReturnType<typeof evaluateTileContext>) {
+    if (!ctx.canExecute) {
+      if (ctx.reasonDisabled) {
+        showActionToast(ctx.reasonDisabled, "warning");
+      }
       return;
     }
 
-    const tile = colyseusClient.room?.state.claimedTiles.get(`${x},${y}`);
-    const ownerSchool = tile?.ownerId;
+    // Deduct points from database or state
+    if (playerEmail) {
+      RunningDatabase.deductPoints(playerEmail, ctx.cost);
+      userPoints = RunningDatabase.getStudentBalance(playerEmail);
+    } else {
+      userPoints -= ctx.cost;
+    }
+    statsOverlay.updateStats({ points: userPoints });
 
-    // 2. Execute according to selected mode
-    switch (currentMode) {
-      case "claim": {
-        if (ownerSchool === playerSchoolId) {
-          showActionToast("Ô này đã thuộc quyền kiểm soát của trường bạn!", "warning");
-          return;
+    const { x, y, mode, cost, landmarkName } = ctx;
+
+    if (mode === "claim") {
+      colyseusClient.claimTile(x, y);
+      const schoolColor = SCHOOL_ROSTER[playerSchoolId]?.colorHex || "#0055a5";
+      chunkGridManager.setTileColor(x, y, schoolColor, true);
+      showActionToast(
+        landmarkName
+          ? `Đã tấn công chiếm cứ điểm ${landmarkName}! -${cost} điểm`
+          : `Đã mở rộng thành công ô (${x}, ${y})! -${cost} điểm`
+      );
+    } else if (mode === "fortify") {
+      colyseusClient.fortifyTile(x, y);
+      const tile = colyseusClient.room?.state.claimedTiles.get(`${x},${y}`);
+      const currentTier = tile?.defenseTier || 0;
+      chunkGridManager.setTileElevation(x, y, (currentTier + 1) * 0.15);
+      showActionToast(`Đã gia cố phòng thủ ô (${x}, ${y})! -${cost} điểm`);
+    } else if (mode === "attack") {
+      colyseusClient.claimTile(x, y);
+      showActionToast(
+        landmarkName
+          ? `Đã xuất kích công phá ${landmarkName} (${x}, ${y})! -${cost} điểm`
+          : `Đã xuất kích tấn công ô (${x}, ${y}) của đối thủ! -${cost} điểm`
+      );
+    }
+  }
+
+  actionDock.onToggleSmart = (enabled) => {
+    showActionToast(
+      enabled
+        ? "Đã bật chế độ Tự Động (Smart Context Action)"
+        : "Đã chuyển sang chế độ Thủ Công (Manual Mode)"
+    );
+  };
+
+  // 6. Smart Context Action Handler: 1-Tap inference + Mobile 2-step confirmation
+  sceneManager.onTileClick = (event: TileClickEvent) => {
+    const { x, y } = event;
+    const isSmart = actionDock.isSmart();
+    const modeOverride = isSmart ? undefined : actionDock.getActiveMode();
+    const ctx = evaluateTileContext(x, y, modeOverride);
+
+    // Auto sync mode highlight in dock
+    actionDock.setMode(ctx.mode);
+
+    // 3D visual selection ring marker
+    const markerColor = ctx.mode === "fortify" ? "#10b981" : ctx.mode === "attack" ? "#ef4444" : "#0ea5e9";
+    sceneManager.setSelectedTileMarker(x, y, markerColor);
+
+    const isMobile = window.innerWidth <= 768 || window.matchMedia("(max-width: 768px) and (orientation: portrait)").matches;
+
+    if (isMobile) {
+      // 2-Step Confirmation on Mobile (prevents misclick while dragging map)
+      actionDock.showConfirmCard({
+        ...ctx,
+        onConfirm: () => {
+          executeTileAction(ctx);
+          sceneManager.clearSelectedTileMarker();
+        },
+        onCancel: () => {
+          sceneManager.clearSelectedTileMarker();
         }
-        if (!isAdjacentToSchool(x, y, playerSchoolId)) {
-          showActionToast("Chỉ có thể mở rộng các ô đất liền kề với trường bạn!", "warning");
-          return;
-        }
-
-        userPoints -= config.cost;
-        statsOverlay.updateStats({ points: userPoints });
-        colyseusClient.claimTile(x, y);
-
-        const schoolColor = SCHOOL_ROSTER[playerSchoolId]?.colorHex || "#0055a5";
-        chunkGridManager.setTileColor(x, y, schoolColor);
-        showActionToast(`Đã mở rộng thành công ô (${x}, ${y})! -${config.cost} điểm`);
-        break;
-      }
-
-      case "fortify": {
-        if (ownerSchool !== playerSchoolId) {
-          showActionToast("Chỉ có thể gia cố các ô đất thuộc trường của bạn!", "warning");
-          return;
-        }
-        userPoints -= config.cost;
-        statsOverlay.updateStats({ points: userPoints });
-        colyseusClient.fortifyTile(x, y);
-
-        const currentTier = tile?.defenseTier || 0;
-        chunkGridManager.setTileElevation(x, y, (currentTier + 1) * 0.15);
-        showActionToast(`Đã gia cố phòng thủ ô (${x}, ${y})! -${config.cost} điểm`);
-        break;
-      }
-
-      case "attack": {
-        if (ownerSchool === playerSchoolId) {
-          showActionToast("Không thể tấn công ô đất của chính trường bạn!", "warning");
-          return;
-        }
-        if (!ownerSchool) {
-          showActionToast("Ô đất tự do, hãy dùng chế độ Chiếm Đất để đổi!", "warning");
-          return;
-        }
-        userPoints -= config.cost;
-        statsOverlay.updateStats({ points: userPoints });
-        colyseusClient.claimTile(x, y); // sends attack to enemy tile
-
-        showActionToast(`Đã xuất kích tấn công ô (${x}, ${y}) của đối thủ! -${config.cost} điểm`);
-        break;
-      }
+      });
+    } else {
+      // 1-Click direct execution on Desktop
+      executeTileAction(ctx);
+      setTimeout(() => sceneManager.clearSelectedTileMarker(), 650);
     }
   };
 
   // 7. Connect to Colyseus Server (with auto-retry)
   try {
-    const room = await colyseusClient.connect(playerSchoolId);
-    showActionToast("Đã kết nối Colyseus Server thành công");
+    const room = await colyseusClient.connect({
+      schoolId: playerSchoolId,
+      email: playerEmail,
+      mode: currentGameMode,
+      points: userPoints
+    });
+    showActionToast(
+      currentGameMode === "normal"
+        ? `Đã đăng nhập: ${playerEmail} [${playerSchoolId.toUpperCase()}] - ${userPoints} điểm giải chạy`
+        : `Đã kết nối Colyseus Server [Dev Mode: ${playerSchoolId.toUpperCase()}]`
+    );
 
-    // Update initial troop points
-    const troops = room.state.schoolTroops.get(playerSchoolId) || 500;
-    userPoints = troops;
-    statsOverlay.updateTroops(troops);
+    // Update initial troop points (Only if NOT logged in as a student)
+    if (!playerEmail && currentGameMode === "dev") {
+      const troops = room.state.schoolTroops.get(playerSchoolId) || 500;
+      userPoints = troops;
+      statsOverlay.updateTroops(troops);
+    } else {
+      statsOverlay.updateStats({ points: userPoints });
+    }
 
     // Initial check for HQ coordinates
     setTimeout(() => {
-      const hq = room.state.hqs.get(playerSchoolId);
-      if (hq) {
-        playerHQCoords = { x: hq.x, y: hq.y };
-        sceneManager.panTo(hq.x, hq.y);
-        const school = SCHOOL_ROSTER[playerSchoolId];
-        sceneManager.setPlayerHQBeacon(hq.x, hq.y, school?.accentHex || "#1488D8");
-        miniMap.setPlayerHQ(playerSchoolId, hq.x, hq.y);
-      }
+      flyToPlayerHQ();
     }, 200);
   } catch (err) {
     console.error("[App] Could not connect to Colyseus server:", err);

@@ -101,7 +101,6 @@ export class BotManager {
 
       let bestKey: string | null = null;
       let bestScore = -1;
-      let isEnemyTarget = false;
 
       for (const key of candidates) {
         const parts = key.split(",");
@@ -113,11 +112,24 @@ export class BotManager {
 
         // Is it part of a landmark footprint?
         const isLandmark = this.landmarkTileMap.has(key);
+        const lmKey = this.landmarkTileMap.get(key);
+        const lmConfig = lmKey ? LANDMARK_ROSTER[lmKey] : null;
 
-        if (isLandmark && troops >= 15) {
-          score = 1000 + Math.random() * 20;
+        if (isLandmark && lmConfig) {
+          const isEnemyControlled = existing && existing.ownerId !== "" && existing.ownerId !== schoolId;
+          const cost = isEnemyControlled ? lmConfig.attackCost : lmConfig.claimCost;
+
+          if (troops >= cost) {
+            // Highly prized strategic target! Prioritize core and damaged tiles
+            const isCore = existing ? existing.maxHp >= lmConfig.coreHp : false;
+            const coreBonus = isCore ? 300 : 0;
+            const hpFactor = existing ? (existing.maxHp - existing.hp) * 0.2 : 0;
+            score = 1200 + coreBonus + hpFactor + Math.random() * 25;
+          } else {
+            score = 0; // Not enough troops to contest landmark
+          }
         } else if (existing && existing.ownerId !== schoolId) {
-          // Enemy tile
+          // Normal enemy tile
           if (troops >= 15) {
             // Lower HP = higher score
             score = 50 + (100 - existing.hp) * 0.5 + Math.random() * 10;
@@ -125,41 +137,74 @@ export class BotManager {
             score = 0;
           }
         } else if (!existing) {
-          // Wild tile
+          // Normal wild tile
           score = 10 + Math.random() * 5;
         }
 
         if (score > bestScore) {
           bestScore = score;
           bestKey = key;
-          isEnemyTarget = existing && existing.ownerId !== schoolId;
         }
       }
 
       if (!bestKey || bestScore <= 0) continue;
 
       const [tx, ty] = bestKey.split(",").map(Number);
-      
-      if (isEnemyTarget) {
-        if (troops >= 15) {
-          // Attack enemy tile
-          state.schoolTroops.set(schoolId, troops - 15);
-          const tile = state.claimedTiles.get(bestKey);
-          if (tile) {
-            tile.hp -= 40;
-            if (tile.hp <= 0) {
-              const oldOwner = tile.ownerId;
+      const isLandmark = this.landmarkTileMap.has(bestKey);
+      const lmKey = this.landmarkTileMap.get(bestKey);
+      const lmConfig = lmKey ? LANDMARK_ROSTER[lmKey] : null;
+      const existing = state.claimedTiles.get(bestKey);
+
+      if (isLandmark && lmConfig && existing) {
+        // Landmark fortress tile action
+        const isEnemyControlled = existing.ownerId !== "" && existing.ownerId !== schoolId;
+        const cost = isEnemyControlled ? lmConfig.attackCost : lmConfig.claimCost;
+
+        if (troops >= cost) {
+          state.schoolTroops.set(schoolId, troops - cost);
+          const rawDamage = 40;
+          const armorReduction = existing.defenseTier * 8;
+          const damage = Math.max(12, rawDamage - armorReduction);
+          existing.hp -= damage;
+
+          if (existing.hp <= 0) {
+            const oldOwner = existing.ownerId;
+            if (oldOwner) {
               this.removeOwnedTile(oldOwner, tx, ty, state);
-              tile.ownerId = schoolId;
-              tile.hp = 60;
-              tile.maxHp = 100;
-              tile.defenseTier = 0;
-              this.addOwnedTile(schoolId, tx, ty, state);
+            }
+            existing.ownerId = schoolId;
+            // Retain fortress stats on capture (40% max HP)
+            existing.hp = Math.floor(existing.maxHp * 0.4);
+            this.addOwnedTile(schoolId, tx, ty, state);
+
+            if (typeof room.checkLandmarkCapture === "function") {
+              room.checkLandmarkCapture(lmKey);
             }
           }
         }
-      } else {
-        // Claim wild tile
+      } else if (existing && existing.ownerId !== schoolId) {
+        // Normal enemy tile attack
+        if (troops >= 15) {
+          state.schoolTroops.set(schoolId, troops - 15);
+          const rawDamage = 40;
+          const armorReduction = existing.defenseTier * 8;
+          const damage = Math.max(12, rawDamage - armorReduction);
+          existing.hp -= damage;
+
+          if (existing.hp <= 0) {
+            const oldOwner = existing.ownerId;
+            if (oldOwner) {
+              this.removeOwnedTile(oldOwner, tx, ty, state);
+            }
+            existing.ownerId = schoolId;
+            existing.hp = 60;
+            existing.maxHp = 100;
+            existing.defenseTier = 0;
+            this.addOwnedTile(schoolId, tx, ty, state);
+          }
+        }
+      } else if (!existing) {
+        // Normal wild tile claim
         if (troops >= 5) {
           state.schoolTroops.set(schoolId, troops - 5);
           const newTile = new TileState();

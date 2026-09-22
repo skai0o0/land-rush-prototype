@@ -11,9 +11,12 @@ export class TileState extends Schema {
 
 export class PlayerState extends Schema {
   @type("string") id: string = "";
+  @type("string") email: string = "";
   @type("string") schoolId: string = "hcmut";
   @type("number") personalTroops: number = 100;
   @type("string") currentRole: string = "assault"; // assault | fortify | support
+  @type("string") mode: string = "normal"; // normal | dev
+  @type("boolean") isLockedSchool: boolean = true;
 }
 
 export class HQState extends Schema {

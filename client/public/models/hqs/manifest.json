@@ -1,5 +1,5 @@
 {
-  "tile_meters": 8.0,
+  "tile_meters": 1.0,
   "aesthetic": "Stylized Sci-Fi RTS Architecture, Chunky Low-Poly, Flat Shading",
   "polygon_budget": "1500-3500 triangles",
   "pivot": [
@@ -22,17 +22,17 @@
         "#1488D8"
       ],
       "bounding_box_m": [
-        38.105,
-        44.0,
-        47.2
+        17.32,
+        20.0,
+        13.32
       ],
       "bounding_box_tiles": [
-        4.763,
-        5.5,
-        5.9
+        17.32,
+        20.0,
+        13.32
       ],
-      "triangles": 1942,
-      "file_size_kb": 76.21,
+      "triangles": 2728,
+      "file_size_kb": 313.08,
       "tactical_role": "Giáp phòng thủ kiên cố, sửa chữa cơ giới"
     },
     "hcmus": {
@@ -50,17 +50,17 @@
         "#FFC107"
       ],
       "bounding_box_m": [
-        40.0,
-        40.0,
-        49.91
+        17.32,
+        20.0,
+        8.03
       ],
       "bounding_box_tiles": [
-        5.0,
-        5.0,
-        6.239
+        17.32,
+        20.0,
+        8.03
       ],
-      "triangles": 2032,
-      "file_size_kb": 38.28,
+      "triangles": 1981,
+      "file_size_kb": 201.84,
       "tactical_role": "Quét sương mù bản đồ, pháo xung điện"
     },
     "hcmussh": {
@@ -77,17 +77,17 @@
         "#C1272D"
       ],
       "bounding_box_m": [
-        42.0,
-        42.0,
-        29.7
+        17.32,
+        20.0,
+        11.13
       ],
       "bounding_box_tiles": [
-        5.25,
-        5.25,
-        3.713
+        17.32,
+        20.0,
+        11.13
       ],
-      "triangles": 1588,
-      "file_size_kb": 61.48,
+      "triangles": 1932,
+      "file_size_kb": 226.87,
       "tactical_role": "Mở rộng ranh giới chiếm đất, tăng sĩ khí"
     },
     "uit": {
@@ -105,17 +105,17 @@
         "#FF5722"
       ],
       "bounding_box_m": [
-        50.4,
-        50.4,
-        51.75
+        17.32,
+        20.0,
+        11.97
       ],
       "bounding_box_tiles": [
-        6.3,
-        6.3,
-        6.469
+        17.32,
+        20.0,
+        11.97
       ],
-      "triangles": 1532,
-      "file_size_kb": 108.53,
+      "triangles": 1546,
+      "file_size_kb": 153.59,
       "tactical_role": "Áp chế mạng điện tử, trinh sát tự hành"
     },
     "uel": {
@@ -132,17 +132,17 @@
         "#DAA520"
       ],
       "bounding_box_m": [
-        44.0,
-        44.0,
-        42.0
+        25.0,
+        25.98,
+        10.0
       ],
       "bounding_box_tiles": [
-        5.5,
-        5.5,
-        5.25
+        25.0,
+        25.98,
+        10.0
       ],
-      "triangles": 1542,
-      "file_size_kb": 102.26,
+      "triangles": 3080,
+      "file_size_kb": 342.35,
       "tactical_role": "Gia tăng tích lũy tài chính, tạo lá chắn"
     },
     "iu": {
@@ -159,17 +159,17 @@
         "#009CD1"
       ],
       "bounding_box_m": [
-        40.0,
-        36.0,
-        30.5
+        25.0,
+        25.98,
+        12.37
       ],
       "bounding_box_tiles": [
-        5.0,
-        4.5,
-        3.812
+        25.0,
+        25.98,
+        12.37
       ],
-      "triangles": 2692,
-      "file_size_kb": 71.07,
+      "triangles": 2324,
+      "file_size_kb": 259.14,
       "tactical_role": "Tiếp vận lính dù, giao thương tài nguyên"
     },
     "uhs": {
@@ -187,17 +187,17 @@
         "#BF86BF"
       ],
       "bounding_box_m": [
-        38.0,
-        38.0,
-        37.0
+        25.0,
+        25.98,
+        5.42
       ],
       "bounding_box_tiles": [
-        4.75,
-        4.75,
-        4.625
+        25.0,
+        25.98,
+        5.42
       ],
-      "triangles": 2176,
-      "file_size_kb": 114.46,
+      "triangles": 2696,
+      "file_size_kb": 300.94,
       "tactical_role": "Hào quang hồi phục sinh lực, giải độc"
     },
     "ubb": {
@@ -214,17 +214,17 @@
         "#84CC16"
       ],
       "bounding_box_m": [
-        39.944,
-        37.989,
-        35.835
+        20.0,
+        19.02,
+        17.94
       ],
       "bounding_box_tiles": [
-        4.993,
-        4.749,
-        4.479
+        20.0,
+        19.02,
+        17.94
       ],
       "triangles": 1872,
-      "file_size_kb": 45.77,
+      "file_size_kb": 133.28,
       "tactical_role": "Trạm sinh thái, năng lượng tái tạo chiến trường"
     },
     "uflis": {
@@ -241,17 +241,17 @@
         "#F59E0B"
       ],
       "bounding_box_m": [
-        35.107,
-        35.107,
-        47.65
+        20.0,
+        20.0,
+        27.15
       ],
       "bounding_box_tiles": [
-        4.388,
-        4.388,
-        5.956
+        20.0,
+        20.0,
+        27.15
       ],
       "triangles": 1664,
-      "file_size_kb": 122.82,
+      "file_size_kb": 203.19,
       "tactical_role": "Truyền tin ngoại giao, kết nối đa phương"
     },
     "ulpa": {
@@ -268,19 +268,19 @@
         "#D97706"
       ],
       "bounding_box_m": [
-        50.0,
-        50.0,
-        28.25
+        20.0,
+        20.0,
+        11.3
       ],
       "bounding_box_tiles": [
-        6.25,
-        6.25,
-        3.531
+        20.0,
+        20.0,
+        11.3
       ],
       "triangles": 1614,
-      "file_size_kb": 118.6,
+      "file_size_kb": 192.21,
       "tactical_role": "Thể chế pháp lý, duy trì trật tự lãnh thổ"
     }
   },
-  "updated_at": "2026-09-19T07:56:54.269550Z"
+  "updated_at": "2026-09-22T01:49:05.047245Z"
 }

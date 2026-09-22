@@ -30,3 +30,48 @@ export function getSchoolColor(schoolId: string): string {
 export function getSchoolAccent(schoolId: string): string {
   return SCHOOL_ROSTER[schoolId]?.accentHex || "#ffffff";
 }
+
+// Map domain email .edu.vn của các trường ĐHQG-HCM (hỗ trợ đầy đủ alias)
+export const EMAIL_DOMAIN_TO_SCHOOL: Record<string, string> = {
+  // HCMUT / Bách Khoa
+  "hcmut.edu.vn": "hcmut",
+  "bku.edu.vn": "hcmut",
+  "bk.edu.vn": "hcmut",
+  "bachkhoa.edu.vn": "hcmut",
+  // UIT / Công nghệ thông tin
+  "uit.edu.vn": "uit",
+  // UHS / Sức Khỏe - Y Dược
+  "medvnu.edu.vn": "uhs",
+  "uhs.edu.vn": "uhs",
+  "med.vnu.edu.vn": "uhs",
+  // HCMUS / Tự nhiên
+  "hcmus.edu.vn": "hcmus",
+  "khtn.edu.vn": "hcmus",
+  // USSH / Nhân văn
+  "hcmussh.edu.vn": "hcmussh",
+  "ussh.edu.vn": "hcmussh",
+  "ussh.vnu.edu.vn": "hcmussh",
+  // UEL / Kinh tế - Luật
+  "uel.edu.vn": "uel",
+  // IU / Quốc tế
+  "hcmiu.edu.vn": "iu",
+  "iu.edu.vn": "iu"
+};
+
+export function getSchoolIdFromEmail(email: string): string | null {
+  if (!email || !email.includes("@")) return null;
+  const parts = email.split("@");
+  const domain = parts[parts.length - 1]?.trim().toLowerCase();
+  return EMAIL_DOMAIN_TO_SCHOOL[domain] || null;
+}
+
+// 7 Tài khoản sinh viên đại diện phục vụ Dev Test & Demo
+export const MOCK_STUDENT_ACCOUNTS = [
+  { email: "sinhvien01@hcmut.edu.vn", schoolId: "hcmut", name: "SV Bách Khoa 01", defaultKm: 50 },
+  { email: "sinhvien01@uit.edu.vn", schoolId: "uit", name: "SV CNTT 01", defaultKm: 45 },
+  { email: "sinhvien01@medvnu.edu.vn", schoolId: "uhs", name: "SV Khoa Y - Sức Khỏe 01", defaultKm: 60 },
+  { email: "sinhvien01@hcmus.edu.vn", schoolId: "hcmus", name: "SV KHTN 01", defaultKm: 55 },
+  { email: "sinhvien01@hcmussh.edu.vn", schoolId: "hcmussh", name: "SV KHXH&NV 01", defaultKm: 40 },
+  { email: "sinhvien01@uel.edu.vn", schoolId: "uel", name: "SV Kinh tế - Luật 01", defaultKm: 70 },
+  { email: "sinhvien01@hcmiu.edu.vn", schoolId: "iu", name: "SV Quốc Tế 01", defaultKm: 65 }
+] as const;

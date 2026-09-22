@@ -95,7 +95,75 @@ export function isHoDaLake(x: number, y: number): boolean {
   return (dist + noise) < HO_DA_CENTER.radius;
 }
 
-export function getTerrainHeight(x: number, y: number): number {
+export interface LeveledZone {
+  id: string;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  foundationHeight: number;
+}
+
+const leveledZones: LeveledZone[] = [];
+
+export function registerLeveledZone(
+  id: string,
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  foundationHeight: number
+): void {
+  const idx = leveledZones.findIndex((z) => z.id === id);
+  const zone: LeveledZone = { id, minX, maxX, minY, maxY, foundationHeight };
+  if (idx >= 0) {
+    leveledZones[idx] = zone;
+  } else {
+    leveledZones.push(zone);
+  }
+}
+
+export function clearLeveledZones(): void {
+  leveledZones.length = 0;
+}
+
+export function isInsideLeveledZone(x: number, y: number): boolean {
+  for (let i = 0; i < leveledZones.length; i++) {
+    const z = leveledZones[i];
+    if (x >= z.minX && x <= z.maxX && y >= z.minY && y <= z.maxY) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function getLeveledZone(x: number, y: number): LeveledZone | undefined {
+  for (let i = 0; i < leveledZones.length; i++) {
+    const z = leveledZones[i];
+    if (x >= z.minX && x <= z.maxX && y >= z.minY && y <= z.maxY) {
+      return z;
+    }
+  }
+  return undefined;
+}
+
+export function getFootprintFoundationHeight(
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number
+): number {
+  let maxH = 0;
+  for (let x = minX; x <= maxX; x++) {
+    for (let y = minY; y <= maxY; y++) {
+      const h = getRawTerrainHeight(x, y);
+      if (h > maxH) maxH = h;
+    }
+  }
+  return Math.max(0, maxH);
+}
+
+export function getRawTerrainHeight(x: number, y: number): number {
   if (isHoDaLake(x, y)) {
     return -0.4; // Inverted quarry lake basin
   }
@@ -103,6 +171,16 @@ export function getTerrainHeight(x: number, y: number): number {
   if (n > 0.45) return 0.4;  // High hill
   if (n > 0.15) return 0.2;  // Low hill
   return 0.0; // Flat plain
+}
+
+export function getTerrainHeight(x: number, y: number): number {
+  for (let i = 0; i < leveledZones.length; i++) {
+    const z = leveledZones[i];
+    if (x >= z.minX && x <= z.maxX && y >= z.minY && y <= z.maxY) {
+      return z.foundationHeight;
+    }
+  }
+  return getRawTerrainHeight(x, y);
 }
 
 export function getTerrainMoisture(x: number, y: number): number {

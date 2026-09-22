@@ -11,6 +11,17 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    host: "0.0.0.0"
+    host: "0.0.0.0",
+    proxy: {
+      "/matchmake": {
+        target: "http://localhost:2567",
+        changeOrigin: true
+      },
+      "^/(campus_room)": {
+        target: "ws://localhost:2567",
+        ws: true,
+        changeOrigin: true
+      }
+    }
   }
 });

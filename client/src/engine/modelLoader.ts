@@ -64,50 +64,50 @@ export class ModelLoader {
     const group = new THREE.Group();
     group.name = `HQ_Fallback_${schoolId}`;
     const h = getTerrainHeight(x, y);
-    group.position.set(x, h, y);
+    group.position.set(x, h + 0.11, y);
 
     const primaryColor = school ? new THREE.Color(school.colorHex) : new THREE.Color(0x0055a5);
     const accentColor = school ? new THREE.Color(school.accentHex) : new THREE.Color(0xffffff);
 
-    // 1. Base Stepped Stone Plinth (3x3 footprint)
+    // 1. Base Stepped Stone Plinth (~20 tiles hexagonal footprint)
     const baseMat = new THREE.MeshLambertMaterial({ color: 0x3d4852 });
-    const baseGeom = new THREE.BoxGeometry(2.8, 0.45, 2.8);
+    const baseGeom = new THREE.CylinderGeometry(9.6, 9.6, 0.6, 6);
     const baseMesh = new THREE.Mesh(baseGeom, baseMat);
-    baseMesh.position.y = 0.22;
+    baseMesh.position.y = 0.3;
     baseMesh.castShadow = true;
     baseMesh.receiveShadow = true;
     group.add(baseMesh);
 
     // 2. Second Tier Plinth
-    const tier2Geom = new THREE.BoxGeometry(2.0, 0.4, 2.0);
+    const tier2Geom = new THREE.CylinderGeometry(8.2, 8.2, 0.5, 6);
     const tier2Mesh = new THREE.Mesh(tier2Geom, baseMat);
-    tier2Mesh.position.y = 0.62;
+    tier2Mesh.position.y = 0.85;
     tier2Mesh.castShadow = true;
     tier2Mesh.receiveShadow = true;
     group.add(tier2Mesh);
 
     // 3. Main School Monolith Column
     const columnMat = new THREE.MeshLambertMaterial({ color: primaryColor });
-    const columnGeom = new THREE.BoxGeometry(1.2, 2.4, 1.2);
+    const columnGeom = new THREE.BoxGeometry(3.6, 6.0, 3.6);
     const columnMesh = new THREE.Mesh(columnGeom, columnMat);
-    columnMesh.position.y = 1.8;
+    columnMesh.position.y = 4.0;
     columnMesh.castShadow = true;
     columnMesh.receiveShadow = true;
     group.add(columnMesh);
 
     // 4. Accent trim ring
     const trimMat = new THREE.MeshLambertMaterial({ color: accentColor });
-    const trimGeom = new THREE.BoxGeometry(1.35, 0.25, 1.35);
+    const trimGeom = new THREE.BoxGeometry(4.2, 0.6, 4.2);
     const trimMesh = new THREE.Mesh(trimGeom, trimMat);
-    trimMesh.position.y = 2.95;
+    trimMesh.position.y = 7.2;
     trimMesh.castShadow = true;
     group.add(trimMesh);
 
     // 5. Floating Rotating School Banner / Crest Diamond
     const bannerGroup = new THREE.Group();
-    bannerGroup.position.y = 4.0;
+    bannerGroup.position.y = 9.5;
 
-    const diamondGeom = new THREE.OctahedronGeometry(0.65, 0);
+    const diamondGeom = new THREE.OctahedronGeometry(1.6, 0);
     const diamondMat = new THREE.MeshLambertMaterial({
       color: primaryColor,
       emissive: primaryColor,
@@ -120,9 +120,9 @@ export class ModelLoader {
 
     // Side fluttering flag ribbons
     const flagMat = new THREE.MeshLambertMaterial({ color: accentColor });
-    const flagGeom = new THREE.BoxGeometry(1.0, 0.35, 0.06);
+    const flagGeom = new THREE.BoxGeometry(2.4, 0.8, 0.12);
     const flagMesh = new THREE.Mesh(flagGeom, flagMat);
-    flagMesh.position.set(0.5, 0, 0);
+    flagMesh.position.set(1.2, 0, 0);
     bannerGroup.add(flagMesh);
 
     group.add(bannerGroup);
@@ -134,44 +134,48 @@ export class ModelLoader {
     return group;
   }
 
-  // Fallback: Procedural Landmark Monolith
+  // Fallback: Procedural Landmark Monolith scaled to enlarged footprint
   public createFallbackLandmark(landmarkId: string, x: number, y: number): THREE.Group {
     const config = LANDMARK_ROSTER[landmarkId];
     const group = new THREE.Group();
     group.name = `Landmark_Fallback_${landmarkId}`;
-    const h = getTerrainHeight(x, y);
-    const cx = x + (config?.footprint.width || 6) * 0.5;
-    const cy = y + (config?.footprint.height || 6) * 0.5;
-    group.position.set(cx, h, cy);
+    const fw = config?.footprint.width || 14;
+    const fh = config?.footprint.height || 12;
+    const cx = x + fw * 0.5;
+    const cy = y + fh * 0.5;
+    const h = getTerrainHeight(cx, cy);
+    group.position.set(cx, h + 0.11, cy);
 
-    // Tiered Grand Monument
+    // Tiered Grand Monument scaled to footprint
     const stoneMat = new THREE.MeshLambertMaterial({ color: 0x5a6570 });
-    const baseGeom = new THREE.BoxGeometry(4.0, 0.5, 4.0);
+    const baseGeom = new THREE.BoxGeometry(fw * 0.85, 0.8, fh * 0.85);
     const baseMesh = new THREE.Mesh(baseGeom, stoneMat);
-    baseMesh.position.y = 0.25;
+    baseMesh.position.y = 0.4;
     baseMesh.castShadow = true;
     baseMesh.receiveShadow = true;
     group.add(baseMesh);
 
     // 4 Corner Pillars
     const pillarMat = new THREE.MeshLambertMaterial({ color: 0x8a9ba8 });
-    const pGeom = new THREE.BoxGeometry(0.5, 2.2, 0.5);
+    const pGeom = new THREE.BoxGeometry(1.2, 4.5, 1.2);
+    const ox = fw * 0.35;
+    const oz = fh * 0.35;
     const offsets = [
-      [-1.3, -1.3], [1.3, -1.3],
-      [-1.3, 1.3], [1.3, 1.3]
+      [-ox, -oz], [ox, -oz],
+      [-ox, oz], [ox, oz]
     ];
-    for (const [ox, oz] of offsets) {
+    for (const [px, pz] of offsets) {
       const p = new THREE.Mesh(pGeom, pillarMat);
-      p.position.set(ox, 1.5, oz);
+      p.position.set(px, 2.6, pz);
       p.castShadow = true;
       p.receiveShadow = true;
       group.add(p);
     }
 
     // Top Roof Slab
-    const roofGeom = new THREE.BoxGeometry(3.6, 0.45, 3.6);
+    const roofGeom = new THREE.BoxGeometry(fw * 0.75, 0.8, fh * 0.75);
     const roofMesh = new THREE.Mesh(roofGeom, stoneMat);
-    roofMesh.position.y = 2.8;
+    roofMesh.position.y = 5.2;
     roofMesh.castShadow = true;
     group.add(roofMesh);
 
@@ -179,11 +183,11 @@ export class ModelLoader {
     const goldMat = new THREE.MeshLambertMaterial({
       color: 0xffd166,
       emissive: 0xffb703,
-      emissiveIntensity: 0.5
+      emissiveIntensity: 0.6
     });
-    const orbGeom = new THREE.IcosahedronGeometry(0.75, 0);
+    const orbGeom = new THREE.IcosahedronGeometry(2.0, 0);
     const orb = new THREE.Mesh(orbGeom, goldMat);
-    orb.position.y = 3.9;
+    orb.position.y = 7.2;
     orb.castShadow = true;
     group.add(orb);
     this.rotatingObjects.push(orb);
@@ -206,12 +210,31 @@ export class ModelLoader {
       const model = await this.loadGLB(url);
       const h = getTerrainHeight(x, y);
 
-      // Blender units: 1 tile = 8m -> scale by 1/8 to fit 1 tile = 1 Three.js unit
-      model.scale.set(0.125, 0.125, 0.125);
-      model.position.set(x, h + 0.1, y);
+      // HQ model scale: 1 unit in GLB = 1 unit in Three.js = 1 in-game tile (~20 tiles diameter)
+      // Check bounding box diameter: if significantly deviates from target 20 tiles, auto-scale
+      const box = new THREE.Box3().setFromObject(model);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const currentDiameter = Math.max(size.x, size.z);
+      const targetDiameter = 20.0;
+      let scaleFactor = 1.0;
+      if (currentDiameter > 0 && Math.abs(currentDiameter - targetDiameter) > 4.0) {
+        scaleFactor = targetDiameter / currentDiameter;
+      }
+      model.scale.set(scaleFactor, scaleFactor, scaleFactor);
+      const yOffset = box.min.y < 0 ? -box.min.y * scaleFactor : 0;
+      model.position.set(x, h + 0.11 + yOffset, y);
 
-      // Apply FactionAccent color & shadows
+      // Apply FactionAccent color & shadows (preserve greenery/plants)
       const factionColor = school ? new THREE.Color(school.colorHex) : new THREE.Color(0x1488d8);
+      const shouldTintAccent = (matName: string) => {
+        const lower = matName.toLowerCase();
+        if (lower.includes("tree") || lower.includes("green") || lower.includes("grass") || lower.includes("foliage") || lower.includes("leaf") || lower.includes("palm")) {
+          return false; // preserve nature & plants
+        }
+        return lower.includes("faction") || (lower.includes("accent") && !lower.includes("glow"));
+      };
+
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
@@ -221,14 +244,14 @@ export class ModelLoader {
           if (Array.isArray(mesh.material)) {
             mesh.material = mesh.material.map((mat) => {
               const m = mat.clone();
-              if ((m.name.toLowerCase().includes("accent") || m.name.toLowerCase().includes("faction")) && "color" in m) {
+              if (shouldTintAccent(m.name) && "color" in m) {
                 (m as any).color.copy(factionColor);
               }
               return m;
             });
           } else if (mesh.material) {
             const m = mesh.material.clone();
-            if ((m.name.toLowerCase().includes("accent") || m.name.toLowerCase().includes("faction")) && "color" in m) {
+            if (shouldTintAccent(m.name) && "color" in m) {
               (m as any).color.copy(factionColor);
             }
             mesh.material = m;
@@ -268,16 +291,34 @@ export class ModelLoader {
 
     try {
       const model = await this.loadGLB(url);
-      const h = getTerrainHeight(x, y);
+      const targetW = config?.footprint.width || 14;
+      const targetH = config?.footprint.height || 12;
+      const cx = x + targetW * 0.5;
+      const cy = y + targetH * 0.5;
+      const h = getTerrainHeight(cx, cy);
 
-      model.scale.set(0.125, 0.125, 0.125);
-      const cx = x + (config?.footprint.width || 6) * 0.5;
-      const cy = y + (config?.footprint.height || 6) * 0.5;
-      model.position.set(cx, h + 0.1, cy);
+      // Scale landmark model to match enlarged footprint (~12 to 18.5 tiles)
+      const box = new THREE.Box3().setFromObject(model);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const scaleX = size.x > 0 ? targetW / size.x : 0.3;
+      const scaleZ = size.z > 0 ? targetH / size.z : 0.3;
+      const scaleFactor = Math.min(scaleX, scaleZ) * 1.02;
+      model.scale.set(scaleFactor, scaleFactor, scaleFactor);
+      const yOffset = box.min.y < 0 ? -box.min.y * scaleFactor : 0;
+      model.position.set(cx, h + 0.11 + yOffset, cy);
 
       const factionColor = ownerSchoolId && SCHOOL_ROSTER[ownerSchoolId]
         ? new THREE.Color(SCHOOL_ROSTER[ownerSchoolId].colorHex)
         : new THREE.Color(0x1488d8);
+
+      const shouldTintAccent = (matName: string) => {
+        const lower = matName.toLowerCase();
+        if (lower.includes("tree") || lower.includes("green") || lower.includes("grass") || lower.includes("foliage") || lower.includes("leaf") || lower.includes("water") || lower.includes("lake") || lower.includes("palm")) {
+          return false; // preserve environmental materials
+        }
+        return lower.includes("faction") || (lower.includes("accent") && !lower.includes("glow"));
+      };
 
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
@@ -288,14 +329,14 @@ export class ModelLoader {
           if (Array.isArray(mesh.material)) {
             mesh.material = mesh.material.map((mat) => {
               const m = mat.clone();
-              if ((m.name.toLowerCase().includes("accent") || m.name.toLowerCase().includes("faction")) && "color" in m) {
+              if (shouldTintAccent(m.name) && "color" in m) {
                 (m as any).color.copy(factionColor);
               }
               return m;
             });
           } else if (mesh.material) {
             const m = mesh.material.clone();
-            if ((m.name.toLowerCase().includes("accent") || m.name.toLowerCase().includes("faction")) && "color" in m) {
+            if (shouldTintAccent(m.name) && "color" in m) {
               (m as any).color.copy(factionColor);
             }
             mesh.material = m;

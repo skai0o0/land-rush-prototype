@@ -39,13 +39,18 @@ html, body {
   overflow: hidden;
 }
 
-#canvas-container {
+#canvas-container,
+#canvas-container canvas {
   width: 100%;
   height: 100%;
   position: absolute;
   top: 0;
   left: 0;
   z-index: 1;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* Biểu tượng SVG dùng chung */
@@ -55,18 +60,19 @@ html, body {
   flex-shrink: 0;
 }
 
-/* TOP HUD */
+/* TOP HUD - CIV VI DESKTOP (TOP-LEFT RIBBON) */
 .stats-top-hud {
   position: fixed;
   top: 16px;
   left: 16px;
-  right: 180px;
+  right: auto;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
   pointer-events: none;
   z-index: 100;
   font-family: var(--font-family);
+  max-width: calc(100vw - 220px);
 }
 
 .stats-top-hud > * {
@@ -116,6 +122,64 @@ html, body {
   font-size: 11px;
   padding: 1px 4px;
   cursor: pointer;
+}
+
+.school-locked-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.dev-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.school-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.school-hq-jump-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.locked-email-text {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smart-icon {
+  display: inline-flex;
+  align-items: center;
+  color: #38bdf8;
 }
 
 .student-name {
@@ -175,16 +239,18 @@ html, body {
 }
 
 /* ============================================================
-   3-MODE STUDENT DOCK (ONE-CLICK SELECTION)
+   3-MODE STUDENT DOCK (CIV VI BOTTOM-RIGHT ANCHOR)
    ============================================================ */
 
 .student-mode-dock {
   position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 20px;
+  right: 20px;
+  left: auto;
+  transform: none;
   z-index: 100;
   font-family: var(--font-family);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .mode-dock-bar {
@@ -199,12 +265,200 @@ html, body {
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
 }
 
+.dock-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 2px;
+}
+
+.smart-toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-hud);
+  border-radius: 20px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.smart-toggle-pill:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+}
+
+.smart-toggle-pill.active {
+  background: rgba(14, 165, 233, 0.2);
+  border-color: rgba(14, 165, 233, 0.6);
+  color: #38bdf8;
+}
+
+.smart-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #64748b;
+}
+
+.smart-toggle-pill.active .smart-indicator {
+  background: #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
+}
+
 .dock-label-hint {
   display: flex;
-  justify-content: center;
+  align-items: center;
   font-size: 11px;
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+/* CONFIRMATION CARD (SMART CONTEXT 2-STEP ON MOBILE / DESKTOP) */
+.is-confirm-active {
+  padding: 10px 14px;
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 20px rgba(56, 189, 248, 0.15);
+}
+
+.confirm-action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 280px;
+}
+
+.confirm-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.confirm-tile-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.confirm-tile-coord {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.confirm-owner-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.confirm-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.confirm-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.confirm-card-body {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.confirm-desc-text.is-warning {
+  color: #f87171;
+  font-weight: 600;
+}
+
+.confirm-execute-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  border: 1px solid transparent;
+  cursor: pointer;
+  min-height: 48px;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.confirm-execute-btn.confirm-claim {
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+
+.confirm-execute-btn.confirm-claim:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0369a1, #075985);
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.5);
+}
+
+.confirm-execute-btn.confirm-fortify {
+  background: linear-gradient(135deg, #059669, #047857);
+  border-color: rgba(52, 211, 153, 0.5);
+}
+
+.confirm-execute-btn.confirm-fortify:hover:not(:disabled) {
+  background: linear-gradient(135deg, #047857, #065f46);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.5);
+}
+
+.confirm-execute-btn.confirm-attack {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+.confirm-execute-btn.confirm-attack:hover:not(:disabled) {
+  background: linear-gradient(135deg, #b91c1c, #991b1b);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.5);
+}
+
+.confirm-execute-btn.is-disabled,
+.confirm-execute-btn:disabled {
+  background: #334155;
+  border-color: #475569;
+  color: #94a3b8;
+  cursor: not-allowed;
+  box-shadow: none;
+  opacity: 0.65;
+}
+
+.btn-action-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: #fbbf24;
+  font-size: 11px;
 }
 
 .mode-buttons-group {
@@ -326,11 +580,12 @@ html, body {
   color: var(--text-secondary);
 }
 
-/* MINIMAP */
+/* MINIMAP (CIV VI BOTTOM-LEFT ANCHOR) */
 .minimap-wrapper {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  bottom: 20px;
+  left: 20px;
+  right: auto;
   z-index: 90;
   background: var(--bg-hud);
   backdrop-filter: blur(12px);
@@ -341,6 +596,7 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .minimap-canvas {
@@ -421,7 +677,7 @@ html, body {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 260px;
+  width: 300px;
   background: var(--bg-hud);
   backdrop-filter: blur(16px);
   border: 1px solid var(--border-hud);
@@ -430,6 +686,22 @@ html, body {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
   flex-direction: column;
   gap: 12px;
+}
+
+.dev-account-select {
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--text-primary);
+  border: 1px solid var(--border-hud);
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.dev-account-select:focus {
+  border-color: var(--accent-blue);
+  outline: none;
 }
 
 .dev-dropdown-menu.show {
@@ -541,4 +813,746 @@ html, body {
 .action-toast.toast-warning {
   border-color: rgba(245, 158, 11, 0.5);
   color: #fde68a;
+}
+
+/* ============================================================
+   FLY TO HQ BUTTON (HUD HEADER)
+   ============================================================ */
+.btn-fly-hq {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(20, 136, 216, 0.2);
+  border: 1px solid rgba(20, 136, 216, 0.5);
+  color: #38bdf8;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.btn-fly-hq:hover {
+  background: rgba(20, 136, 216, 0.4);
+  border-color: #38bdf8;
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+}
+
+/* ============================================================
+   DATABASE MODAL (GIẢI CHẠY SINH VIÊN)
+   ============================================================ */
+.db-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 8, 16, 0.82);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.db-modal-dialog {
+  background: #0d1527;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7), 0 0 30px rgba(14, 165, 233, 0.15);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 980px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text-primary);
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: scale(0.96) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.db-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 18px 24px;
+  background: rgba(15, 23, 42, 0.85);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.db-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.db-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #fff;
+}
+
+.db-modal-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.db-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.db-modal-close:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+/* Metrics Overview */
+.db-metrics-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 14px 24px;
+  background: rgba(11, 19, 38, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.db-metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 14px;
+  border-radius: 10px;
+}
+
+.db-metric-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.db-metric-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.db-metric-value small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.text-blue { color: #38bdf8 !important; }
+.text-yellow { color: #fbbf24 !important; }
+.text-green { color: #34d399 !important; }
+
+/* Table */
+.db-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 24px;
+  max-height: 380px;
+}
+
+.db-student-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.db-student-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  position: sticky;
+  top: 0;
+  background: #0d1527;
+  z-index: 2;
+}
+
+.db-student-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+
+.db-student-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.db-school-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-left: 3px solid var(--school-color, #38bdf8);
+  color: #fff;
+}
+
+.db-email-cell strong {
+  color: #e2e8f0;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.db-name-cell {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.db-km-input-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.db-km-input {
+  width: 68px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #38bdf8;
+  font-weight: 700;
+  font-size: 13px;
+  text-align: center;
+}
+
+.db-km-input:focus {
+  border-color: #38bdf8;
+  outline: none;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+}
+
+.db-km-unit {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.db-spent-pill {
+  font-size: 12px;
+  color: #f87171;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.db-balance-pill {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.db-balance-pill.positive {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.db-balance-pill.zero {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+}
+
+.db-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-db-action {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.btn-db-login {
+  background: rgba(14, 165, 233, 0.15);
+  border-color: rgba(14, 165, 233, 0.35);
+  color: #38bdf8;
+}
+
+.btn-db-login:hover {
+  background: #0284c7;
+  color: #fff;
+  border-color: #0284c7;
+}
+
+.btn-db-tab {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+}
+
+.btn-db-tab:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.btn-db-delete {
+  background: transparent;
+  color: #94a3b8;
+  font-size: 14px;
+  padding: 2px 6px;
+}
+
+.btn-db-delete:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* Add Student Section */
+.db-add-section {
+  padding: 14px 24px;
+  background: rgba(15, 23, 42, 0.7);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.db-add-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.db-add-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.db-input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: #fff;
+  font-size: 12px;
+}
+
+.db-input.km {
+  max-width: 110px;
+}
+
+.db-input:focus {
+  border-color: #38bdf8;
+  outline: none;
+}
+
+.btn-db-add {
+  background: #0284c7;
+  color: #fff;
+  border: none;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-db-add:hover {
+  background: #0369a1;
+}
+
+.db-add-hint {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 6px;
+}
+
+/* Modal Footer */
+.db-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 24px;
+  background: #090e1a;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.btn-db-reset {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-db-reset:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #fff;
+}
+
+.btn-db-close {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  padding: 6px 18px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-db-close:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ============================================================
+   RESPONSIVE DUAL-LAYOUT: CIV VI (DESKTOP) VS THUMB-HUD (MOBILE)
+   ============================================================ */
+@media (max-width: 768px) and (orientation: portrait), (max-width: 540px) {
+
+  /* A. Top Bar: Tối giản - Sang trọng - Căn chỉnh an toàn dưới Dynamic Island */
+  .stats-top-hud {
+    top: max(10px, env(safe-area-inset-top));
+    left: 12px;
+    right: 58px; /* Nhường chỗ cho nút Settings [⚙️] ở góc trên-phải */
+    max-width: none;
+    gap: 8px;
+    overflow: visible;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .hud-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .school-pill {
+    padding: 6px 10px;
+    border-radius: 12px;
+    gap: 7px;
+    cursor: pointer;
+    background: rgba(15, 23, 42, 0.9);
+    backdrop-filter: blur(14px);
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+
+  .school-pill:active {
+    transform: scale(0.96);
+  }
+
+  .school-icon-wrapper svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .school-code {
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .school-title-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .student-name {
+    display: none; /* Ẩn tên trường dài dòng trên mobile */
+  }
+
+  .school-locked-pill {
+    font-size: 10px;
+    padding: 1px 5px;
+    max-width: 80px;
+    border-radius: 5px;
+  }
+
+  .school-hq-jump-hint {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  .dev-mode-pill {
+    font-size: 9px;
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+
+  .hud-center {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .stat-points {
+    padding: 6px 12px;
+    border-radius: 12px;
+    gap: 6px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+
+  .stat-points .stat-icon-box {
+    color: var(--accent-gold);
+    filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6));
+  }
+
+  .stat-points .stat-icon-box svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .stat-points .stat-label {
+    display: none;
+  }
+
+  .stat-points .stat-value {
+    font-size: 13px;
+    font-weight: 800;
+    color: #fbbf24;
+  }
+
+  .stat-territory,
+  .hud-right,
+  .stat-rank,
+  .btn-fly-hq {
+    display: none !important;
+  }
+
+  /* B. Top-Right Cài đặt / Dev Drawer Trigger Button */
+  .dev-dropdown-container {
+    top: max(10px, env(safe-area-inset-top));
+    right: 12px;
+  }
+
+  .dev-dropdown-trigger {
+    padding: 0;
+    width: 38px;
+    height: 38px;
+    min-height: 38px;
+    min-width: 38px;
+    border-radius: 12px;
+    justify-content: center;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.9);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+
+  .dev-dropdown-trigger svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .dev-dropdown-trigger .trigger-label,
+  .dev-dropdown-trigger .chevron-icon {
+    display: none; /* Chỉ hiện icon bánh răng */
+  }
+
+  .dev-dropdown-menu {
+    width: min(340px, calc(100vw - 24px));
+    right: 0;
+    top: calc(100% + 8px);
+    max-height: calc(85vh - env(safe-area-inset-top));
+    overflow-y: auto;
+    border-radius: 16px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65);
+  }
+
+  /* C. Minimap: Mini Radar Bubble (76px) NẰM TRÊN ACTION DOCK KHÔNG BỊ ĐÈ */
+  .minimap-wrapper {
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + 112px);
+    left: 14px;
+    z-index: 120;
+    padding: 3px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.9);
+    backdrop-filter: blur(16px);
+    border: 2px solid rgba(56, 189, 248, 0.45);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55), 0 0 12px rgba(56, 189, 248, 0.2);
+    gap: 0;
+    transition: width 0.25s ease, height 0.25s ease, border-radius 0.25s ease, bottom 0.25s ease;
+    touch-action: none;
+  }
+
+  .minimap-canvas {
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    display: block;
+    cursor: crosshair;
+    touch-action: none;
+    transition: all 0.25s ease;
+  }
+
+  .minimap-canvas.is-dragging {
+    cursor: grabbing;
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.6);
+  }
+
+  .minimap-wrapper.is-expanded {
+    width: 210px;
+    height: 210px;
+    border-radius: 18px;
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + 105px);
+  }
+
+  .minimap-wrapper.is-expanded .minimap-canvas {
+    width: 100%;
+    height: 100%;
+    border-radius: 14px;
+  }
+
+  .minimap-controls {
+    display: none !important; /* Ẩn thanh nút zoom nhỏ trên mobile */
+  }
+
+  /* D. Action Dock: Floating Capsule ôm sát đáy ngón cái (Thumb Zone) */
+  .student-mode-dock {
+    left: 12px;
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: auto;
+    max-width: 440px;
+    margin: 0 auto;
+    z-index: 100;
+  }
+
+  .mode-dock-bar {
+    padding: 6px 8px;
+    border-radius: 16px;
+    gap: 5px;
+    background: rgba(15, 23, 42, 0.9);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  }
+
+  .dock-header-bar {
+    padding: 0 2px;
+  }
+
+  .smart-toggle-pill {
+    padding: 3px 8px;
+    font-size: 10px;
+    gap: 4px;
+    border-radius: 16px;
+  }
+
+  .dock-label-hint {
+    display: none; /* Ẩn hint text dài dòng */
+  }
+
+  .mode-buttons-group {
+    gap: 6px;
+    width: 100%;
+  }
+
+  .mode-btn {
+    flex: 1;
+    min-height: 44px;
+    padding: 5px 4px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 2px;
+    border-radius: 10px;
+  }
+
+  .mode-icon svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .mode-name {
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .mode-cost {
+    font-size: 10px;
+    padding: 1px 5px;
+    gap: 3px;
+    color: var(--accent-gold);
+  }
+
+  .mode-cost svg {
+    width: 11px;
+    height: 11px;
+  }
+
+  .confirm-action-card {
+    min-width: unset;
+    width: 100%;
+    gap: 7px;
+  }
+
+  .confirm-execute-btn {
+    min-height: 48px;
+    border-radius: 12px;
+    font-size: 12px;
+    padding: 10px 12px;
+  }
+
+  /* E. Toast Feedback: Nâng cao khỏi Dock ngón tay */
+  .action-toast {
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + 110px);
+    width: calc(100vw - 32px);
+    max-width: 360px;
+    text-align: center;
+    font-size: 11px;
+  }
+
+  /* F. Database Modal Responsive */
+  .db-modal-card {
+    width: calc(100vw - 16px);
+    max-height: calc(90vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
 }

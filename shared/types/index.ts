@@ -1,4 +1,19 @@
 export type PlayerRole = "assault" | "fortify" | "support";
+export type GameMode = "normal" | "dev";
+
+export interface StudentAccount {
+  email: string;
+  schoolId: string;
+  name: string;
+  defaultKm: number;
+}
+
+export interface ClientJoinOptions {
+  email?: string;
+  schoolId?: string;
+  mode?: GameMode;
+  points?: number;
+}
 
 export interface TileData {
   x: number;

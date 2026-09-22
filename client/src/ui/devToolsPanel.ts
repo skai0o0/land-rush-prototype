@@ -1,5 +1,7 @@
 // client/src/ui/devToolsPanel.ts
 import { Icons } from './icons';
+import { MOCK_STUDENT_ACCOUNTS } from '../../../shared/constants/schools';
+import { RunningDatabase } from '../services/runningDatabase';
 
 export interface DevPanelCallbacks {
   onToggleBot: (isRunning: boolean) => void;
@@ -7,6 +9,10 @@ export interface DevPanelCallbacks {
   onResetMap: () => void;
   onResetCamera: () => void;
   onToggleGrid?: (show: boolean) => void;
+  onSwitchAccount?: (email: string, schoolId: string, km: number) => void;
+  onToggleMode?: (mode: "normal" | "dev") => void;
+  onOpenNewTab?: (schoolId: string, email: string, km: number) => void;
+  onOpenDbEditor?: () => void;
 }
 
 export class DevToolsPanel {
@@ -14,14 +20,42 @@ export class DevToolsPanel {
   private isOpen = false;
   private isBotRunning = false;
   private showGrid = true;
+  private currentMode: "normal" | "dev" = "dev";
+  private selectedMockEmail: string = MOCK_STUDENT_ACCOUNTS[0].email;
   private callbacks: DevPanelCallbacks;
 
-  constructor(callbacks: DevPanelCallbacks, parent?: HTMLElement) {
+  constructor(callbacks: DevPanelCallbacks, parent?: HTMLElement, initialMode: "normal" | "dev" = "dev", initialEmail?: string) {
     this.callbacks = callbacks;
+    this.currentMode = initialMode;
+    if (initialEmail) {
+      this.selectedMockEmail = initialEmail;
+    }
     this.container = document.createElement('div');
     this.container.className = 'dev-dropdown-container';
     this.render();
     (parent || document.body).appendChild(this.container);
+    this.bindEvents();
+
+    // Auto-update student list when database changes
+    RunningDatabase.subscribe((students) => {
+      // Keep selected email valid
+      if (!students.some(s => s.email === this.selectedMockEmail) && students.length > 0) {
+        this.selectedMockEmail = students[0].email;
+      }
+      this.render();
+      this.bindEvents();
+    });
+  }
+
+  public setSelectedAccount(email: string): void {
+    this.selectedMockEmail = email;
+    this.render();
+    this.bindEvents();
+  }
+
+  public setMode(mode: "normal" | "dev"): void {
+    this.currentMode = mode;
+    this.render();
     this.bindEvents();
   }
 
@@ -38,11 +72,14 @@ export class DevToolsPanel {
   public setTick(_tick: number): void {}
 
   private render(): void {
+    const students = RunningDatabase.getAll();
+    const selectedAcc = students.find(a => a.email === this.selectedMockEmail) || students[0];
+
     this.container.innerHTML = `
       <!-- Nút mở/đóng Dropdown Menu -->
       <button class="dev-dropdown-trigger" id="dev-trigger-btn" title="Cài đặt & Dev Simulation">
         ${Icons.settings('sm')}
-        <span class="trigger-label">Dev Simulation</span>
+        <span class="trigger-label">${this.currentMode === "dev" ? "Dev Control" : "Sinh Viên Mode"}</span>
         <svg class="chevron-icon ${this.isOpen ? 'open' : ''}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 12 15 18 9"></polyline>
         </svg>
@@ -50,6 +87,56 @@ export class DevToolsPanel {
 
       <!-- Menu nội dung (mặc định ẩn) -->
       <div class="dev-dropdown-menu ${this.isOpen ? 'show' : ''}" id="dev-menu-body">
+        
+        <!-- 1. CHẾ ĐỘ CHƠI -->
+        <div class="dev-menu-section">
+          <div class="section-title">CHẾ ĐỘ TÁC CHIẾN</div>
+          <div class="dev-row">
+            <span>Chế độ:</span>
+            <button id="mode-toggle-btn" class="btn-dev-toggle ${this.currentMode === 'dev' ? 'active' : ''}" title="Chuyển giữa chế độ Dev tự do và Normal khóa trường">
+              ${this.currentMode === 'dev' ? 'DEV (TỰ DO)' : 'NORMAL (KHÓA TRƯỜNG)'}
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. TÀI KHOẢN MẪU 7 TRƯỜNG ĐHQG -->
+        <div class="dev-menu-section">
+          <div class="section-title">TÀI KHOẢN SINH VIÊN (${students.length} TÀI KHOẢN)</div>
+          <select id="mock-account-select" class="dev-account-select">
+            ${students.map(acc => {
+              const balance = Math.max(0, Math.round(acc.km) - (acc.pointsSpent || 0));
+              return `
+                <option value="${acc.email}" ${acc.email === this.selectedMockEmail ? 'selected' : ''}>
+                  ${acc.name} (${acc.schoolId.toUpperCase()} - ${balance}đ/${acc.km}km)
+                </option>
+              `;
+            }).join('')}
+          </select>
+          <div class="dev-btn-group" style="margin-top: 4px;">
+            <button class="btn-dev-action" id="btn-switch-account" title="Chuyển sang tài khoản sinh viên này ngay trong tab này">Đăng nhập tài khoản</button>
+            <button class="btn-dev-action" id="btn-open-tab" title="Mở tab mới với tài khoản này để test nhiều người chơi cùng lúc">Mở tab mới (+)</button>
+            <button class="btn-dev-action" id="btn-open-db" style="grid-column: span 2; background: rgba(14, 165, 233, 0.2); border-color: rgba(56, 189, 248, 0.5); color: #38bdf8; font-weight: 700;" title="Mở bảng điều khiển cơ sở dữ liệu giải chạy sinh viên ĐHQG">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align: -2px; margin-right: 4px;">
+                <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+              </svg>
+              Quản lý Database Giải Chạy
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. ĐIỂM GIẢI CHẠY (1 KM = 1 ĐIỂM) -->
+        <div class="dev-menu-section">
+          <div class="section-title">GIẢ LẬP ĐIỂM CHẠY (1 KM = 1 ĐIỂM)</div>
+          <div class="dev-btn-group">
+            <button class="btn-dev-action" id="btn-add-50pts">+50 km (50đ)</button>
+            <button class="btn-dev-action" id="btn-add-100pts">+100 km (100đ)</button>
+            <button class="btn-dev-action" id="btn-add-500pts">+500 km (500đ)</button>
+          </div>
+        </div>
+
+        <!-- 4. GIẢ LẬP BOT -->
         <div class="dev-menu-section">
           <div class="section-title">GIẢ LẬP BOT (TỰ ĐỘNG)</div>
           <div class="dev-row">
@@ -60,20 +147,13 @@ export class DevToolsPanel {
           </div>
         </div>
 
-        <div class="dev-menu-section">
-          <div class="section-title">HỖ TRỢ TEST & ĐIỂM SỐ</div>
-          <div class="dev-btn-group">
-            <button class="btn-dev-action" id="btn-add-100pts">+100 Điểm</button>
-            <button class="btn-dev-action" id="btn-add-500pts">+500 Điểm</button>
-          </div>
-        </div>
-
+        <!-- 5. HỆ THỐNG & CAMERA -->
         <div class="dev-menu-section">
           <div class="section-title">HỆ THỐNG & CAMERA</div>
           <div class="dev-btn-group">
-            <button class="btn-dev-action" id="btn-dev-recenter">Căn camera</button>
+            <button class="btn-dev-action" id="btn-dev-recenter">Căn camera HQ</button>
             <button class="btn-dev-action" id="btn-dev-grid">Ẩn/Hiện lưới</button>
-            <button class="btn-dev-action danger" id="btn-dev-reset">Reset Bản Đồ</button>
+            <button class="btn-dev-action danger" id="btn-dev-reset" style="grid-column: span 2;">Reset Toàn Bộ Bản Đồ</button>
           </div>
         </div>
       </div>
@@ -99,6 +179,48 @@ export class DevToolsPanel {
       }
     });
 
+    // Toggle Chế độ Dev / Normal
+    this.container.querySelector('#mode-toggle-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nextMode = this.currentMode === 'dev' ? 'normal' : 'dev';
+      this.currentMode = nextMode;
+      this.callbacks.onToggleMode?.(nextMode);
+      this.render();
+      this.bindEvents();
+    });
+
+    // Thay đổi tài khoản được chọn trong dropdown
+    const accSelect = this.container.querySelector('#mock-account-select') as HTMLSelectElement;
+    accSelect?.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.selectedMockEmail = accSelect.value;
+    });
+
+    // Chuyển sang tài khoản đã chọn trong tab hiện tại
+    this.container.querySelector('#btn-switch-account')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const student = RunningDatabase.getByEmail(this.selectedMockEmail) || RunningDatabase.getAll()[0];
+      if (student) {
+        const balance = RunningDatabase.getStudentBalance(student.email);
+        this.callbacks.onSwitchAccount?.(student.email, student.schoolId, balance);
+      }
+    });
+
+    // Mở tab mới với tài khoản đã chọn
+    this.container.querySelector('#btn-open-tab')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const student = RunningDatabase.getByEmail(this.selectedMockEmail) || RunningDatabase.getAll()[0];
+      if (student) {
+        this.callbacks.onOpenNewTab?.(student.schoolId, student.email, student.km);
+      }
+    });
+
+    // Mở Database Modal
+    this.container.querySelector('#btn-open-db')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onOpenDbEditor?.();
+    });
+
     // Bật/tắt Bot
     const botToggle = this.container.querySelector('#bot-toggle-btn');
     botToggle?.addEventListener('click', (e) => {
@@ -108,7 +230,11 @@ export class DevToolsPanel {
       this.callbacks.onToggleBot(this.isBotRunning);
     });
 
-    // Cộng điểm test
+    // Cộng điểm test (1 km = 1 điểm)
+    this.container.querySelector('#btn-add-50pts')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onAddPoints(50);
+    });
     this.container.querySelector('#btn-add-100pts')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.callbacks.onAddPoints(100);

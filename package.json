@@ -5,6 +5,9 @@
   "scripts": {
     "dev": "concurrently -k -n \"SERVER,CLIENT\" -c \"cyan,green\" \"npm run start --prefix server\" \"npm run dev --prefix client\"",
     "build": "npm run build --prefix server && npm run build --prefix client",
+    "start:unified": "npm run build && npm run start --prefix server",
+    "tunnel:quick": "powershell -ExecutionPolicy Bypass -File scripts/tunnel-quick.ps1",
+    "tunnel:named": "powershell -ExecutionPolicy Bypass -File scripts/tunnel-named.ps1",
     "assets:generate": "blender --background --python scripts/generators/landmarks/build_all_landmarks.py && blender --background --python scripts/generators/hqs/build_all_hqs.py && python scripts/create_manifests.py"
   },
   "devDependencies": {

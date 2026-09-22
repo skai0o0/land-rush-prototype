@@ -5,6 +5,11 @@ import { NatureGridManager } from "../engine/natureGridManager";
 import { getSchoolColor } from "../../../shared/constants/schools";
 import { LANDMARK_ROSTER } from "../../../shared/constants/landmarks";
 import { PlayerRole } from "../../../shared/types";
+import {
+  registerLeveledZone,
+  getFootprintFoundationHeight,
+  isInsideLeveledZone
+} from "../engine/terrainNoise";
 
 export interface NetworkCallbacks {
   onConnected?: (room: Room) => void;
@@ -21,6 +26,10 @@ export class ColyseusClient {
   private client: Client;
   public room?: Room;
   public territoryCounts: Record<string, number> = {};
+  private lastJoinOptions: any = { schoolId: "hcmut" };
+  private isReconnecting = false;
+  private territoryDebounceTimer: any = null;
+  private isInitialSyncDone = false;
 
   constructor(
     private chunkGridManager: ChunkGridManager,
@@ -28,25 +37,42 @@ export class ColyseusClient {
     private natureGridManager: NatureGridManager,
     private callbacks: NetworkCallbacks
   ) {
-    // Dynamic endpoint support (connects to same hostname port 2567)
-    const host = window.location.hostname || "localhost";
-    const port = 2567;
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const endpoint = `${protocol}://${host}:${port}`;
+    // Dynamic endpoint support:
+    // 1. Env override via VITE_COLYSEUS_URL
+    // 2. Local dev server (port 5173) -> connects to ws://localhost:2567
+    // 3. Cloudflare Tunnel / Production (port 80/443/custom domain) -> connects to same host/protocol
+    const envUrl = (import.meta as any).env?.VITE_COLYSEUS_URL;
+    let endpoint: string;
 
+    if (envUrl) {
+      endpoint = envUrl;
+    } else if (window.location.port === "5173") {
+      endpoint = `ws://${window.location.hostname || "localhost"}:2567`;
+    } else {
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      endpoint = `${protocol}://${window.location.host}`;
+    }
+
+    console.log(`[ColyseusClient] Initializing endpoint: ${endpoint}`);
     this.client = new Client(endpoint);
   }
 
-  public async connect(selectedSchool = "hcmut", maxRetries = 20, retryDelay = 1000): Promise<Room> {
+  public async connect(
+    options: { schoolId?: string; email?: string; mode?: "normal" | "dev"; points?: number; km?: number } | string = "hcmut",
+    maxRetries = 20,
+    retryDelay = 1000
+  ): Promise<Room> {
     let attempt = 0;
+    const joinOptions = typeof options === "string" ? { schoolId: options } : options;
+    this.lastJoinOptions = { ...joinOptions };
+    this.territoryCounts = {};
+
     while (attempt < maxRetries) {
       attempt++;
       try {
-        console.log(`[ColyseusClient] Connecting to campus_room (attempt ${attempt}/${maxRetries})...`);
+        console.log(`[ColyseusClient] Connecting to campus_room (attempt ${attempt}/${maxRetries})...`, joinOptions);
 
-        this.room = await this.client.joinOrCreate("campus_room", {
-          schoolId: selectedSchool
-        });
+        this.room = await this.client.joinOrCreate("campus_room", joinOptions);
 
         console.log(`[ColyseusClient] Connected successfully! Session ID: ${this.room.sessionId}`);
         if (this.callbacks.onConnected) {
@@ -54,6 +80,10 @@ export class ColyseusClient {
         }
 
         this.setupStateListeners();
+        this.isInitialSyncDone = false;
+        setTimeout(() => {
+          this.isInitialSyncDone = true;
+        }, 1200);
         return this.room;
       } catch (err) {
         if (attempt >= maxRetries) {
@@ -76,6 +106,14 @@ export class ColyseusClient {
     const processedHQs = new Set<string>();
     const processedLMs = new Set<string>();
 
+    let exclusionDebounceTimer: any = null;
+    const triggerExclusionUpdate = () => {
+      clearTimeout(exclusionDebounceTimer);
+      exclusionDebounceTimer = setTimeout(() => {
+        this.natureGridManager.setExclusionZones(collectedHQs, collectedLMs);
+      }, 50);
+    };
+
     // Listen to HQ additions
     room.state.hqs.onAdd((hq: any, key: string) => {
       const hqKey = key || hq.schoolId;
@@ -83,27 +121,45 @@ export class ColyseusClient {
         processedHQs.add(hqKey);
         collectedHQs.push({ x: hq.x, y: hq.y });
       }
+
+      // HQ leveling: diameter ~20 tiles (radius 10) + 2 tiles apron
+      const hqMinX = hq.x - 12;
+      const hqMaxX = hq.x + 12;
+      const hqMinY = hq.y - 12;
+      const hqMaxY = hq.y + 12;
+      const foundationHeight = getFootprintFoundationHeight(hqMinX, hqMaxX, hqMinY, hqMaxY);
+      registerLeveledZone(`hq_${hq.schoolId}`, hqMinX, hqMaxX, hqMinY, hqMaxY, foundationHeight);
+      this.chunkGridManager.flattenArea(hqMinX, hqMaxX, hqMinY, hqMaxY, foundationHeight);
+
       this.modelLoader.spawnHQ(hq.schoolId, hq.x, hq.y);
 
       if (this.callbacks.onHQAdded) {
         this.callbacks.onHQAdded({ schoolId: hq.schoolId, x: hq.x, y: hq.y });
       }
 
-      if (collectedHQs.length >= 10 && collectedLMs.length >= 10) {
-        this.natureGridManager.setExclusionZones(collectedHQs, collectedLMs);
-      }
+      triggerExclusionUpdate();
     });
 
     // Listen to Landmark additions
     room.state.landmarks.onAdd((lm: any, key: string) => {
       const lmKey = key || lm.landmarkKey;
+      const config = LANDMARK_ROSTER[lm.landmarkKey];
+      const w = config?.footprint.width || 14;
+      const h = config?.footprint.height || 12;
+
       if (!processedLMs.has(lmKey)) {
         processedLMs.add(lmKey);
-        const config = LANDMARK_ROSTER[lm.landmarkKey];
-        const w = config?.footprint.width || 6;
-        const h = config?.footprint.height || 6;
         collectedLMs.push({ x: lm.x, y: lm.y, width: w, height: h });
       }
+
+      // Landmark leveling: footprint + 1 tile apron margin
+      const lmMinX = lm.x - 1;
+      const lmMaxX = lm.x + w;
+      const lmMinY = lm.y - 1;
+      const lmMaxY = lm.y + h;
+      const foundationHeight = getFootprintFoundationHeight(lmMinX, lmMaxX, lmMinY, lmMaxY);
+      registerLeveledZone(`lm_${lm.landmarkKey}`, lmMinX, lmMaxX, lmMinY, lmMaxY, foundationHeight);
+      this.chunkGridManager.flattenArea(lmMinX, lmMaxX, lmMinY, lmMaxY, foundationHeight);
 
       this.modelLoader.spawnLandmark(lm.landmarkKey, lm.x, lm.y, lm.ownerId);
 
@@ -111,9 +167,7 @@ export class ColyseusClient {
         this.callbacks.onLandmarkAdded({ landmarkKey: lm.landmarkKey, x: lm.x, y: lm.y, ownerId: lm.ownerId });
       }
 
-      if (collectedHQs.length >= 10 && collectedLMs.length >= 10) {
-        this.natureGridManager.setExclusionZones(collectedHQs, collectedLMs);
-      }
+      triggerExclusionUpdate();
 
       // Listen for ownership changes on this landmark
       if (typeof lm.onChange === "function") {
@@ -134,8 +188,10 @@ export class ColyseusClient {
     // Listen to Claimed Tiles (Sparse optimization)
     room.state.claimedTiles.onAdd((tile: any, key: string) => {
       const color = getSchoolColor(tile.ownerId);
-      this.chunkGridManager.setTileColor(tile.x, tile.y, color);
-      this.chunkGridManager.setTileElevation(tile.x, tile.y, (tile.defenseTier || 0) * 0.15);
+      this.chunkGridManager.setTileColor(tile.x, tile.y, color, this.isInitialSyncDone);
+      if (!isInsideLeveledZone(tile.x, tile.y)) {
+        this.chunkGridManager.setTileElevation(tile.x, tile.y, (tile.defenseTier || 0) * 0.15);
+      }
 
       this.territoryCounts[tile.ownerId] = (this.territoryCounts[tile.ownerId] || 0) + 1;
       this.triggerTerritoryUpdate();
@@ -143,16 +199,20 @@ export class ColyseusClient {
       if (typeof tile.onChange === "function") {
         tile.onChange(() => {
           const c = getSchoolColor(tile.ownerId);
-          this.chunkGridManager.setTileColor(tile.x, tile.y, c);
-          this.chunkGridManager.setTileElevation(tile.x, tile.y, (tile.defenseTier || 0) * 0.15);
+          this.chunkGridManager.setTileColor(tile.x, tile.y, c, this.isInitialSyncDone);
+          if (!isInsideLeveledZone(tile.x, tile.y)) {
+            this.chunkGridManager.setTileElevation(tile.x, tile.y, (tile.defenseTier || 0) * 0.15);
+          }
         });
       }
     });
 
     room.state.claimedTiles.onChange((tile: any, key: string) => {
       const color = getSchoolColor(tile.ownerId);
-      this.chunkGridManager.setTileColor(tile.x, tile.y, color);
-      this.chunkGridManager.setTileElevation(tile.x, tile.y, (tile.defenseTier || 0) * 0.15);
+      this.chunkGridManager.setTileColor(tile.x, tile.y, color, this.isInitialSyncDone);
+      if (!isInsideLeveledZone(tile.x, tile.y)) {
+        this.chunkGridManager.setTileElevation(tile.x, tile.y, (tile.defenseTier || 0) * 0.15);
+      }
     });
 
     room.state.claimedTiles.onRemove((tile: any, key: string) => {
@@ -185,20 +245,27 @@ export class ColyseusClient {
 
     // Listen to room disconnect
     room.onLeave((code) => {
-      console.warn(`[ColyseusClient] Disconnected from room (code ${code}). Attempting auto-reconnect in 1.5s...`);
+      console.warn(`[ColyseusClient] Disconnected from room (code ${code}).`);
       if (this.callbacks.onDisconnected) {
         this.callbacks.onDisconnected(code);
       }
-      setTimeout(() => {
-        this.connect().catch((e) => console.error("[ColyseusClient] Reconnect failed:", e));
-      }, 1500);
+      if (code !== 1000 && !this.isReconnecting) {
+        this.isReconnecting = true;
+        setTimeout(() => {
+          this.isReconnecting = false;
+          this.connect(this.lastJoinOptions).catch((e) => console.error("[ColyseusClient] Reconnect failed:", e));
+        }, 2000);
+      }
     });
   }
 
   private triggerTerritoryUpdate() {
-    if (this.callbacks.onTerritoryChange) {
-      this.callbacks.onTerritoryChange({ ...this.territoryCounts });
-    }
+    clearTimeout(this.territoryDebounceTimer);
+    this.territoryDebounceTimer = setTimeout(() => {
+      if (this.callbacks.onTerritoryChange) {
+        this.callbacks.onTerritoryChange({ ...this.territoryCounts });
+      }
+    }, 80);
   }
 
   // Tactical Actions
@@ -225,6 +292,10 @@ export class ColyseusClient {
 
   public selectSchool(schoolId: string) {
     this.room?.send("select_school", { schoolId });
+  }
+
+  public loginStudent(email: string, schoolId: string, points: number, mode?: string) {
+    this.room?.send("login_student", { email, schoolId, points, mode });
   }
 
   public setRole(role: PlayerRole) {

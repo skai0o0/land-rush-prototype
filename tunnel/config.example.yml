@@ -1,0 +1,52 @@
+# ==============================================================================
+# CLOUDFLARE TUNNEL CONFIGURATION CHO LAND-RUSH-PROTOTYPE
+# ==============================================================================
+# HƯỚNG DẪN THIẾT LẬP:
+#
+# 1. CÁCH 1: Dùng Quick Tunnel (Nhanh nhất, KHÔNG CẦN domain, KHÔNG CẦN đăng nhập)
+#    - Chỉ cần chạy lệnh:
+#        npm run tunnel:quick
+#      hoặc:
+#        & "C:\Users\AMTECH\node_modules\cloudflared\bin\cloudflared.exe" tunnel --url http://localhost:2567
+#    - Cloudflare sẽ cấp ngay 1 URL dạng: https://xxxx-xxxx-xxxx.trycloudflare.com
+#    - Bất kỳ ai mở URL này đều có thể chơi ngay (cả Web 3D lẫn kết nối WebSocket Multiplayer)!
+#
+# 2. CÁCH 2: Dùng Named Tunnel với Tên Miền Riêng (ví dụ: game.yourdomain.com)
+#    Bước 1: Đăng nhập Cloudflare
+#      cloudflared tunnel login
+#    Bước 2: Tạo Tunnel mới
+#      cloudflared tunnel create landrush-tunnel
+#      -> Nhận được Tunnel UUID (ví dụ: 12345678-abcd-1234-abcd-1234567890ab)
+#    Bước 3: Đổi tên file này thành config.yml trong thư mục tunnel/
+#      Điền `tunnel` và `credentials-file` tương ứng bên dưới.
+#    Bước 4: Trỏ DNS tên miền về Tunnel
+#      cloudflared tunnel route dns landrush-tunnel game.yourdomain.com
+#    Bước 5: Khởi chạy Tunnel
+#      npm run tunnel:named
+# ==============================================================================
+
+# Điền UUID hoặc Tên Tunnel của bạn
+tunnel: YOUR_TUNNEL_UUID_HERE
+
+# Đường dẫn file JSON chứng thực được tạo bởi Cloudflare (thường nằm ở ~/.cloudflared/)
+credentials-file: C:\Users\AMTECH\.cloudflared\YOUR_TUNNEL_UUID_HERE.json
+
+# Danh sách định tuyến (Ingress Rules)
+ingress:
+  # Cấu hình khuyến nghị: Định tuyến tới cổng 2567 (Unified Server)
+  # Express trên cổng 2567 sẽ tự phục vụ Web Client 3D (client/dist) lẫn Colyseus WebSocket
+  - hostname: game.yourdomain.com
+    service: http://localhost:2567
+    originRequest:
+      noTLSVerify: true
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+
+  # (Tùy chọn) Nếu muốn dùng 2 domain riêng cho Web Dev và WebSocket:
+  # - hostname: web.yourdomain.com
+  #   service: http://localhost:5173
+  # - hostname: ws.yourdomain.com
+  #   service: http://localhost:2567
+
+  # Rule cuối cùng bắt buộc: Trả về 404 cho các hostname không khớp
+  - service: http_status:404
