@@ -77,10 +77,78 @@ export class SceneManager {
   private lastPinchDistance = 0;
   private lastPinchAngle = 0;
 
+  // Pointer/Touch origin state tracking (anti-click-through)
+  private isCanvasMouseDown = false;
+  private isCanvasTouchActive = false;
+
+  // Directional light reference & Dynamic graphics profile
+  private dirLight?: THREE.DirectionalLight;
+  public currentGraphicsTier: "performance" | "balanced" | "high" = "balanced";
+
+  // Hover throttle tracking
+  private lastHoverTime = 0;
+  private lastHoverMouseX = -9999;
+  private lastHoverMouseY = -9999;
+
+  /**
+   * Determine if a pointer, mouse or touch event originated on or is over an interactive UI element
+   */
+  public isEventOverUI(e: Event): boolean {
+    // 1. Direct Target inspection
+    const target = e.target as HTMLElement | null;
+    if (target) {
+      if (target === this.renderer.domElement) return false;
+      if (target.closest(
+        '.student-mode-dock, .stats-top-hud, .minimap-wrapper, .dev-dropdown-container, ' +
+        '.db-modal-overlay, .db-modal-dialog, .action-toast, [data-ui="true"], ' +
+        'button, input, select, textarea, a'
+      )) {
+        return true;
+      }
+    }
+
+    // 2. Client coordinate hit testing
+    let clientX: number | null = null;
+    let clientY: number | null = null;
+
+    if ("clientX" in e && typeof (e as MouseEvent).clientX === "number") {
+      clientX = (e as MouseEvent).clientX;
+      clientY = (e as MouseEvent).clientY;
+    } else if ("touches" in e && (e as TouchEvent).touches && (e as TouchEvent).touches.length > 0) {
+      clientX = (e as TouchEvent).touches[0].clientX;
+      clientY = (e as TouchEvent).touches[0].clientY;
+    } else if ("changedTouches" in e && (e as TouchEvent).changedTouches && (e as TouchEvent).changedTouches.length > 0) {
+      clientX = (e as TouchEvent).changedTouches[0].clientX;
+      clientY = (e as TouchEvent).changedTouches[0].clientY;
+    }
+
+    if (clientX !== null && clientY !== null) {
+      const el = document.elementFromPoint(clientX, clientY);
+      if (el && el !== this.renderer.domElement) {
+        if (el.closest(
+          '.student-mode-dock, .stats-top-hud, .minimap-wrapper, .dev-dropdown-container, ' +
+          '.db-modal-overlay, .db-modal-dialog, .action-toast, [data-ui="true"], ' +
+          'button, input, select, textarea, a'
+        )) {
+          return true;
+        }
+      }
+    }
+
+    // 3. Modal open guard: if database modal is open, canvas interactions are blocked
+    const modalEl = document.querySelector('.db-modal-overlay') as HTMLElement | null;
+    if (modalEl && modalEl.style.display !== 'none') {
+      return true;
+    }
+
+    return false;
+  }
+
   // Callbacks
   public onTileHover?: (x: number, y: number, screenX: number, screenY: number) => void;
   public onTileLeave?: () => void;
   public onTileClick?: (event: TileClickEvent) => void;
+  public onMissClick?: () => void;
   public onCameraMove?: (targetX: number, targetZ: number, frustumSize: number) => void;
   public onFpsUpdate?: (fps: number) => void;
   public onFlyToHQRequested?: () => void;
@@ -102,11 +170,24 @@ export class SceneManager {
     this.camera = new THREE.PerspectiveCamera(45, aspect, 1, 2000);
     this.updateCameraPosition();
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    const isMobile = typeof window !== "undefined" && (
+      window.innerWidth <= 768 ||
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    );
+
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: !isMobile,
+      powerPreference: "high-performance",
+      precision: isMobile ? "mediump" : "highp"
+    });
     this.renderer.setSize(container.clientWidth, container.clientHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // Dynamic initial graphics tier based on detected device
+    this.currentGraphicsTier = isMobile ? "balanced" : "high";
+    const initialMaxDPR = isMobile ? 1.25 : 1.5;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, initialMaxDPR));
+    this.renderer.shadowMap.enabled = !isMobile;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
 
@@ -286,26 +367,68 @@ export class SceneManager {
   }
 
   private setupLighting() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     this.scene.add(ambientLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xe8f4f8, 0x5a4d41, 0.5);
+    const hemiLight = new THREE.HemisphereLight(0xe8f4f8, 0x5a4d41, 0.65);
     hemiLight.position.set(0, 200, 0);
     this.scene.add(hemiLight);
 
-    const dirLight = new THREE.DirectionalLight(0xfff7e6, 1.2);
-    dirLight.position.set(300, 500, 300);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
+    const dirLight = new THREE.DirectionalLight(0xfff7e6, 1.25);
+    dirLight.position.set(this.targetPosition.x + 180, 320, this.targetPosition.z + 180);
+    dirLight.target.position.set(this.targetPosition.x, 0, this.targetPosition.z);
+    this.scene.add(dirLight.target);
+
+    // Optimized shadow frustum: centered dynamically on player camera view
+    dirLight.castShadow = this.renderer.shadowMap.enabled;
+    dirLight.shadow.mapSize.width = 1024;
+    dirLight.shadow.mapSize.height = 1024;
     dirLight.shadow.camera.near = 50;
-    dirLight.shadow.camera.far = 1200;
-    dirLight.shadow.camera.left = -300;
-    dirLight.shadow.camera.right = 300;
-    dirLight.shadow.camera.top = 300;
-    dirLight.shadow.camera.bottom = -300;
-    dirLight.shadow.bias = -0.0005;
+    dirLight.shadow.camera.far = 700;
+    dirLight.shadow.camera.left = -140;
+    dirLight.shadow.camera.right = 140;
+    dirLight.shadow.camera.top = 140;
+    dirLight.shadow.camera.bottom = -140;
+    dirLight.shadow.bias = -0.0004;
+
     this.scene.add(dirLight);
+    this.dirLight = dirLight;
+  }
+
+  public setGraphicsTier(tier: "performance" | "balanced" | "high") {
+    this.currentGraphicsTier = tier;
+
+    if (tier === "performance") {
+      // Mobile / Battery Saver: 60 FPS priority
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.15));
+      this.renderer.shadowMap.enabled = false;
+      if (this.dirLight) this.dirLight.castShadow = false;
+      this.chunkManager.updateVisibleChunks(this.targetPosition.x, this.targetPosition.z, this.zoomLevel, 2);
+    } else if (tier === "balanced") {
+      // Balanced: Smooth shadows on PC, optimized DPR on Mobile
+      const isMobile = window.innerWidth <= 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 1.5));
+      this.renderer.shadowMap.enabled = !isMobile;
+      if (this.dirLight) this.dirLight.castShadow = !isMobile;
+      this.chunkManager.updateVisibleChunks(this.targetPosition.x, this.targetPosition.z, this.zoomLevel, 3);
+    } else {
+      // High / PC Ultra
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+      this.renderer.shadowMap.enabled = true;
+      if (this.dirLight) this.dirLight.castShadow = true;
+      this.chunkManager.updateVisibleChunks(this.targetPosition.x, this.targetPosition.z, this.zoomLevel, 4);
+    }
+
+    // Refresh materials when shadow maps toggle
+    this.scene.traverse((obj) => {
+      if ((obj as any).material) {
+        if (Array.isArray((obj as any).material)) {
+          (obj as any).material.forEach((m: any) => (m.needsUpdate = true));
+        } else {
+          (obj as any).material.needsUpdate = true;
+        }
+      }
+    });
   }
 
   private updateCameraPosition() {
@@ -317,6 +440,16 @@ export class SceneManager {
     this.camera.position.y += this.flightAltitude;
     this.camera.lookAt(this.targetPosition);
     this.camera.updateMatrixWorld();
+
+    // 1. Dynamic Chunk Culling: Only render chunks near camera view (cuts 96% GPU draw workload)
+    this.chunkManager.updateVisibleChunks(this.targetPosition.x, this.targetPosition.z, this.zoomLevel);
+
+    // 2. Center dynamic shadow camera onto current camera target
+    if (this.dirLight && this.dirLight.castShadow) {
+      this.dirLight.target.position.set(this.targetPosition.x, 0, this.targetPosition.z);
+      this.dirLight.target.updateMatrixWorld();
+      this.dirLight.position.set(this.targetPosition.x + 180, 320, this.targetPosition.z + 180);
+    }
 
     if (this.onCameraMove) {
       this.onCameraMove(this.targetPosition.x, this.targetPosition.z, 70 * this.zoomLevel);
@@ -567,11 +700,20 @@ export class SceneManager {
     // MOBILE MULTI-TOUCH GESTURES (1-Finger Pan & Tap, 2-Finger Pinch-Zoom & Twist-Rotate)
     // ============================================================
     dom.addEventListener("touchstart", (e: TouchEvent) => {
+      // If touch started on or over UI, ignore completely
+      if (this.isEventOverUI(e)) {
+        this.isCanvasTouchActive = false;
+        this.isTouching = false;
+        this.isPinching = false;
+        return;
+      }
+
       e.preventDefault();
       this.cancelPanAnim();
 
       if (e.touches.length === 1) {
         // Single finger: Pan or Tap
+        this.isCanvasTouchActive = true;
         this.isTouching = true;
         this.isPinching = false;
         const touch = e.touches[0];
@@ -584,6 +726,7 @@ export class SceneManager {
         this.panVelocity.set(0, 0);
       } else if (e.touches.length >= 2) {
         // Two fingers: Pinch zoom & twist rotate
+        this.isCanvasTouchActive = true;
         this.isPinching = true;
         this.isTouching = false;
         const t1 = e.touches[0];
@@ -599,6 +742,8 @@ export class SceneManager {
     }, { passive: false });
 
     window.addEventListener("touchmove", (e: TouchEvent) => {
+      if (!this.isCanvasTouchActive) return;
+
       if (this.isPinching && e.touches.length >= 2) {
         e.preventDefault();
         const t1 = e.touches[0];
@@ -678,6 +823,8 @@ export class SceneManager {
     }, { passive: false });
 
     const handleTouchEnd = (e: TouchEvent) => {
+      const wasTouchActive = this.isCanvasTouchActive;
+
       if (this.isPinching) {
         if (e.touches.length < 2) {
           this.isPinching = false;
@@ -695,18 +842,27 @@ export class SceneManager {
 
       if (this.isTouching && e.touches.length === 0) {
         this.isTouching = false;
+        this.isCanvasTouchActive = false;
         const timeSinceMove = (performance.now() - this.lastTouchTimestamp) / 1000;
         if (timeSinceMove > 0.08) {
           this.panVelocity.set(0, 0);
         }
 
-        // Tap Raycast Trigger (if finger moved less than 10px, it is a deliberate tap)
-        if (this.touchDistanceMoved < 10) {
+        // Tap Raycast Trigger ONLY IF:
+        // 1. Started on canvas (wasTouchActive === true)
+        // 2. Deliberate tap with negligible finger movement (< 10px)
+        // 3. Finger release is NOT over any UI element
+        if (wasTouchActive && this.touchDistanceMoved < 10 && !this.isEventOverUI(e)) {
+          this.lastTouchTimestamp = performance.now();
           const rect = dom.getBoundingClientRect();
           this.mouse.x = ((this.lastClientX - rect.left) / rect.width) * 2 - 1;
           this.mouse.y = -((this.lastClientY - rect.top) / rect.height) * 2 + 1;
           this.performRaycast(true, 0);
         }
+      }
+
+      if (e.touches.length === 0) {
+        this.isCanvasTouchActive = false;
       }
     };
 
@@ -714,6 +870,23 @@ export class SceneManager {
     window.addEventListener("touchcancel", handleTouchEnd);
 
     dom.addEventListener("mousedown", (e) => {
+      // Ignore synthetic mousedown generated by mobile browsers after touch
+      if (performance.now() - this.lastTouchTimestamp < 650) {
+        this.isCanvasMouseDown = false;
+        this.isDragging = false;
+        this.isRotating = false;
+        return;
+      }
+
+      // If click originated on or over UI, ignore
+      if (this.isEventOverUI(e)) {
+        this.isCanvasMouseDown = false;
+        this.isDragging = false;
+        this.isRotating = false;
+        return;
+      }
+
+      this.isCanvasMouseDown = true;
       this.dragStartX = e.clientX;
       this.dragStartY = e.clientY;
       this.dragDistance = 0;
@@ -790,12 +963,37 @@ export class SceneManager {
         this.cancelPanAnim();
         this.updateCameraPosition();
       } else {
-        // Tile hover raycast
-        this.performRaycast(false);
+        // Tile hover raycast: ONLY if NOT hovering over an interactive UI element
+        if (this.isEventOverUI(e)) {
+          if (this.onTileLeave) {
+            this.onTileLeave();
+          }
+        } else {
+          // Throttle hover raycast to ~30 FPS or significant movement to eliminate micro-stutter
+          const now = performance.now();
+          const dMouse = Math.hypot(e.clientX - this.lastHoverMouseX, e.clientY - this.lastHoverMouseY);
+          if (now - this.lastHoverTime > 32 || dMouse >= 4) {
+            this.lastHoverTime = now;
+            this.lastHoverMouseX = e.clientX;
+            this.lastHoverMouseY = e.clientY;
+            this.performRaycast(false);
+          }
+        }
       }
     });
 
     window.addEventListener("mouseup", (e) => {
+      // Ignore synthetic mouseup generated by mobile browsers after touch
+      if (performance.now() - this.lastTouchTimestamp < 650) {
+        this.isCanvasMouseDown = false;
+        this.isDragging = false;
+        this.dragDistance = 0;
+        return;
+      }
+
+      const wasCanvasDown = this.isCanvasMouseDown;
+      this.isCanvasMouseDown = false;
+
       if (e.button === 0) {
         this.isDragging = false;
         // If mouse was held stationary before release, stop momentum
@@ -803,10 +1001,15 @@ export class SceneManager {
         if (timeSinceMove > 0.08) {
           this.panVelocity.set(0, 0);
         }
-        // If minimal drag distance, count as click
-        if (this.dragDistance < 5) {
+
+        // Deliberate tile click ONLY IF:
+        // 1. Pointer originated on Canvas (wasCanvasDown is true)
+        // 2. Drag distance was minimal (< 5px)
+        // 3. Pointer is NOT currently over any UI component
+        if (wasCanvasDown && this.dragDistance < 5 && !this.isEventOverUI(e)) {
           this.performRaycast(true, e.button);
         }
+        this.dragDistance = 0;
       } else if (e.button === 2) {
         this.isRotating = false;
         // If mouse was held stationary before release, stop momentum
@@ -822,6 +1025,7 @@ export class SceneManager {
 
     // Mouse wheel zoom with physical velocity & momentum
     dom.addEventListener("wheel", (e) => {
+      if (this.isEventOverUI(e)) return;
       e.preventDefault();
       if (this.motion) {
         this.cancelPanAnim();
@@ -864,23 +1068,67 @@ export class SceneManager {
   }
 
   private performRaycast(isClick: boolean, button = 0) {
-    this.raycaster.setFromCamera(this.mouse, this.camera);
-    const intersects = this.raycaster.intersectObjects(this.chunkManager.group.children);
-
-    if (intersects.length > 0) {
-      const hit = intersects[0];
-      const mesh = hit.object as THREE.InstancedMesh;
-      if (mesh.isInstancedMesh && hit.instanceId !== undefined) {
-        const coords = this.chunkManager.getTileCoords(mesh, hit.instanceId);
-        if (coords) {
-          if (isClick && this.onTileClick) {
-            this.onTileClick({ x: coords.x, y: coords.y, button });
-          } else if (!isClick && this.onTileHover) {
-            this.onTileHover(coords.x, coords.y, this.lastClientX, this.lastClientY);
-          }
+    if (isClick) {
+      // Guard: Never perform click raycast if pointer is resting on an interactive UI element
+      const hitEl = document.elementFromPoint(this.lastClientX, this.lastClientY);
+      if (hitEl && hitEl !== this.renderer.domElement) {
+        if (hitEl.closest(
+          '.student-mode-dock, .stats-top-hud, .minimap-wrapper, .dev-dropdown-container, ' +
+          '.db-modal-overlay, .db-modal-dialog, .action-toast, [data-ui="true"], ' +
+          'button, input, select, textarea, a'
+        )) {
           return;
         }
       }
+    }
+
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+
+    // Fast Analytical Ground Plane Raycast: O(1)
+    // Intersect camera ray with mathematical ground plane Y = 0 in sub-microseconds
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const hitPoint = new THREE.Vector3();
+    const hasPlaneHit = this.raycaster.ray.intersectPlane(groundPlane, hitPoint);
+
+    let targetCoords: { x: number; y: number } | null = null;
+
+    if (hasPlaneHit) {
+      const approxX = Math.round(hitPoint.x);
+      const approxZ = Math.round(hitPoint.z);
+
+      if (approxX >= 0 && approxX < 1000 && approxZ >= 0 && approxZ < 1000) {
+        // Query ONLY the 1 to 3 candidate chunk meshes surrounding this tile
+        // instead of looping through all 400 chunks and 1,000,000 instances!
+        const candidateMeshes = this.chunkManager.getCandidateMeshesForRaycast(approxX, approxZ);
+        if (candidateMeshes.length > 0) {
+          const intersects = this.raycaster.intersectObjects(candidateMeshes);
+          if (intersects.length > 0) {
+            const hit = intersects[0];
+            const mesh = hit.object as THREE.InstancedMesh;
+            if (mesh.isInstancedMesh && hit.instanceId !== undefined) {
+              targetCoords = this.chunkManager.getTileCoords(mesh, hit.instanceId);
+            }
+          }
+        }
+
+        // Fallback to analytical tile coordinate if candidate meshes had no elevation offset
+        if (!targetCoords) {
+          targetCoords = { x: approxX, y: approxZ };
+        }
+      }
+    }
+
+    if (targetCoords) {
+      if (isClick && this.onTileClick) {
+        this.onTileClick({ x: targetCoords.x, y: targetCoords.y, button });
+      } else if (!isClick && this.onTileHover) {
+        this.onTileHover(targetCoords.x, targetCoords.y, this.lastClientX, this.lastClientY);
+      }
+      return;
+    }
+
+    if (isClick && this.onMissClick) {
+      this.onMissClick();
     }
 
     if (!isClick && this.onTileLeave) {

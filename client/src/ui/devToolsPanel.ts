@@ -13,6 +13,7 @@ export interface DevPanelCallbacks {
   onToggleMode?: (mode: "normal" | "dev") => void;
   onOpenNewTab?: (schoolId: string, email: string, km: number) => void;
   onOpenDbEditor?: () => void;
+  onSetGraphicsTier?: (tier: 'performance' | 'balanced' | 'high') => void;
 }
 
 export class DevToolsPanel {
@@ -21,17 +22,28 @@ export class DevToolsPanel {
   private isBotRunning = false;
   private showGrid = true;
   private currentMode: "normal" | "dev" = "dev";
+  private currentTier: 'performance' | 'balanced' | 'high' = 'balanced';
   private selectedMockEmail: string = MOCK_STUDENT_ACCOUNTS[0].email;
   private callbacks: DevPanelCallbacks;
 
   constructor(callbacks: DevPanelCallbacks, parent?: HTMLElement, initialMode: "normal" | "dev" = "dev", initialEmail?: string) {
     this.callbacks = callbacks;
     this.currentMode = initialMode;
+    const isMobile = window.innerWidth <= 768 || window.matchMedia("(max-width: 768px) and (orientation: portrait)").matches;
+    this.currentTier = isMobile ? 'performance' : 'balanced';
     if (initialEmail) {
       this.selectedMockEmail = initialEmail;
     }
     this.container = document.createElement('div');
     this.container.className = 'dev-dropdown-container';
+    this.container.setAttribute('data-ui', 'true');
+
+    // Isolate pointer and touch events
+    const stopProp = (e: Event) => e.stopPropagation();
+    this.container.addEventListener('pointerdown', stopProp);
+    this.container.addEventListener('mousedown', stopProp);
+    this.container.addEventListener('touchstart', stopProp, { passive: true });
+
     this.render();
     (parent || document.body).appendChild(this.container);
     this.bindEvents();
@@ -66,6 +78,12 @@ export class DevToolsPanel {
       toggle.className = `btn-dev-toggle ${this.isBotRunning ? 'active' : ''}`;
       toggle.textContent = this.isBotRunning ? 'ĐANG CHẠY' : 'ĐÃ TẮT';
     }
+  }
+
+  public setGraphicsTier(tier: 'performance' | 'balanced' | 'high'): void {
+    this.currentTier = tier;
+    this.render();
+    this.bindEvents();
   }
 
   public setFps(_fps: number): void {}
@@ -104,7 +122,7 @@ export class DevToolsPanel {
           <div class="section-title">TÀI KHOẢN SINH VIÊN (${students.length} TÀI KHOẢN)</div>
           <select id="mock-account-select" class="dev-account-select">
             ${students.map(acc => {
-              const balance = Math.max(0, Math.round(acc.km) - (acc.pointsSpent || 0));
+              const balance = RunningDatabase.getStudentBalance(acc.email);
               return `
                 <option value="${acc.email}" ${acc.email === this.selectedMockEmail ? 'selected' : ''}>
                   ${acc.name} (${acc.schoolId.toUpperCase()} - ${balance}đ/${acc.km}km)
@@ -126,13 +144,13 @@ export class DevToolsPanel {
           </div>
         </div>
 
-        <!-- 3. ĐIỂM GIẢI CHẠY (1 KM = 1 ĐIỂM) -->
+        <!-- 3. ĐIỂM GIẢI CHẠY (1 KM = 10 ĐIỂM) -->
         <div class="dev-menu-section">
-          <div class="section-title">GIẢ LẬP ĐIỂM CHẠY (1 KM = 1 ĐIỂM)</div>
+          <div class="section-title">GIẢ LẬP ĐIỂM CHẠY (1 KM = 10 ĐIỂM)</div>
           <div class="dev-btn-group">
-            <button class="btn-dev-action" id="btn-add-50pts">+50 km (50đ)</button>
-            <button class="btn-dev-action" id="btn-add-100pts">+100 km (100đ)</button>
-            <button class="btn-dev-action" id="btn-add-500pts">+500 km (500đ)</button>
+            <button class="btn-dev-action" id="btn-add-50pts">+5 km (50đ)</button>
+            <button class="btn-dev-action" id="btn-add-100pts">+10 km (100đ)</button>
+            <button class="btn-dev-action" id="btn-add-500pts">+50 km (500đ)</button>
           </div>
         </div>
 
@@ -147,7 +165,17 @@ export class DevToolsPanel {
           </div>
         </div>
 
-        <!-- 5. HỆ THỐNG & CAMERA -->
+        <!-- 5. CHẾ ĐỘ ĐỒ HỌA & HIỆU NĂNG -->
+        <div class="dev-menu-section">
+          <div class="section-title">CHẾ ĐỘ ĐỒ HỌA & HIỆU NĂNG</div>
+          <div class="dev-btn-group" style="grid-template-columns: 1fr 1fr 1fr;">
+            <button class="btn-dev-action ${this.currentTier === 'performance' ? 'active' : ''}" id="tier-perf-btn" title="60 FPS mượt mà cho mobile & máy yếu">60 FPS</button>
+            <button class="btn-dev-action ${this.currentTier === 'balanced' ? 'active' : ''}" id="tier-bal-btn" title="Cân bằng hiệu năng và bóng đổ">Cân Bằng</button>
+            <button class="btn-dev-action ${this.currentTier === 'high' ? 'active' : ''}" id="tier-high-btn" title="Đồ họa sắc nét cao nhất">Cao Cấp</button>
+          </div>
+        </div>
+
+        <!-- 6. HỆ THỐNG & CAMERA -->
         <div class="dev-menu-section">
           <div class="section-title">HỆ THỐNG & CAMERA</div>
           <div class="dev-btn-group">
@@ -242,6 +270,26 @@ export class DevToolsPanel {
     this.container.querySelector('#btn-add-500pts')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.callbacks.onAddPoints(500);
+    });
+
+    // Cấu hình đồ họa & hiệu năng
+    const setTier = (tier: 'performance' | 'balanced' | 'high') => {
+      this.currentTier = tier;
+      this.render();
+      this.bindEvents();
+      this.callbacks.onSetGraphicsTier?.(tier);
+    };
+    this.container.querySelector('#tier-perf-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setTier('performance');
+    });
+    this.container.querySelector('#tier-bal-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setTier('balanced');
+    });
+    this.container.querySelector('#tier-high-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setTier('high');
     });
 
     // Camera & Reset

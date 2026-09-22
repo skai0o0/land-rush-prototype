@@ -133,8 +133,17 @@ async function bootstrap() {
     }
   }
 
+  // Mobile Selected Tile State: 1-Tap Select -> 2nd Tap on SAME tile Executes!
+  let selectedMobileTile: { x: number; y: number; timestamp: number } | null = null;
+
+  function clearSelectedTile() {
+    selectedMobileTile = null;
+    sceneManager.clearSelectedTileMarker();
+  }
+
   // Fly to Player HQ handler (Click card, click button or press [H] / [Space])
   function flyToPlayerHQ() {
+    clearSelectedTile();
     updateHQMapFromRoom();
     let target = schoolHQMap.get(playerSchoolId) || null;
     if (!target && colyseusClient.room && colyseusClient.room.state && colyseusClient.room.state.hqs) {
@@ -163,6 +172,7 @@ async function bootstrap() {
   let devTools: DevToolsPanel;
 
   function loginAsStudent(email: string, schoolId?: string, km?: number) {
+    clearSelectedTile();
     playerEmail = email.trim();
     const resolvedSchool = (schoolId && SCHOOL_ROSTER[schoolId])
       ? schoolId
@@ -238,15 +248,16 @@ async function bootstrap() {
         showActionToast(running ? "Đã bật giả lập bot" : "Đã tắt giả lập bot");
       },
       onAddPoints: (amount) => {
+        const addedKm = amount / 10;
         if (playerEmail) {
-          RunningDatabase.addKm(playerEmail, amount);
+          RunningDatabase.addKm(playerEmail, addedKm);
           userPoints = RunningDatabase.getStudentBalance(playerEmail);
         } else {
           userPoints += amount;
         }
         statsOverlay.updateStats({ points: userPoints });
         colyseusClient.addPoints(amount);
-        showActionToast(`Đã nhận +${amount} điểm cống hiến (${amount} km)!`);
+        showActionToast(`Đã nhận +${amount} điểm cống hiến (+${addedKm} km)!`);
       },
       onResetMap: () => {
         colyseusClient.softReset();
@@ -285,6 +296,12 @@ async function bootstrap() {
       },
       onOpenDbEditor: () => {
         databaseModal.open();
+      },
+      onSetGraphicsTier: (tier) => {
+        sceneManager.setGraphicsTier(tier);
+        natureGridManager.setShadowCasting(tier === 'high');
+        const tierName = tier === 'performance' ? '60 FPS Mượt Mà' : tier === 'balanced' ? 'Cân Bằng' : 'Chất Lượng Cao';
+        showActionToast(`Đã chuyển cấu hình đồ họa: ${tierName}`);
       }
     },
     appEl,
@@ -472,12 +489,12 @@ async function bootstrap() {
     const ownerColor = ownerConfig ? ownerConfig.colorHex : undefined;
     const isOwnedByMe = tile?.ownerId === playerSchoolId;
 
-    let cost = 10;
+    let cost = 1;
     if (landmarkConfig) {
       const isEnemyControlled = tile?.ownerId && tile.ownerId !== "" && tile.ownerId !== playerSchoolId;
       cost = isEnemyControlled ? landmarkConfig.attackCost : landmarkConfig.claimCost;
     } else if (tile?.ownerId && !isOwnedByMe) {
-      cost = 15;
+      cost = 2;
     }
 
     const isMobile = window.innerWidth <= 768;
@@ -581,7 +598,7 @@ async function bootstrap() {
       else mode = "claim";
     }
 
-    let cost = 10;
+    let cost = 1;
     let title = "Chiếm đất";
     let actionTitle = "XÁC NHẬN CHIẾM ĐẤT";
     let description = "Mở rộng quyền kiểm soát sang ô đất trống lân cận";
@@ -711,38 +728,71 @@ async function bootstrap() {
     );
   };
 
-  // 6. Smart Context Action Handler: 1-Tap inference + Mobile 2-step confirmation
+  sceneManager.onMissClick = () => {
+    if (selectedMobileTile) {
+      clearSelectedTile();
+    }
+  };
+
+  // 6. Action Execution Handler: Desktop 1-Click vs Mobile 1-Tap Select -> 2-Tap Execute
   sceneManager.onTileClick = (event: TileClickEvent) => {
     const { x, y } = event;
     const isSmart = actionDock.isSmart();
     const modeOverride = isSmart ? undefined : actionDock.getActiveMode();
     const ctx = evaluateTileContext(x, y, modeOverride);
 
-    // Auto sync mode highlight in dock
+    const isTouchDevice = (typeof window !== "undefined") && (
+      "ontouchstart" in window ||
+      navigator.maxTouchPoints > 0 ||
+      window.innerWidth <= 768 ||
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    );
+    const isMobile = isTouchDevice && (window.innerWidth <= 900 || window.innerHeight <= 600);
+
+    if (!isMobile) {
+      // DESKTOP: 1-Click direct execution (Fast & fluid as desired)
+      actionDock.setMode(ctx.mode);
+      const markerColor = ctx.mode === "fortify" ? "#10b981" : ctx.mode === "attack" ? "#ef4444" : "#0ea5e9";
+      sceneManager.setSelectedTileMarker(x, y, markerColor);
+      executeTileAction(ctx);
+      setTimeout(() => sceneManager.clearSelectedTileMarker(), 650);
+      return;
+    }
+
+    // MOBILE FLOW:
+    const now = performance.now();
+
+    // Condition A: User taps on the ALREADY SELECTED tile -> EXECUTE IMMEDIATELY!
+    if (
+      selectedMobileTile &&
+      selectedMobileTile.x === x &&
+      selectedMobileTile.y === y &&
+      (now - selectedMobileTile.timestamp) > 100 // Prevent accidental double-touch bounce
+    ) {
+      if (ctx.canExecute) {
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          try { navigator.vibrate(25); } catch (_) {}
+        }
+        executeTileAction(ctx);
+        clearSelectedTile();
+      } else {
+        if (ctx.reasonDisabled) {
+          showActionToast(ctx.reasonDisabled, "warning");
+        }
+      }
+      return;
+    }
+
+    // Condition B: 1st tap on this tile (or switching selection to another tile) -> SELECT IT!
+    selectedMobileTile = { x, y, timestamp: now };
     actionDock.setMode(ctx.mode);
 
-    // 3D visual selection ring marker
+    // 3D visual selection marker (glowing tactical frame)
     const markerColor = ctx.mode === "fortify" ? "#10b981" : ctx.mode === "attack" ? "#ef4444" : "#0ea5e9";
     sceneManager.setSelectedTileMarker(x, y, markerColor);
 
-    const isMobile = window.innerWidth <= 768 || window.matchMedia("(max-width: 768px) and (orientation: portrait)").matches;
-
-    if (isMobile) {
-      // 2-Step Confirmation on Mobile (prevents misclick while dragging map)
-      actionDock.showConfirmCard({
-        ...ctx,
-        onConfirm: () => {
-          executeTileAction(ctx);
-          sceneManager.clearSelectedTileMarker();
-        },
-        onCancel: () => {
-          sceneManager.clearSelectedTileMarker();
-        }
-      });
-    } else {
-      // 1-Click direct execution on Desktop
-      executeTileAction(ctx);
-      setTimeout(() => sceneManager.clearSelectedTileMarker(), 650);
+    if (!ctx.canExecute && ctx.reasonDisabled) {
+      showActionToast(ctx.reasonDisabled, "warning");
     }
   };
 

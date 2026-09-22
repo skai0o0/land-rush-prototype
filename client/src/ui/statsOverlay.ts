@@ -41,6 +41,7 @@ export class StatsOverlay {
 
     this.element = document.createElement('header');
     this.element.className = 'stats-top-hud';
+    this.element.setAttribute('data-ui', 'true');
     this.render();
     (parent || document.body).appendChild(this.element);
   }
@@ -165,6 +166,14 @@ export class StatsOverlay {
   }
 
   private bindEvents(): void {
+    const stopProp = (e: Event) => e.stopPropagation();
+    const interactiveElements = this.element.querySelectorAll('.school-pill, .stat-badge');
+    interactiveElements.forEach((el) => {
+      el.addEventListener('pointerdown', stopProp);
+      el.addEventListener('mousedown', stopProp);
+      el.addEventListener('touchstart', stopProp, { passive: true });
+    });
+
     const pill = this.element.querySelector('#btnFlyHQ');
     pill?.addEventListener('click', (e) => {
       e.stopPropagation();

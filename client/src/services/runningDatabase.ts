@@ -116,7 +116,7 @@ export class RunningDatabase {
   public static getStudentBalance(email: string): number {
     const student = this.getByEmail(email);
     if (!student) return 0;
-    return Math.max(0, Math.round(student.km) - (student.pointsSpent || 0));
+    return Math.max(0, Math.round(student.km * 10) - (student.pointsSpent || 0));
   }
 
   public static updateKm(email: string, km: number): StudentRunningRecord | null {

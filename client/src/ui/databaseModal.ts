@@ -19,7 +19,15 @@ export class DatabaseModal {
     this.callbacks = callbacks;
     this.overlay = document.createElement('div');
     this.overlay.className = 'db-modal-overlay';
+    this.overlay.setAttribute('data-ui', 'true');
     this.overlay.style.display = 'none';
+
+    // Isolate pointer and touch events from 3D scene
+    const stopProp = (e: Event) => e.stopPropagation();
+    this.overlay.addEventListener('pointerdown', stopProp);
+    this.overlay.addEventListener('mousedown', stopProp);
+    this.overlay.addEventListener('touchstart', stopProp, { passive: true });
+
     document.body.appendChild(this.overlay);
 
     this.bindGlobalEvents();
@@ -67,7 +75,7 @@ export class DatabaseModal {
     const totalStudents = students.length;
     const totalKm = students.reduce((sum, s) => sum + s.km, 0);
     const totalSpent = students.reduce((sum, s) => sum + (s.pointsSpent || 0), 0);
-    const totalAvailable = Math.max(0, Math.round(totalKm) - totalSpent);
+    const totalAvailable = Math.max(0, Math.round(totalKm * 10) - totalSpent);
 
     this.overlay.innerHTML = `
       <div class="db-modal-dialog">
@@ -80,7 +88,7 @@ export class DatabaseModal {
                 <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
                 <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
               </svg>
-              <span>QUẢN LÝ DATABASE GIẢI CHẠY (1 KM = 1 ĐIỂM)</span>
+              <span>QUẢN LÝ DATABASE GIẢI CHẠY (1 KM = 10 ĐIỂM)</span>
             </div>
             <div class="db-modal-subtitle">
               Hệ thống đồng bộ trực tiếp từ Giải chạy Sinh viên ĐHQG. Không tăng điểm theo thời gian - điểm chỉ sinh ra từ km chạy bộ.
@@ -126,7 +134,7 @@ export class DatabaseModal {
             <tbody>
               ${students.map(s => {
                 const school = SCHOOL_ROSTER[s.schoolId] || { shortName: s.schoolId.toUpperCase(), colorHex: "#64748b" };
-                const balance = Math.max(0, Math.round(s.km) - (s.pointsSpent || 0));
+                const balance = Math.max(0, Math.round(s.km * 10) - (s.pointsSpent || 0));
                 return `
                   <tr data-email="${s.email}">
                     <td>

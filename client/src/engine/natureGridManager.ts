@@ -102,18 +102,27 @@ export class NatureGridManager {
 
     const dummy = new THREE.Object3D();
 
+    // Detect mobile environment
+    const isMobile = typeof window !== "undefined" && (
+      window.innerWidth <= 768 ||
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    );
+
     // Pseudo-random deterministic PRNG
     const pseudoRandom = (x: number, y: number, seed: number) => {
       const n = Math.sin(x * 12.9898 + y * 78.233 + seed) * 43758.5453;
       return n - Math.floor(n);
     };
 
-    // Step through the 1000x1000 map in increments of 3 tiles to sample natural distribution
-    for (let x = 6; x < 994; x += 3) {
-      for (let y = 6; y < 994; y += 3) {
+    // Step through the 1000x1000 map:
+    // Step = 4 on mobile (cuts 43% props), step = 3 on desktop
+    const sampleStep = isMobile ? 4 : 3;
+
+    for (let x = 6; x < 994; x += sampleStep) {
+      for (let y = 6; y < 994; y += sampleStep) {
         // Jitter within cell
-        const jx = x + Math.floor(pseudoRandom(x, y, 1.1) * 3);
-        const jy = y + Math.floor(pseudoRandom(x, y, 2.2) * 3);
+        const jx = x + Math.floor(pseudoRandom(x, y, 1.1) * sampleStep);
+        const jy = y + Math.floor(pseudoRandom(x, y, 2.2) * sampleStep);
 
         if (this.isExcluded(jx, jy)) continue;
         if (isRoad(jx, jy)) continue;
@@ -135,7 +144,7 @@ export class NatureGridManager {
             dummy.position.set(jx, h, jy);
             dummy.updateMatrix();
             graniteMatrices.push(dummy.matrix.clone());
-          } else if (roll < 0.45) {
+          } else if (roll < 0.45 && !isMobile) {
             const scale = 0.8 + pseudoRandom(jx, jy, 6.6) * 0.4;
             dummy.scale.set(scale, scale, scale);
             dummy.position.set(jx, h, jy);
@@ -152,7 +161,7 @@ export class NatureGridManager {
               dummy.position.set(jx, h, jy);
               dummy.updateMatrix();
               poincianaMatrices.push(dummy.matrix.clone());
-            } else if (roll < 0.6) {
+            } else if (roll < 0.6 && !isMobile) {
               const scale = 0.8 + pseudoRandom(jx, jy, 8.8) * 0.5;
               dummy.scale.set(scale, scale, scale);
               dummy.position.set(jx, h, jy);
@@ -167,7 +176,7 @@ export class NatureGridManager {
               dummy.position.set(jx, h, jy);
               dummy.updateMatrix();
               melaleucaMatrices.push(dummy.matrix.clone());
-            } else if (roll < 0.5) {
+            } else if (roll < 0.5 && !isMobile) {
               const scale = 0.7 + pseudoRandom(jx, jy, 10.1) * 0.5;
               dummy.scale.set(scale, scale, scale);
               dummy.position.set(jx, h, jy);
@@ -176,7 +185,7 @@ export class NatureGridManager {
             }
           } else {
             // Dry ground: sparse grass and occasional rocks
-            if (roll < 0.25) {
+            if (roll < 0.25 && !isMobile) {
               const scale = 0.6 + pseudoRandom(jx, jy, 11.2) * 0.4;
               dummy.scale.set(scale, scale, scale);
               dummy.position.set(jx, h, jy);
@@ -195,37 +204,48 @@ export class NatureGridManager {
     }
 
     // Instantiate InstancedMeshes
+    // On Mobile: Disable castShadow to eliminate 50% vertex shader passes in shadow pipeline
+    const shouldCastShadow = !isMobile;
+
     this.melaleucaMesh = new THREE.InstancedMesh(geomMelaleuca, material, melaleucaMatrices.length);
-    this.melaleucaMesh.castShadow = true;
+    this.melaleucaMesh.castShadow = shouldCastShadow;
     this.melaleucaMesh.receiveShadow = true;
     melaleucaMatrices.forEach((m, idx) => this.melaleucaMesh.setMatrixAt(idx, m));
     this.melaleucaMesh.instanceMatrix.needsUpdate = true;
     this.group.add(this.melaleucaMesh);
 
     this.poincianaMesh = new THREE.InstancedMesh(geomPoinciana, material, poincianaMatrices.length);
-    this.poincianaMesh.castShadow = true;
+    this.poincianaMesh.castShadow = shouldCastShadow;
     this.poincianaMesh.receiveShadow = true;
     poincianaMatrices.forEach((m, idx) => this.poincianaMesh.setMatrixAt(idx, m));
     this.poincianaMesh.instanceMatrix.needsUpdate = true;
     this.group.add(this.poincianaMesh);
 
     this.graniteMesh = new THREE.InstancedMesh(geomGranite, material, graniteMatrices.length);
-    this.graniteMesh.castShadow = true;
+    this.graniteMesh.castShadow = shouldCastShadow;
     this.graniteMesh.receiveShadow = true;
     graniteMatrices.forEach((m, idx) => this.graniteMesh.setMatrixAt(idx, m));
     this.graniteMesh.instanceMatrix.needsUpdate = true;
     this.group.add(this.graniteMesh);
 
-    this.grassMesh = new THREE.InstancedMesh(geomGrass, material, grassMatrices.length);
-    this.grassMesh.castShadow = false;
-    this.grassMesh.receiveShadow = true;
-    grassMatrices.forEach((m, idx) => this.grassMesh.setMatrixAt(idx, m));
-    this.grassMesh.instanceMatrix.needsUpdate = true;
-    this.group.add(this.grassMesh);
+    if (grassMatrices.length > 0) {
+      this.grassMesh = new THREE.InstancedMesh(geomGrass, material, grassMatrices.length);
+      this.grassMesh.castShadow = false;
+      this.grassMesh.receiveShadow = true;
+      grassMatrices.forEach((m, idx) => this.grassMesh.setMatrixAt(idx, m));
+      this.grassMesh.instanceMatrix.needsUpdate = true;
+      this.group.add(this.grassMesh);
+    }
 
     this.isBuilt = true;
     console.log(
-      `[NatureGridManager] Spawned ${melaleucaMatrices.length} Melaleuca, ${poincianaMatrices.length} Poinciana, ${graniteMatrices.length} Granite, ${grassMatrices.length} Grass.`
+      `[NatureGridManager] Spawned ${melaleucaMatrices.length} Melaleuca, ${poincianaMatrices.length} Poinciana, ${graniteMatrices.length} Granite, ${grassMatrices.length} Grass (isMobile: ${isMobile}).`
     );
+  }
+
+  public setShadowCasting(castShadow: boolean): void {
+    if (this.melaleucaMesh) this.melaleucaMesh.castShadow = castShadow;
+    if (this.poincianaMesh) this.poincianaMesh.castShadow = castShadow;
+    if (this.graniteMesh) this.graniteMesh.castShadow = castShadow;
   }
 }

@@ -249,6 +249,8 @@ html, body {
   left: auto;
   transform: none;
   z-index: 100;
+  pointer-events: auto;
+  touch-action: manipulation;
   font-family: var(--font-family);
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -319,136 +321,6 @@ html, body {
   font-weight: 500;
 }
 
-/* CONFIRMATION CARD (SMART CONTEXT 2-STEP ON MOBILE / DESKTOP) */
-.is-confirm-active {
-  padding: 10px 14px;
-  border-color: rgba(56, 189, 248, 0.4);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 20px rgba(56, 189, 248, 0.15);
-}
-
-.confirm-action-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-  min-width: 280px;
-}
-
-.confirm-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.confirm-tile-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow: hidden;
-}
-
-.confirm-tile-coord {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.confirm-owner-badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-
-.confirm-close-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  transition: all 0.15s ease;
-}
-
-.confirm-close-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-}
-
-.confirm-card-body {
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.3;
-}
-
-.confirm-desc-text.is-warning {
-  color: #f87171;
-  font-weight: 600;
-}
-
-.confirm-execute-btn {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 800;
-  color: #fff;
-  border: 1px solid transparent;
-  cursor: pointer;
-  min-height: 48px;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-}
-
-.confirm-execute-btn.confirm-claim {
-  background: linear-gradient(135deg, #0284c7, #0369a1);
-  border-color: rgba(56, 189, 248, 0.5);
-}
-
-.confirm-execute-btn.confirm-claim:hover:not(:disabled) {
-  background: linear-gradient(135deg, #0369a1, #075985);
-  box-shadow: 0 0 16px rgba(14, 165, 233, 0.5);
-}
-
-.confirm-execute-btn.confirm-fortify {
-  background: linear-gradient(135deg, #059669, #047857);
-  border-color: rgba(52, 211, 153, 0.5);
-}
-
-.confirm-execute-btn.confirm-fortify:hover:not(:disabled) {
-  background: linear-gradient(135deg, #047857, #065f46);
-  box-shadow: 0 0 16px rgba(16, 185, 129, 0.5);
-}
-
-.confirm-execute-btn.confirm-attack {
-  background: linear-gradient(135deg, #dc2626, #b91c1c);
-  border-color: rgba(248, 113, 113, 0.5);
-}
-
-.confirm-execute-btn.confirm-attack:hover:not(:disabled) {
-  background: linear-gradient(135deg, #b91c1c, #991b1b);
-  box-shadow: 0 0 16px rgba(239, 68, 68, 0.5);
-}
-
-.confirm-execute-btn.is-disabled,
-.confirm-execute-btn:disabled {
-  background: #334155;
-  border-color: #475569;
-  color: #94a3b8;
-  cursor: not-allowed;
-  box-shadow: none;
-  opacity: 0.65;
-}
 
 .btn-action-cost {
   display: inline-flex;
@@ -587,6 +459,8 @@ html, body {
   left: 20px;
   right: auto;
   z-index: 90;
+  pointer-events: auto;
+  touch-action: manipulation;
   background: var(--bg-hud);
   backdrop-filter: blur(12px);
   border: 1px solid var(--border-hud);
@@ -639,6 +513,8 @@ html, body {
   top: 16px;
   right: 16px;
   z-index: 200;
+  pointer-events: auto;
+  touch-action: manipulation;
   font-family: var(--font-family);
 }
 
@@ -767,6 +643,13 @@ html, body {
   background: rgba(255, 255, 255, 0.14);
 }
 
+.btn-dev-action.active {
+  background: rgba(14, 165, 233, 0.3);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  font-weight: 700;
+}
+
 .btn-dev-action.danger {
   grid-column: span 2;
   color: var(--accent-red);
@@ -852,6 +735,8 @@ html, body {
   background: rgba(4, 8, 16, 0.82);
   backdrop-filter: blur(8px);
   z-index: 1000;
+  pointer-events: auto;
+  touch-action: manipulation;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1528,18 +1413,6 @@ html, body {
     height: 11px;
   }
 
-  .confirm-action-card {
-    min-width: unset;
-    width: 100%;
-    gap: 7px;
-  }
-
-  .confirm-execute-btn {
-    min-height: 48px;
-    border-radius: 12px;
-    font-size: 12px;
-    padding: 10px 12px;
-  }
 
   /* E. Toast Feedback: Nâng cao khỏi Dock ngón tay */
   .action-toast {

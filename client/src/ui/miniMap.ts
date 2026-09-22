@@ -43,6 +43,7 @@ export class MiniMap {
 
     this.element = document.createElement('div');
     this.element.className = 'minimap-wrapper';
+    this.element.setAttribute('data-ui', 'true');
 
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'minimap-canvas';
@@ -174,7 +175,18 @@ export class MiniMap {
     window.addEventListener("touchcancel", handleTouchEnd);
 
     // 3. MiniMap Controls
+    const stopProp = (e: Event) => e.stopPropagation();
+    this.element.addEventListener('pointerdown', stopProp);
+    this.element.addEventListener('mousedown', stopProp);
+    this.element.addEventListener('touchstart', stopProp, { passive: true });
+
     const controls = this.element.querySelector('.minimap-controls');
+    controls?.querySelectorAll('.btn-mini-control').forEach((btn) => {
+      btn.addEventListener('pointerdown', stopProp);
+      btn.addEventListener('mousedown', stopProp);
+      btn.addEventListener('touchstart', stopProp, { passive: true });
+    });
+
     controls?.querySelector('#mbtn-zoom-in')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.onZoomIn?.();

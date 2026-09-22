@@ -405,21 +405,21 @@ export class CampusRoom extends Room<GameState> {
           this.checkLandmarkCapture(lmInfo.landmarkKey);
         }
       } else if (!existing) {
-        // Wild tile: costs 5 troops
-        if (player.email && player.personalTroops < 5) {
-          client.send("error", { message: "Không đủ điểm chạy! Cần 5 điểm để mở rộng ô đất." });
+        // Wild tile: costs 1 point
+        if (player.email && player.personalTroops < 1) {
+          client.send("error", { message: "Không đủ điểm cống hiến! Cần 1 điểm để mở rộng ô đất." });
           return;
         }
 
-        if (schoolTroops < 5) {
+        if (schoolTroops < 1) {
           client.send("error", { message: "Không đủ quân lực!" });
           return;
         }
 
         if (player.email) {
-          player.personalTroops -= 5;
+          player.personalTroops -= 1;
         }
-        this.state.schoolTroops.set(player.schoolId, schoolTroops - 5);
+        this.state.schoolTroops.set(player.schoolId, schoolTroops - 1);
         const newTile = new TileState();
         newTile.x = x;
         newTile.y = y;
@@ -431,21 +431,21 @@ export class CampusRoom extends Room<GameState> {
         this.state.claimedTiles.set(key, newTile);
         this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
       } else if (existing.ownerId !== player.schoolId) {
-        // Enemy tile: costs 15 troops
-        if (player.email && player.personalTroops < 15) {
-          client.send("error", { message: "Không đủ điểm chạy! Cần 15 điểm để tấn công." });
+        // Enemy tile: costs 2 points
+        if (player.email && player.personalTroops < 2) {
+          client.send("error", { message: "Không đủ điểm cống hiến! Cần 2 điểm để tấn công." });
           return;
         }
 
-        if (schoolTroops < 15) {
+        if (schoolTroops < 2) {
           client.send("error", { message: "Không đủ quân lực để tấn công!" });
           return;
         }
 
         if (player.email) {
-          player.personalTroops -= 15;
+          player.personalTroops -= 2;
         }
-        this.state.schoolTroops.set(player.schoolId, schoolTroops - 15);
+        this.state.schoolTroops.set(player.schoolId, schoolTroops - 2);
         // Assault role damage bonus (+35%)
         const baseDamage = player.currentRole === "assault" ? Math.floor(40 * 1.35) : 40;
         const absorbed = existing.defenseTier * 8;
@@ -459,8 +459,6 @@ export class CampusRoom extends Room<GameState> {
           }
           existing.ownerId = player.schoolId;
           existing.hp = 60;
-          existing.maxHp = 100;
-          existing.defenseTier = 0;
           this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
         }
       }
@@ -485,11 +483,11 @@ export class CampusRoom extends Room<GameState> {
         return;
       }
 
-      const cost = player.currentRole === "fortify" ? 8 : 10;
+      const cost = 1;
       const troops = this.state.schoolTroops.get(player.schoolId) || 0;
 
       if (player.email && player.personalTroops < cost) {
-        client.send("error", { message: `Không đủ điểm chạy! Cần ${cost} điểm để gia cố.` });
+        client.send("error", { message: `Không đủ điểm cống hiến! Cần ${cost} điểm để gia cố.` });
         return;
       }
 

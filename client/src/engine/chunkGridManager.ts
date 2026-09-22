@@ -41,6 +41,12 @@ export class ChunkGridManager {
   private tileGeometry: THREE.BoxGeometry;
   private tileMaterial: THREE.MeshLambertMaterial;
 
+  // Chunk culling state
+  private lastCamCX = -999;
+  private lastCamCY = -999;
+  private lastRadius = -999;
+  public visibleChunksCount = 0;
+
   constructor() {
     this.group.name = "ChunkGridManagerGroup";
 
@@ -90,6 +96,10 @@ export class ChunkGridManager {
           mesh.instanceColor.needsUpdate = true;
         }
 
+        // Accurate bounding box & sphere so Three.js handles culling properly
+        mesh.computeBoundingBox();
+        mesh.computeBoundingSphere();
+
         const chunkKey = `${cx},${cy}`;
         this.chunks.set(chunkKey, {
           cx,
@@ -102,6 +112,95 @@ export class ChunkGridManager {
         this.group.add(mesh);
       }
     }
+
+    // Initial culling from campus center (500, 500)
+    this.updateVisibleChunks(500, 500, 0.72);
+  }
+
+  /**
+   * Dynamic chunk culling based on camera target (camX, camZ) and zoom level.
+   * Only ~9 to 16 chunks are visible at a time (~25,000 - 40,000 tiles),
+   * hiding the remaining 384+ chunks (960,000 tiles) to cut 96% of GPU geometry workload.
+   */
+  public updateVisibleChunks(camX: number, camZ: number, zoomLevel: number, forceRadius?: number): void {
+    const centerCX = Math.floor(camX / CHUNK_SIZE);
+    const centerCY = Math.floor(camZ / CHUNK_SIZE);
+
+    // Zoom level determines frustum span. Normal zoom is ~0.72.
+    // Span at 0.72 is ~70 tiles (~1.4 chunks) -> radius 2 chunks (5x5 grid = 25 chunks max).
+    // When zoomed way out (1.4+), span expands up to 4 chunks radius.
+    const radius = forceRadius ?? Math.min(4, Math.max(2, Math.ceil((75 * zoomLevel) / CHUNK_SIZE) + 1));
+
+    if (centerCX === this.lastCamCX && centerCY === this.lastCamCY && radius === this.lastRadius) {
+      return;
+    }
+    this.lastCamCX = centerCX;
+    this.lastCamCY = centerCY;
+    this.lastRadius = radius;
+
+    const minCX = Math.max(0, centerCX - radius);
+    const maxCX = Math.min(CHUNKS_PER_AXIS - 1, centerCX + radius);
+    const minCY = Math.max(0, centerCY - radius);
+    const maxCY = Math.min(CHUNKS_PER_AXIS - 1, centerCY + radius);
+
+    let count = 0;
+    this.chunks.forEach((chunk) => {
+      const isVisible =
+        chunk.cx >= minCX &&
+        chunk.cx <= maxCX &&
+        chunk.cy >= minCY &&
+        chunk.cy <= maxCY;
+
+      if (chunk.mesh.visible !== isVisible) {
+        chunk.mesh.visible = isVisible;
+      }
+      if (isVisible) count++;
+    });
+    this.visibleChunksCount = count;
+  }
+
+  public getChunk(cx: number, cy: number): ChunkData | undefined {
+    return this.chunks.get(`${cx},${cy}`);
+  }
+
+  public getChunkForWorldCoord(wx: number, wy: number): ChunkData | undefined {
+    const cx = Math.floor(wx / CHUNK_SIZE);
+    const cy = Math.floor(wy / CHUNK_SIZE);
+    return this.chunks.get(`${cx},${cy}`);
+  }
+
+  /**
+   * Fast candidate mesh lookup for raycasting.
+   * Instead of testing all 400 chunks and 1,000,000 instances, returns only
+   * the 1 chunk (or 2-3 adjacent chunks if near a boundary) containing (wx, wy).
+   */
+  public getCandidateMeshesForRaycast(wx: number, wy: number): THREE.InstancedMesh[] {
+    const cx = Math.floor(wx / CHUNK_SIZE);
+    const cy = Math.floor(wy / CHUNK_SIZE);
+    const meshes: THREE.InstancedMesh[] = [];
+
+    const primary = this.chunks.get(`${cx},${cy}`);
+    if (primary) meshes.push(primary.mesh);
+
+    // If close to chunk boundaries (within 4 tiles), include neighbors to prevent border misses
+    const lx = wx % CHUNK_SIZE;
+    const ly = wy % CHUNK_SIZE;
+    if (lx < 4 && cx > 0) {
+      const left = this.chunks.get(`${cx - 1},${cy}`);
+      if (left) meshes.push(left.mesh);
+    } else if (lx > CHUNK_SIZE - 4 && cx < CHUNKS_PER_AXIS - 1) {
+      const right = this.chunks.get(`${cx + 1},${cy}`);
+      if (right) meshes.push(right.mesh);
+    }
+    if (ly < 4 && cy > 0) {
+      const up = this.chunks.get(`${cx},${cy - 1}`);
+      if (up) meshes.push(up.mesh);
+    } else if (ly > CHUNK_SIZE - 4 && cy < CHUNKS_PER_AXIS - 1) {
+      const down = this.chunks.get(`${cx},${cy + 1}`);
+      if (down) meshes.push(down.mesh);
+    }
+
+    return meshes;
   }
 
   public setTileColor(x: number, y: number, colorHex: string | number, animate = false) {
@@ -123,9 +222,22 @@ export class ChunkGridManager {
       targetColor.setHex(colorHex);
     }
 
+    const animKey = `${x},${y}`;
+
+    // Guard 1: If tile is already actively animating towards this exact color, ignore duplicate call
+    const existingAnim = this.activeTileAnimations.get(animKey);
+    if (existingAnim && existingAnim.toColor.getHex() === targetColor.getHex()) {
+      return;
+    }
+
     if (animate) {
       const fromColor = new THREE.Color();
       chunk.mesh.getColorAt(instanceIdx, fromColor);
+
+      // Guard 2: If tile is already at target color and not mid-animation, no need to flip again
+      if (!existingAnim && fromColor.getHex() === targetColor.getHex()) {
+        return;
+      }
 
       // Decompose current matrix to extract elevation and base height
       const baseHeight = getTerrainHeight(x, y);
@@ -133,7 +245,6 @@ export class ChunkGridManager {
       this.tempMatrix.decompose(this.tempPosition, this.tempRotation, this.tempScale);
       const currentElevation = this.tempPosition.y - baseHeight;
 
-      const animKey = `${x},${y}`;
       this.activeTileAnimations.set(animKey, {
         x,
         y,

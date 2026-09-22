@@ -11,42 +11,25 @@ export interface ModeConfig {
   description: string;
 }
 
-export interface ConfirmCardOptions {
-  x: number;
-  y: number;
-  mode: ActionMode;
-  title: string;
-  cost: number;
-  description: string;
-  actionTitle: string;
-  ownerName: string;
-  ownerColor: string;
-  landmarkName?: string;
-  canExecute: boolean;
-  reasonDisabled?: string;
-  onConfirm: () => void;
-  onCancel?: () => void;
-}
-
 export const ACTION_MODES: Record<ActionMode, ModeConfig> = {
   claim: {
     id: 'claim',
     title: 'Chiếm đất',
-    cost: 10,
+    cost: 1,
     icon: Icons.claim,
     description: 'Mở rộng sang ô trống lân cận'
   },
   fortify: {
     id: 'fortify',
     title: 'Gia cố',
-    cost: 15,
+    cost: 1,
     icon: Icons.shield,
     description: 'Tăng phòng thủ ô đất của trường'
   },
   attack: {
     id: 'attack',
     title: 'Tấn công',
-    cost: 25,
+    cost: 2,
     icon: Icons.sword,
     description: 'Tranh chấp ô đất của đối thủ'
   }
@@ -56,13 +39,23 @@ export class StudentActionDock {
   private container: HTMLElement;
   private currentMode: ActionMode = 'claim';
   private smartMode = true;
-  private pendingConfirm: ConfirmCardOptions | null = null;
   private onModeChangeCallback?: (mode: ActionMode) => void;
   public onToggleSmart?: (enabled: boolean) => void;
 
   constructor(parent?: HTMLElement) {
     this.container = document.createElement('div');
     this.container.className = 'student-mode-dock';
+    this.container.setAttribute('data-ui', 'true');
+
+    // Isolate all pointer/mouse/touch interactions from propagating to 3D canvas
+    const stopProp = (e: Event) => e.stopPropagation();
+    this.container.addEventListener('pointerdown', stopProp);
+    this.container.addEventListener('pointerup', stopProp);
+    this.container.addEventListener('mousedown', stopProp);
+    this.container.addEventListener('mouseup', stopProp);
+    this.container.addEventListener('touchstart', stopProp, { passive: true });
+    this.container.addEventListener('touchend', stopProp, { passive: true });
+
     this.render();
     (parent || document.body).appendChild(this.container);
     this.bindEvents();
@@ -73,6 +66,7 @@ export class StudentActionDock {
   }
 
   public setMode(mode: ActionMode): void {
+    if (this.currentMode === mode) return;
     this.currentMode = mode;
     this.render();
     this.bindEvents();
@@ -92,22 +86,6 @@ export class StudentActionDock {
     this.bindEvents();
   }
 
-  public showConfirmCard(options: ConfirmCardOptions): void {
-    this.pendingConfirm = options;
-    this.currentMode = options.mode;
-    this.render();
-    this.bindEvents();
-  }
-
-  public clearConfirmCard(): void {
-    if (!this.pendingConfirm) return;
-    const onCancel = this.pendingConfirm.onCancel;
-    this.pendingConfirm = null;
-    this.render();
-    this.bindEvents();
-    onCancel?.();
-  }
-
   // Compatibility helpers
   public setPoints(_points: number): void {}
   public setSelectedTile(_tile: any): void {}
@@ -115,49 +93,6 @@ export class StudentActionDock {
   public onResetCamera(_cb: () => void): void {}
 
   private render(): void {
-    if (this.pendingConfirm) {
-      const p = this.pendingConfirm;
-      this.container.innerHTML = `
-        <div class="mode-dock-bar is-confirm-active">
-          <div class="confirm-action-card">
-            <div class="confirm-card-header">
-              <div class="confirm-tile-meta">
-                <span class="confirm-tile-coord">
-                  ${p.landmarkName ? Icons.landmark('sm') : Icons.tile('sm')}
-                  <strong>${p.landmarkName || `Ô (${p.x}, ${p.y})`}</strong>
-                </span>
-                <span class="confirm-owner-badge" style="background: ${p.ownerColor}22; color: ${p.ownerColor}; border: 1px solid ${p.ownerColor}44;">
-                  ${p.ownerName}
-                </span>
-              </div>
-              <button class="confirm-close-btn" id="btn-cancel-confirm" title="Hủy chọn">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-              </button>
-            </div>
-            
-            <div class="confirm-card-body">
-              <span class="confirm-desc-text ${!p.canExecute ? 'is-warning' : ''}">
-                ${p.reasonDisabled || p.description}
-              </span>
-            </div>
-
-            <button 
-              class="confirm-execute-btn confirm-${p.mode} ${!p.canExecute ? 'is-disabled' : ''}" 
-              id="btn-execute-confirm"
-              ${!p.canExecute ? 'disabled' : ''}
-            >
-              <span class="btn-action-label">${p.actionTitle}</span>
-              <span class="btn-action-cost">
-                ${Icons.star(13)}
-                <strong>-${p.cost} điểm</strong>
-              </span>
-            </button>
-          </div>
-        </div>
-      `;
-      return;
-    }
-
     const modes = Object.values(ACTION_MODES);
 
     this.container.innerHTML = `
@@ -194,27 +129,6 @@ export class StudentActionDock {
   }
 
   private bindEvents(): void {
-    if (this.pendingConfirm) {
-      const cancelBtn = this.container.querySelector('#btn-cancel-confirm');
-      cancelBtn?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.clearConfirmCard();
-      });
-
-      const execBtn = this.container.querySelector('#btn-execute-confirm');
-      execBtn?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (this.pendingConfirm && this.pendingConfirm.canExecute) {
-          const action = this.pendingConfirm.onConfirm;
-          this.pendingConfirm = null;
-          this.render();
-          this.bindEvents();
-          action();
-        }
-      });
-      return;
-    }
-
     const smartToggleBtn = this.container.querySelector('#btn-smart-toggle');
     smartToggleBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -226,7 +140,8 @@ export class StudentActionDock {
 
     const buttons = this.container.querySelectorAll('.mode-btn');
     buttons.forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const mode = btn.getAttribute('data-mode') as ActionMode;
         if (mode && mode !== this.currentMode) {
           this.currentMode = mode;
