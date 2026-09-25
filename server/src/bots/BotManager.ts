@@ -59,24 +59,58 @@ export class BotManager {
     }
   }
 
-  public removeOwnedTile(schoolId: string, x: number, y: number, state: GameState) {
-    // If tile lost, it might become frontier for this school again if adjacent to another owned tile
+  public hasFriendlyNeighbor(schoolId: string, x: number, y: number, state: GameState): boolean {
     const neighbors = [
       [x + 1, y],
       [x - 1, y],
       [x, y + 1],
       [x, y - 1]
     ];
-    let hasFriendlyNeighbor = false;
     for (const [nx, ny] of neighbors) {
+      if (nx < 0 || nx >= 1000 || ny < 0 || ny >= 1000) continue;
       const nTile = state.claimedTiles.get(`${nx},${ny}`);
       if (nTile && nTile.ownerId === schoolId) {
-        hasFriendlyNeighbor = true;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public removeOwnedTile(schoolId: string, x: number, y: number, state: GameState) {
+    const neighbors = [
+      [x + 1, y],
+      [x - 1, y],
+      [x, y + 1],
+      [x, y - 1]
+    ];
+    let hasFriendly = false;
+    for (const [nx, ny] of neighbors) {
+      if (nx < 0 || nx >= 1000 || ny < 0 || ny >= 1000) continue;
+      const nTile = state.claimedTiles.get(`${nx},${ny}`);
+      if (nTile && nTile.ownerId === schoolId) {
+        hasFriendly = true;
         break;
       }
     }
-    if (hasFriendlyNeighbor) {
-      this.frontiers.get(schoolId)?.add(`${x},${y}`);
+
+    const frontier = this.frontiers.get(schoolId);
+    if (frontier) {
+      if (hasFriendly) {
+        frontier.add(`${x},${y}`);
+      } else {
+        frontier.delete(`${x},${y}`);
+      }
+
+      // Clean up orphaned frontier tiles that depended on (x, y)
+      for (const [nx, ny] of neighbors) {
+        if (nx < 0 || nx >= 1000 || ny < 0 || ny >= 1000) continue;
+        const nKey = `${nx},${ny}`;
+        if (frontier.has(nKey)) {
+          if (!this.hasFriendlyNeighbor(schoolId, nx, ny, state)) {
+            frontier.delete(nKey);
+          }
+        }
+      }
     }
   }
 
@@ -96,7 +130,13 @@ export class BotManager {
       
       for (let i = 0; i < sampleSize; i++) {
         const randIdx = Math.floor(Math.random() * frontierArray.length);
-        candidates.push(frontierArray[randIdx]);
+        const candKey = frontierArray[randIdx];
+        const [cx, cy] = candKey.split(",").map(Number);
+        if (!this.hasFriendlyNeighbor(schoolId, cx, cy, state)) {
+          frontier.delete(candKey);
+          continue;
+        }
+        candidates.push(candKey);
       }
 
       let bestKey: string | null = null;
@@ -150,6 +190,11 @@ export class BotManager {
       if (!bestKey || bestScore <= 0) continue;
 
       const [tx, ty] = bestKey.split(",").map(Number);
+      if (!this.hasFriendlyNeighbor(schoolId, tx, ty, state)) {
+        frontier.delete(bestKey);
+        continue;
+      }
+
       const isLandmark = this.landmarkTileMap.has(bestKey);
       const lmKey = this.landmarkTileMap.get(bestKey);
       const lmConfig = lmKey ? LANDMARK_ROSTER[lmKey] : null;
@@ -171,14 +216,36 @@ export class BotManager {
             const oldOwner = existing.ownerId;
             if (oldOwner) {
               this.removeOwnedTile(oldOwner, tx, ty, state);
+              if (room?.clusterEngine) {
+                room.clusterEngine.setTile(tx, ty, 0, 0, 0);
+                const nbors = [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]];
+                for (const [nx, ny] of nbors) {
+                  if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
+                    room.handleClusterUpdate?.(oldOwner, nx, ny);
+                  }
+                }
+              }
             }
             existing.ownerId = schoolId;
             // Retain fortress stats on capture (40% max HP)
             existing.hp = Math.floor(existing.maxHp * 0.4);
             this.addOwnedTile(schoolId, tx, ty, state);
 
+            if (room?.clusterEngine) {
+              const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(schoolId) : 0;
+              room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
+              if (typeof room.handleClusterUpdate === "function") {
+                room.handleClusterUpdate(schoolId, tx, ty);
+              }
+            }
+
             if (typeof room.checkLandmarkCapture === "function") {
               room.checkLandmarkCapture(lmKey);
+            }
+          } else {
+            if (room?.clusterEngine && existing.ownerId) {
+              const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(existing.ownerId) : 0;
+              room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
             }
           }
         }
@@ -195,12 +262,34 @@ export class BotManager {
             const oldOwner = existing.ownerId;
             if (oldOwner) {
               this.removeOwnedTile(oldOwner, tx, ty, state);
+              if (room?.clusterEngine) {
+                room.clusterEngine.setTile(tx, ty, 0, 0, 0);
+                const nbors = [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]];
+                for (const [nx, ny] of nbors) {
+                  if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
+                    room.handleClusterUpdate?.(oldOwner, nx, ny);
+                  }
+                }
+              }
             }
             existing.ownerId = schoolId;
             existing.hp = 60;
             existing.maxHp = 100;
             existing.defenseTier = 0;
             this.addOwnedTile(schoolId, tx, ty, state);
+
+            if (room?.clusterEngine) {
+              const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(schoolId) : 0;
+              room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
+              if (typeof room.handleClusterUpdate === "function") {
+                room.handleClusterUpdate(schoolId, tx, ty);
+              }
+            }
+          } else {
+            if (room?.clusterEngine && existing.ownerId) {
+              const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(existing.ownerId) : 0;
+              room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
+            }
           }
         }
       } else if (!existing) {
@@ -217,6 +306,14 @@ export class BotManager {
 
           state.claimedTiles.set(bestKey, newTile);
           this.addOwnedTile(schoolId, tx, ty, state);
+
+          if (room?.clusterEngine) {
+            const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(schoolId) : 0;
+            room.clusterEngine.setTile(tx, ty, numId, newTile.defenseTier, newTile.hp);
+            if (typeof room.handleClusterUpdate === "function") {
+              room.handleClusterUpdate(schoolId, tx, ty);
+            }
+          }
         }
       }
     }

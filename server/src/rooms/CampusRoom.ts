@@ -12,6 +12,7 @@ import {
   ClientSetRoleMessage,
   PlayerRole
 } from "../../../shared/types";
+import { TerritoryClusterEngine } from "../../../shared/engine/territoryClusterEngine";
 
 export class CampusRoom extends Room<GameState> {
   private gameInterval?: Delayed;
@@ -20,6 +21,13 @@ export class CampusRoom extends Room<GameState> {
   private landmarkTileMap: Map<string, { landmarkKey: string; isCore: boolean }> = new Map();
   private initialLandmarkTiles: Map<string, { x: number; y: number; hp: number; maxHp: number; defenseTier: number }> = new Map();
   private botsEnabled = false;
+  public clusterEngine = new TerritoryClusterEngine(1000, 1000);
+  public activeBastions: Map<string, any> = new Map();
+  public activeMegaEmblems: Map<string, any> = new Map();
+
+  public getSchoolNumericId(schoolId: string): number {
+    return SCHOOL_IDS.indexOf(schoolId) + 1;
+  }
 
   onCreate(options: any) {
     this.autoDispose = false;
@@ -100,6 +108,7 @@ export class CampusRoom extends Room<GameState> {
 
           this.state.claimedTiles.set(key, tile);
           this.botManager.addOwnedTile(schoolId, tx, ty, this.state);
+          this.clusterEngine.setTile(tx, ty, this.getSchoolNumericId(schoolId), tile.defenseTier, tile.hp);
           schoolHQTiles.push({ x: tx, y: ty, defenseTier: tile.defenseTier, hp: tile.hp });
         }
       }
@@ -183,6 +192,7 @@ export class CampusRoom extends Room<GameState> {
 
             this.state.claimedTiles.set(key, tile);
             this.landmarkTileMap.set(key, { landmarkKey: lmKey, isCore });
+            this.clusterEngine.setTile(tx, ty, 0, tile.defenseTier, tile.hp);
             this.initialLandmarkTiles.set(key, {
               x: tx,
               y: ty,
@@ -233,6 +243,37 @@ export class CampusRoom extends Room<GameState> {
     if (lm.ownerId !== newOwner) {
       lm.ownerId = newOwner;
       console.log(`[CampusRoom] Landmark ${config.name} (${lmKey}) ownership updated: "${newOwner || 'NEUTRAL'}"`);
+    }
+  }
+
+  public handleClusterUpdate(schoolId: string, startX: number, startY: number) {
+    const schoolNumId = this.getSchoolNumericId(schoolId);
+    if (!schoolNumId) return;
+
+    const result = this.clusterEngine.evaluateCluster(startX, startY);
+    if (!result) return;
+
+    // Apply the changes back to state (fortifyTierMap was modified in engine)
+    result.tiles.forEach((cIdx: number) => {
+      const { x, y } = this.clusterEngine.getCoords(cIdx);
+      const key = `${x},${y}`;
+      const tile = this.state.claimedTiles.get(key);
+      if (tile) {
+        const engineTier = this.clusterEngine.getTileFortifyTier(x, y);
+        if (tile.defenseTier !== engineTier) {
+          tile.defenseTier = engineTier;
+        }
+      }
+    });
+
+    if (result.type === 'bastion') {
+      const payload = { schoolId, size: result.clusterSize, borderTiles: result.borderTiles };
+      this.activeBastions.set(schoolId, payload);
+      this.broadcast("bastion_formed", payload);
+    } else if (result.type === 'mega_emblem') {
+      const payload = { schoolId, boundingBox: result.boundingBox };
+      this.activeMegaEmblems.set(schoolId, payload);
+      this.broadcast("mega_emblem_formed", payload);
     }
   }
 
@@ -395,14 +436,26 @@ export class CampusRoom extends Room<GameState> {
           const oldOwner = existing.ownerId;
           if (oldOwner) {
             this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
+            this.clusterEngine.setTile(x, y, 0, 0, 0); // clear temporarily
+            // Re-evaluate old owner's clusters for neighbors
+            const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+            for (const [nx, ny] of neighbors) {
+              if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
+                this.handleClusterUpdate(oldOwner, nx, ny);
+              }
+            }
           }
           existing.ownerId = player.schoolId;
           // Capture HP is 40% of maxHp
           existing.hp = Math.floor(existing.maxHp * 0.4);
           this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
+          this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), existing.defenseTier, existing.hp);
+          this.handleClusterUpdate(player.schoolId, x, y);
 
           // Check if landmark whole structure capture status changed immediately
           this.checkLandmarkCapture(lmInfo.landmarkKey);
+        } else {
+          this.clusterEngine.setTile(x, y, this.getSchoolNumericId(existing.ownerId), existing.defenseTier, existing.hp);
         }
       } else if (!existing) {
         // Wild tile: costs 1 point
@@ -430,6 +483,8 @@ export class CampusRoom extends Room<GameState> {
 
         this.state.claimedTiles.set(key, newTile);
         this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
+        this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), newTile.defenseTier, newTile.hp);
+        this.handleClusterUpdate(player.schoolId, x, y);
       } else if (existing.ownerId !== player.schoolId) {
         // Enemy tile: costs 2 points
         if (player.email && player.personalTroops < 2) {
@@ -456,10 +511,23 @@ export class CampusRoom extends Room<GameState> {
           const oldOwner = existing.ownerId;
           if (oldOwner) {
             this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
+            this.clusterEngine.setTile(x, y, 0, 0, 0); // clear temporarily
+            // Re-evaluate old owner's clusters for neighbors
+            const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+            for (const [nx, ny] of neighbors) {
+              if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
+                this.handleClusterUpdate(oldOwner, nx, ny);
+              }
+            }
           }
           existing.ownerId = player.schoolId;
           existing.hp = 60;
+          existing.defenseTier = 0; // reset defense on capture
           this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
+          this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), existing.defenseTier, existing.hp);
+          this.handleClusterUpdate(player.schoolId, x, y);
+        } else {
+          this.clusterEngine.setTile(x, y, this.getSchoolNumericId(existing.ownerId), existing.defenseTier, existing.hp);
         }
       }
     });
@@ -503,6 +571,11 @@ export class CampusRoom extends Room<GameState> {
       tile.defenseTier += 1;
       tile.maxHp += 100;
       tile.hp = tile.maxHp;
+
+      this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), tile.defenseTier, tile.hp);
+      if (tile.defenseTier >= 3) {
+        this.handleClusterUpdate(player.schoolId, x, y);
+      }
     });
 
     // 3. set_simulation_speed
@@ -525,6 +598,7 @@ export class CampusRoom extends Room<GameState> {
       // Clear all claimed tiles
       this.state.claimedTiles.clear();
       this.botManager.reset();
+      this.clusterEngine = new TerritoryClusterEngine(1000, 1000);
 
       // Restore initial HQ tiles
       for (const [schoolId, tiles] of this.initialHQTiles) {
@@ -540,6 +614,7 @@ export class CampusRoom extends Room<GameState> {
 
           this.state.claimedTiles.set(key, tile);
           this.botManager.addOwnedTile(schoolId, t.x, t.y, this.state);
+          this.clusterEngine.setTile(t.x, t.y, this.getSchoolNumericId(schoolId), tile.defenseTier, tile.hp);
         }
         this.state.schoolTroops.set(schoolId, 500);
       }
@@ -554,6 +629,7 @@ export class CampusRoom extends Room<GameState> {
         tile.hp = t.hp;
         tile.maxHp = t.maxHp;
         this.state.claimedTiles.set(key, tile);
+        this.clusterEngine.setTile(t.x, t.y, 0, tile.defenseTier, tile.hp);
       }
 
       // Reset landmark owners
@@ -625,6 +701,180 @@ export class CampusRoom extends Room<GameState> {
         this.state.schoolTroops.set(player.schoolId, cur + (data.amount || 100));
       }
     });
+
+    // 10. dev_spawn_bastion
+    this.onMessage("dev_spawn_bastion", (client, data: { schoolId?: string, x?: number, y?: number }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const schoolId = data.schoolId || player.schoolId;
+      const hq = this.state.hqs.get(schoolId);
+      const startX = data.x !== undefined ? data.x : (hq ? hq.x : 500);
+      const startY = data.y !== undefined ? data.y : (hq ? hq.y : 500);
+
+      for (let dx = 0; dx < 10; dx++) {
+        for (let dy = 0; dy < 10; dy++) {
+          const tx = startX + dx;
+          const ty = startY + dy;
+          if (tx < 0 || tx >= 1000 || ty < 0 || ty >= 1000) continue;
+
+          const key = `${tx},${ty}`;
+          let tile = this.state.claimedTiles.get(key);
+          if (!tile) {
+            tile = new TileState();
+            tile.x = tx;
+            tile.y = ty;
+            this.state.claimedTiles.set(key, tile);
+          }
+          tile.ownerId = schoolId;
+          tile.defenseTier = 3;
+          tile.hp = 400;
+          tile.maxHp = 400;
+
+          this.botManager.addOwnedTile(schoolId, tx, ty, this.state);
+          this.clusterEngine.setTile(tx, ty, this.getSchoolNumericId(schoolId), 3, 100);
+        }
+      }
+      this.handleClusterUpdate(schoolId, startX, startY);
+    });
+
+    // 11. dev_spawn_mega_emblem
+    this.onMessage("dev_spawn_mega_emblem", (client, data: { schoolId?: string, x?: number, y?: number }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const schoolId = data.schoolId || player.schoolId;
+      const hq = this.state.hqs.get(schoolId);
+      const startX = data.x !== undefined ? data.x : (hq ? hq.x : 500);
+      const startY = data.y !== undefined ? data.y : (hq ? hq.y : 500);
+
+      for (let dx = 0; dx < 100; dx++) {
+        for (let dy = 0; dy < 100; dy++) {
+          const tx = startX + dx;
+          const ty = startY + dy;
+          if (tx < 0 || tx >= 1000 || ty < 0 || ty >= 1000) continue;
+
+          const key = `${tx},${ty}`;
+          let tile = this.state.claimedTiles.get(key);
+          if (!tile) {
+            tile = new TileState();
+            tile.x = tx;
+            tile.y = ty;
+            this.state.claimedTiles.set(key, tile);
+          }
+          tile.ownerId = schoolId;
+          tile.defenseTier = 3;
+          tile.hp = 400;
+          tile.maxHp = 400;
+
+          this.botManager.addOwnedTile(schoolId, tx, ty, this.state);
+          this.clusterEngine.setTile(tx, ty, this.getSchoolNumericId(schoolId), 3, 100);
+        }
+      }
+      this.handleClusterUpdate(schoolId, startX, startY);
+    });
+
+    // 12. dev_breach_cluster
+    this.onMessage("dev_breach_cluster", (client, data: { schoolId?: string }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const schoolId = data.schoolId || player.schoolId;
+
+      let targetX = -1, targetY = -1;
+      let isMega = this.activeMegaEmblems.has(schoolId);
+      let isBastion = this.activeBastions.has(schoolId);
+
+      for (const [key, tile] of this.state.claimedTiles) {
+         if (tile.ownerId === schoolId) {
+            const engineTier = this.clusterEngine.getTileFortifyTier(tile.x, tile.y);
+            if (isMega && engineTier >= 6) { targetX = tile.x; targetY = tile.y; break; }
+            if (isBastion && engineTier >= 4) { targetX = tile.x; targetY = tile.y; break; }
+            if (targetX === -1) { targetX = tile.x; targetY = tile.y; }
+         }
+      }
+
+      if (targetX !== -1 && targetY !== -1) {
+          const toDestroy = isMega ? 25 : (isBastion ? 15 : 5);
+          let destroyedCount = 0;
+          let queue = [[targetX, targetY]];
+          let visited = new Set<string>();
+          visited.add(`${targetX},${targetY}`);
+          
+          const neighborsToUpdate = new Set<string>();
+
+          while (queue.length > 0 && destroyedCount < toDestroy) {
+             const [cx, cy] = queue.shift()!;
+             const key = `${cx},${cy}`;
+             const tile = this.state.claimedTiles.get(key);
+             
+             if (tile && tile.ownerId === schoolId) {
+                tile.ownerId = "";
+                tile.defenseTier = 0;
+                tile.hp = 0;
+                this.botManager.removeOwnedTile(schoolId, cx, cy, this.state);
+                this.clusterEngine.setTile(cx, cy, 0, 0, 0);
+                destroyedCount++;
+                
+                const neighbors = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]];
+                for (const [nx, ny] of neighbors) {
+                    if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
+                        const nKey = `${nx},${ny}`;
+                        if (!visited.has(nKey)) {
+                            visited.add(nKey);
+                            queue.push([nx, ny]);
+                        }
+                        const nTile = this.state.claimedTiles.get(nKey);
+                        if (nTile && nTile.ownerId === schoolId) {
+                           neighborsToUpdate.add(nKey);
+                        }
+                    }
+                }
+             }
+          }
+
+          let newMaxSize = 0;
+          for (const nk of neighborsToUpdate) {
+             const [nx, ny] = nk.split(",").map(Number);
+             const res = this.clusterEngine.evaluateCluster(nx, ny);
+             if (res && res.clusterSize > newMaxSize) {
+                 newMaxSize = res.clusterSize;
+             }
+             this.handleClusterUpdate(schoolId, nx, ny);
+          }
+          
+          if (isMega && newMaxSize < 10000) {
+             this.activeMegaEmblems.delete(schoolId);
+             this.broadcast("mega_emblem_broken", { schoolId });
+          } else if (isBastion && newMaxSize < 100) {
+             this.activeBastions.delete(schoolId);
+             this.broadcast("bastion_broken", { schoolId });
+          }
+          client.send("dev_breach_success", { targetX, targetY, destroyedCount });
+      } else {
+          client.send("dev_breach_success", { targetX: -1, targetY: -1, destroyedCount: 0 });
+      }
+    });
+
+    // 13. dev_max_fortify_all
+    this.onMessage("dev_max_fortify_all", (client, data: { schoolId?: string }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const schoolId = data.schoolId || player.schoolId;
+      
+      let lastX = -1;
+      let lastY = -1;
+      for (const [key, tile] of this.state.claimedTiles) {
+          if (tile.ownerId === schoolId) {
+              tile.defenseTier = 3;
+              tile.hp = 400;
+              tile.maxHp = Math.max(tile.maxHp, 400);
+              this.clusterEngine.setTile(tile.x, tile.y, this.getSchoolNumericId(schoolId), 3, 100);
+              lastX = tile.x;
+              lastY = tile.y;
+          }
+      }
+      if (lastX !== -1) {
+          this.handleClusterUpdate(schoolId, lastX, lastY);
+      }
+    });
   }
 
   onJoin(client: Client, options: any) {
@@ -665,6 +915,11 @@ export class CampusRoom extends Room<GameState> {
     if (curTroops < initialPoints) {
       this.state.schoolTroops.set(player.schoolId, initialPoints);
     }
+
+    client.send("active_clusters_sync", {
+      bastions: Array.from(this.activeBastions.values()),
+      megaEmblems: Array.from(this.activeMegaEmblems.values())
+    });
 
     console.log(
       `[CampusRoom] Player joined: ${client.sessionId} | School: ${player.schoolId} | Mode: ${player.mode} | Locked: ${player.isLockedSchool} | Points: ${player.personalTroops} | Email: ${player.email || "Guest"}`

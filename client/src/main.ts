@@ -3,6 +3,8 @@ import { ChunkGridManager } from "./engine/chunkGridManager";
 import { NatureGridManager } from "./engine/natureGridManager";
 import { ModelLoader } from "./engine/modelLoader";
 import { SceneManager, TileClickEvent } from "./engine/sceneManager";
+import { BorderFlagManager } from "./engine/borderFlagManager";
+import { MegaEmblemManager } from "./engine/megaEmblemManager";
 import { ColyseusClient } from "./network/colyseusClient";
 import { StatsOverlay } from "./ui/statsOverlay";
 import { StudentActionDock, ACTION_MODES, ActionMode } from "./ui/studentActionDock";
@@ -73,6 +75,8 @@ async function bootstrap() {
   const chunkGridManager = new ChunkGridManager();
   const natureGridManager = new NatureGridManager();
   const modelLoader = new ModelLoader();
+  const borderFlagManager = new BorderFlagManager();
+  const megaEmblemManager = new MegaEmblemManager();
   const sceneManager = new SceneManager(container, chunkGridManager);
 
   // Expose Three.js scene and library to window for console inspection & debugging
@@ -84,6 +88,8 @@ async function bootstrap() {
   sceneManager.scene.add(chunkGridManager.group);
   sceneManager.scene.add(natureGridManager.group);
   sceneManager.scene.add(modelLoader.group);
+  sceneManager.scene.add(borderFlagManager.group);
+  sceneManager.scene.add(megaEmblemManager.group);
 
   // Build baseline nature vegetation immediately so map is vibrant from frame 1
   natureGridManager.buildProps();
@@ -302,6 +308,30 @@ async function bootstrap() {
         natureGridManager.setShadowCasting(tier === 'high');
         const tierName = tier === 'performance' ? '60 FPS Mượt Mà' : tier === 'balanced' ? 'Cân Bằng' : 'Chất Lượng Cao';
         showActionToast(`Đã chuyển cấu hình đồ họa: ${tierName}`);
+      },
+      onDevSpawnBastion: () => {
+        if (colyseusClient?.room) {
+          colyseusClient.room.send("dev_spawn_bastion", { schoolId: playerSchoolId });
+          showActionToast(`Đang giả lập Spawn Bastion (10x10) cho ${playerSchoolId}...`);
+        }
+      },
+      onDevSpawnMegaEmblem: () => {
+        if (colyseusClient?.room) {
+          colyseusClient.room.send("dev_spawn_mega_emblem", { schoolId: playerSchoolId });
+          showActionToast(`Đang giả lập Spawn Đại Lãnh Thổ (100x100) cho ${playerSchoolId}...`);
+        }
+      },
+      onDevBreachCluster: () => {
+        if (colyseusClient?.room) {
+          colyseusClient.room.send("dev_breach_cluster", { schoolId: playerSchoolId });
+          showActionToast(`Đang giả lập Chọc thủng cụm cho ${playerSchoolId}...`);
+        }
+      },
+      onDevMaxFortifyAll: () => {
+        if (colyseusClient?.room) {
+          colyseusClient.room.send("dev_max_fortify_all", { schoolId: playerSchoolId });
+          showActionToast(`Đang giả lập Max Gia Cố Toàn Bộ Đất cho ${playerSchoolId}...`);
+        }
       }
     },
     appEl,
@@ -361,6 +391,41 @@ async function bootstrap() {
       },
       onLandmarkAdded: () => {
         updateMiniMapStatic();
+      },
+      onBastionFormed: (data) => {
+        borderFlagManager.addBastionFlags(data.schoolId, data.borderTiles);
+      },
+      onBastionBroken: (data) => {
+        borderFlagManager.removeBorderFlags(data.schoolId);
+      },
+      onMegaEmblemFormed: (data) => {
+        const [minX, minY, maxX, maxY] = data.boundingBox;
+        megaEmblemManager.addMegaEmblem(data.schoolId, minX, minY, maxX, maxY);
+        borderFlagManager.registerMegaEmblemZone(minX, minY, maxX, maxY);
+      },
+      onMegaEmblemBroken: (data) => {
+        megaEmblemManager.removeMegaEmblem(data.schoolId);
+      },
+      onActiveClustersSync: (data) => {
+        if (data.bastions) {
+          data.bastions.forEach((b: any) => {
+            borderFlagManager.addBastionFlags(b.schoolId, b.borderTiles);
+          });
+        }
+        if (data.megaEmblems) {
+          data.megaEmblems.forEach((m: any) => {
+            const [minX, minY, maxX, maxY] = m.boundingBox;
+            megaEmblemManager.addMegaEmblem(m.schoolId, minX, minY, maxX, maxY);
+            borderFlagManager.registerMegaEmblemZone(minX, minY, maxX, maxY);
+          });
+        }
+      },
+      onDevBreachSuccess: (data) => {
+        if (data.targetX >= 0 && data.targetY >= 0) {
+          showActionToast(`Đã chọc thủng cụm tại tọa độ (${data.targetX}, ${data.targetY})!`);
+        } else {
+          showActionToast("Không tìm thấy cụm lãnh thổ phù hợp để chọc thủng!", "warning");
+        }
       },
       onSchoolTroopsChange: (schoolId, troops) => {
         // Sinh viên không nhận điểm tự động theo thời gian, điểm lấy từ database giải chạy!
@@ -526,7 +591,7 @@ async function bootstrap() {
   };
 
   function isAdjacentToSchool(x: number, y: number, schoolId: string): boolean {
-    if (!colyseusClient.room) return true;
+    if (!colyseusClient.room) return false;
     const neighbors = [
       [x + 1, y],
       [x - 1, y],
@@ -697,8 +762,6 @@ async function bootstrap() {
 
     if (mode === "claim") {
       colyseusClient.claimTile(x, y);
-      const schoolColor = SCHOOL_ROSTER[playerSchoolId]?.colorHex || "#0055a5";
-      chunkGridManager.setTileColor(x, y, schoolColor, true);
       showActionToast(
         landmarkName
           ? `Đã tấn công chiếm cứ điểm ${landmarkName}! -${cost} điểm`

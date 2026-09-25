@@ -14,6 +14,10 @@ export interface DevPanelCallbacks {
   onOpenNewTab?: (schoolId: string, email: string, km: number) => void;
   onOpenDbEditor?: () => void;
   onSetGraphicsTier?: (tier: 'performance' | 'balanced' | 'high') => void;
+  onDevSpawnBastion?: () => void;
+  onDevSpawnMegaEmblem?: () => void;
+  onDevBreachCluster?: () => void;
+  onDevMaxFortifyAll?: () => void;
 }
 
 export class DevToolsPanel {
@@ -184,6 +188,27 @@ export class DevToolsPanel {
             <button class="btn-dev-action danger" id="btn-dev-reset" style="grid-column: span 2;">Reset Toàn Bộ Bản Đồ</button>
           </div>
         </div>
+
+        <!-- 7. GIẢ LẬP LÃNH THỔ & GIA CỐ -->
+        <div class="dev-menu-section">
+          <div class="section-title" style="color: #f59e0b; display: flex; align-items: center; gap: 6px;">
+            🏰 GIẢ LẬP LÃNH THỔ & GIA CỐ
+          </div>
+          <div class="dev-btn-group" style="grid-template-columns: 1fr;">
+            <button class="btn-dev-action" id="btn-spawn-bastion" style="background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); justify-content: flex-start; text-align: left;" title="Tạo cụm 10x10 Max Tier 3, tự động kích hoạt cắm cờ viền & Buff Tier 4">
+              <span style="font-size: 16px; margin-right: 8px;">🚩</span> Spawn Bastion (10×10)
+            </button>
+            <button class="btn-dev-action" id="btn-spawn-mega" style="background: rgba(139, 92, 246, 0.1); border-color: rgba(139, 92, 246, 0.3); justify-content: flex-start; text-align: left;" title="Tạo cụm 100x100, phủ Logo trường, xóa cờ nhỏ bên trong & Buff Tier 6">
+              <span style="font-size: 16px; margin-right: 8px;">🌟</span> Spawn Đại Lãnh Thổ (100×100)
+            </button>
+            <button class="btn-dev-action" id="btn-breach-cluster" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); justify-content: flex-start; text-align: left;" title="Giả lập địch phá 1 ô lõi, kiểm tra gỡ cờ/logo và hạ Tier">
+              <span style="font-size: 16px; margin-right: 8px;">💥</span> Chọc Thủng Cụm (Breach)
+            </button>
+            <button class="btn-dev-action" id="btn-max-fortify" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); justify-content: flex-start; text-align: left;" title="Nâng toàn bộ ô đang sở hữu lên Tier 3">
+              <span style="font-size: 16px; margin-right: 8px;">🛡️</span> Max Gia Cố Toàn Bộ Đất
+            </button>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -307,6 +332,24 @@ export class DevToolsPanel {
       if (confirm('Bạn có chắc muốn đặt lại toàn bộ bản đồ về trạng thái ban đầu?')) {
         this.callbacks.onResetMap();
       }
+    });
+
+    // Giả lập Lãnh thổ & Gia cố
+    this.container.querySelector('#btn-spawn-bastion')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onDevSpawnBastion?.();
+    });
+    this.container.querySelector('#btn-spawn-mega')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onDevSpawnMegaEmblem?.();
+    });
+    this.container.querySelector('#btn-breach-cluster')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onDevBreachCluster?.();
+    });
+    this.container.querySelector('#btn-max-fortify')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onDevMaxFortifyAll?.();
     });
   }
 }

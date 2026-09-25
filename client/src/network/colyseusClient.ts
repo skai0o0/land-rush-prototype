@@ -20,6 +20,12 @@ export interface NetworkCallbacks {
   onHQAdded?: (hq: { schoolId: string; x: number; y: number }) => void;
   onLandmarkAdded?: (lm: { landmarkKey: string; x: number; y: number; ownerId: string }) => void;
   onError?: (message: string) => void;
+  onBastionFormed?: (data: { schoolId: string; size: number; borderTiles: any[] }) => void;
+  onBastionBroken?: (data: { schoolId: string; clusterId?: string }) => void;
+  onMegaEmblemFormed?: (data: { schoolId: string; boundingBox: number[] }) => void;
+  onMegaEmblemBroken?: (data: { schoolId: string; clusterId?: string }) => void;
+  onActiveClustersSync?: (data: { bastions: any[]; megaEmblems: any[] }) => void;
+  onDevBreachSuccess?: (data: { targetX: number; targetY: number; destroyedCount?: number }) => void;
 }
 
 export class ColyseusClient {
@@ -240,6 +246,43 @@ export class ColyseusClient {
     room.onMessage("error", (data: { message: string }) => {
       if (this.callbacks.onError) {
         this.callbacks.onError(data.message);
+      }
+    });
+
+    // Listen to Bastion & Mega Emblem events
+    room.onMessage("bastion_formed", (data: { schoolId: string; size: number; borderTiles: any[] }) => {
+      if (this.callbacks.onBastionFormed) {
+        this.callbacks.onBastionFormed(data);
+      }
+    });
+
+    room.onMessage("bastion_broken", (data: { schoolId: string; clusterId?: string }) => {
+      if (this.callbacks.onBastionBroken) {
+        this.callbacks.onBastionBroken(data);
+      }
+    });
+
+    room.onMessage("mega_emblem_formed", (data: { schoolId: string; boundingBox: number[] }) => {
+      if (this.callbacks.onMegaEmblemFormed) {
+        this.callbacks.onMegaEmblemFormed(data);
+      }
+    });
+
+    room.onMessage("mega_emblem_broken", (data: { schoolId: string; clusterId?: string }) => {
+      if (this.callbacks.onMegaEmblemBroken) {
+        this.callbacks.onMegaEmblemBroken(data);
+      }
+    });
+
+    room.onMessage("active_clusters_sync", (data: { bastions: any[]; megaEmblems: any[] }) => {
+      if (this.callbacks.onActiveClustersSync) {
+        this.callbacks.onActiveClustersSync(data);
+      }
+    });
+
+    room.onMessage("dev_breach_success", (data: { targetX: number; targetY: number; destroyedCount?: number }) => {
+      if (this.callbacks.onDevBreachSuccess) {
+        this.callbacks.onDevBreachSuccess(data);
       }
     });
 
