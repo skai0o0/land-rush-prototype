@@ -15,7 +15,7 @@ import { DatabaseModal } from "./ui/databaseModal";
 import { RunningDatabase } from "./services/runningDatabase";
 import { PlayerRole, GameMode } from "../../shared/types";
 import { LANDMARK_ROSTER } from "../../shared/constants/landmarks";
-import { SCHOOL_ROSTER, getSchoolIdFromEmail } from "../../shared/constants/schools";
+import { SCHOOL_ROSTER, SCHOOL_IDS, getSchoolIdFromEmail } from "../../shared/constants/schools";
 import { getTerrainType } from "./engine/terrainNoise";
 
 async function bootstrap() {
@@ -369,7 +369,8 @@ async function bootstrap() {
         // Listen to room ticks
         room.onStateChange((state) => {
           devTools.setTick(state.currentTick);
-          miniMap.setClaimedTiles(state.claimedTiles);
+          // Ownership paint comes from land frames (snap/own_batch), not schema.
+          miniMap.setLandOwnerBytes(colyseusClient.landSync.owner);
         });
       },
       onHQAdded: (hq) => {
@@ -439,8 +440,18 @@ async function bootstrap() {
       },
       onTerritoryChange: (territoryCounts) => {
         statsOverlay.updateTerritory(territoryCounts);
-        if (colyseusClient.room) {
-          miniMap.setClaimedTiles(colyseusClient.room.state.claimedTiles);
+        miniMap.setLandOwnerBytes(colyseusClient.landSync.owner);
+      },
+      onLandSync: (info) => {
+        // Wire dense owner bytes into the minimap (S2.4) — no 1e6 tile objects.
+        miniMap.setLandOwnerBytes(colyseusClient.landSync.owner);
+        if (info.kind === "own_batch" || info.kind === "snap") {
+          statsOverlay.updateTerritory(colyseusClient.territoryCounts);
+        }
+      },
+      onLandAck: (ack) => {
+        if (!ack.ok && ack.reason) {
+          showActionToast(ack.reason, "warning");
         }
       },
       onError: (msg) => {
@@ -509,7 +520,9 @@ async function bootstrap() {
   // 6. Raycast Hover & Click Handlers
   sceneManager.onTileHover = (x, y, screenX, screenY) => {
     if (!colyseusClient.room) return;
-    const tile = colyseusClient.room.state.claimedTiles.get(`${x},${y}`);
+    // LandState data plane overlay (T4): authoritative owner/combat when present.
+    const landCombat = colyseusClient.getTileCombatInfo(x, y);
+    const landOwnerSchoolId = colyseusClient.getTileOwnerSchoolId(x, y);
 
     // Check if within any landmark footprint
     let landmarkName: string | undefined;
@@ -549,18 +562,23 @@ async function bootstrap() {
     else if (tType === "hill") terrainType = "Đồi bazan";
     else if (tType === "road") terrainType = "Đại lộ giao thông";
 
-    const ownerConfig = tile?.ownerId ? SCHOOL_ROSTER[tile.ownerId] : null;
+    const resolvedOwnerId = landOwnerSchoolId;
+    const ownerConfig = resolvedOwnerId ? SCHOOL_ROSTER[resolvedOwnerId] : null;
     const ownerSchoolName = ownerConfig ? ownerConfig.name : (landmarkName ? "Cứ điểm Trung Lập" : null);
     const ownerColor = ownerConfig ? ownerConfig.colorHex : undefined;
-    const isOwnedByMe = tile?.ownerId === playerSchoolId;
+    const isOwnedByMe = resolvedOwnerId === playerSchoolId;
 
     let cost = 1;
     if (landmarkConfig) {
-      const isEnemyControlled = tile?.ownerId && tile.ownerId !== "" && tile.ownerId !== playerSchoolId;
+      const isEnemyControlled = resolvedOwnerId && resolvedOwnerId !== "" && resolvedOwnerId !== playerSchoolId;
       cost = isEnemyControlled ? landmarkConfig.attackCost : landmarkConfig.claimCost;
-    } else if (tile?.ownerId && !isOwnedByMe) {
+    } else if (resolvedOwnerId && !isOwnedByMe) {
       cost = 2;
     }
+
+    const hp = landCombat?.hp;
+    const maxHp = landCombat?.maxHp;
+    const defenseTier = landCombat?.defenseTier;
 
     const isMobile = window.innerWidth <= 768;
     if (!isMobile) {
@@ -574,9 +592,9 @@ async function bootstrap() {
           ownerColor,
           cost,
           isOwnedByMe,
-          hp: tile?.hp,
-          maxHp: tile?.maxHp,
-          defenseTier: tile?.defenseTier,
+          hp,
+          maxHp,
+          defenseTier,
           isCore,
           buffDescription: landmarkConfig?.buffDescription
         },
@@ -591,20 +609,7 @@ async function bootstrap() {
   };
 
   function isAdjacentToSchool(x: number, y: number, schoolId: string): boolean {
-    if (!colyseusClient.room) return false;
-    const neighbors = [
-      [x + 1, y],
-      [x - 1, y],
-      [x, y + 1],
-      [x, y - 1]
-    ];
-    for (const [nx, ny] of neighbors) {
-      const n = colyseusClient.room.state.claimedTiles.get(`${nx},${ny}`);
-      if (n && n.ownerId === schoolId) {
-        return true;
-      }
-    }
-    return false;
+    return colyseusClient.isAdjacentToSchool(x, y, schoolId);
   }
 
   // Helper to find landmark at coords
@@ -639,8 +644,8 @@ async function bootstrap() {
 
   // Evaluate smart context for a given tile
   function evaluateTileContext(x: number, y: number, modeOverride?: ActionMode) {
-    const tile = colyseusClient.room?.state.claimedTiles.get(`${x},${y}`);
-    const ownerSchool = tile?.ownerId;
+    const landCombat = colyseusClient.getTileCombatInfo(x, y);
+    const ownerSchool = colyseusClient.getTileOwnerSchoolId(x, y);
     const isOwnedByMe = ownerSchool === playerSchoolId;
     const isOwnedByEnemy = !!ownerSchool && ownerSchool !== "" && !isOwnedByMe;
     const isAdjacent = isAdjacentToSchool(x, y, playerSchoolId);
@@ -691,7 +696,7 @@ async function bootstrap() {
     } else if (mode === "fortify") {
       cost = ACTION_MODES.fortify.cost;
       title = "Gia cố phòng thủ";
-      const currentTier = tile?.defenseTier || 0;
+      const currentTier = landCombat?.defenseTier ?? 0;
       actionTitle = `GIA CỐ PHÒNG THỦ (${cost}đ)`;
       description = currentTier >= 3 ? "Đã đạt cấp phòng thủ tối đa (Giáp T3)" : `Nâng cấp giáp lên T${currentTier + 1} (+100 HP)`;
       if (!isOwnedByMe) {
@@ -769,8 +774,7 @@ async function bootstrap() {
       );
     } else if (mode === "fortify") {
       colyseusClient.fortifyTile(x, y);
-      const tile = colyseusClient.room?.state.claimedTiles.get(`${x},${y}`);
-      const currentTier = tile?.defenseTier || 0;
+      const currentTier = colyseusClient.getTileCombatInfo(x, y)?.defenseTier ?? 0;
       chunkGridManager.setTileElevation(x, y, (currentTier + 1) * 0.15);
       showActionToast(`Đã gia cố phòng thủ ô (${x}, ${y})! -${cost} điểm`);
     } else if (mode === "attack") {

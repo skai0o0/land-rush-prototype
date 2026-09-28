@@ -13,9 +13,12 @@ import {
   PlayerRole
 } from "../../../shared/types";
 import { TerritoryClusterEngine } from "../../../shared/engine/territoryClusterEngine";
+import { LandDataPlane, LAND_FRAME_CHANNEL, DEFAULT_FLUSH_MS } from "../land/landDataPlane";
+import { decodeClientFrame, ClaimFrame, FortifyFrame } from "../../../shared/land/protocol";
 
 export class CampusRoom extends Room<GameState> {
   private gameInterval?: Delayed;
+  private landFlushInterval?: Delayed;
   private botManager = new BotManager();
   private initialHQTiles: Map<string, { x: number; y: number; defenseTier: number; hp: number }[]> = new Map();
   private landmarkTileMap: Map<string, { landmarkKey: string; isCore: boolean }> = new Map();
@@ -24,9 +27,23 @@ export class CampusRoom extends Room<GameState> {
   public clusterEngine = new TerritoryClusterEngine(1000, 1000);
   public activeBastions: Map<string, any> = new Map();
   public activeMegaEmblems: Map<string, any> = new Map();
+  /** Data-plane authority for ownership/combat (snap / own_batch / combat frames). */
+  public landData = new LandDataPlane((type, payload) => this.broadcast(type, payload));
 
   public getSchoolNumericId(schoolId: string): number {
     return SCHOOL_IDS.indexOf(schoolId) + 1;
+  }
+
+  /** Write-through for bots / cluster paths: LandState owner + combat. */
+  public syncLandTile(
+    x: number,
+    y: number,
+    ownerId: string,
+    hp: number,
+    maxHp: number,
+    defenseTier: number
+  ): void {
+    this.landData.writeTile(x, y, ownerId, hp, maxHp, defenseTier);
   }
 
   onCreate(options: any) {
@@ -49,6 +66,9 @@ export class CampusRoom extends Room<GameState> {
 
     // 5. Start Game Loop at default 1x
     this.setSimulationSpeed(1);
+
+    // 6. LandState flush timer: broadcast own_batch / combat when non-empty
+    this.landFlushInterval = this.clock.setInterval(() => this.landData.flush(), DEFAULT_FLUSH_MS);
   }
 
   private spawnHQs() {
@@ -107,6 +127,7 @@ export class CampusRoom extends Room<GameState> {
           tile.maxHp = 500;
 
           this.state.claimedTiles.set(key, tile);
+          this.landData.writeTile(tx, ty, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
           this.botManager.addOwnedTile(schoolId, tx, ty, this.state);
           this.clusterEngine.setTile(tx, ty, this.getSchoolNumericId(schoolId), tile.defenseTier, tile.hp);
           schoolHQTiles.push({ x: tx, y: ty, defenseTier: tile.defenseTier, hp: tile.hp });
@@ -191,6 +212,7 @@ export class CampusRoom extends Room<GameState> {
             tile.defenseTier = isCore ? Math.min(3, config.defenseTier + 1) : config.defenseTier;
 
             this.state.claimedTiles.set(key, tile);
+            this.landData.writeTile(tx, ty, "", tile.hp, tile.maxHp, tile.defenseTier);
             this.landmarkTileMap.set(key, { landmarkKey: lmKey, isCore });
             this.clusterEngine.setTile(tx, ty, 0, tile.defenseTier, tile.hp);
             this.initialLandmarkTiles.set(key, {
@@ -262,6 +284,7 @@ export class CampusRoom extends Room<GameState> {
         const engineTier = this.clusterEngine.getTileFortifyTier(x, y);
         if (tile.defenseTier !== engineTier) {
           tile.defenseTier = engineTier;
+          this.landData.setCombat(x, y, tile.hp, tile.maxHp, tile.defenseTier);
         }
       }
     });
@@ -340,9 +363,12 @@ export class CampusRoom extends Room<GameState> {
           const fh = config.footprint.height;
           for (let dx = 0; dx < fw; dx++) {
             for (let dy = 0; dy < fh; dy++) {
-              const t = this.state.claimedTiles.get(`${lm.x + dx},${lm.y + dy}`);
+              const tx = lm.x + dx;
+              const ty = lm.y + dy;
+              const t = this.state.claimedTiles.get(`${tx},${ty}`);
               if (t && t.ownerId === lm.ownerId && t.hp < t.maxHp) {
                 t.hp = Math.min(t.maxHp, t.hp + 5);
+                this.landData.setCombat(tx, ty, t.hp, t.maxHp, t.defenseTier);
               }
             }
           }
@@ -356,225 +382,314 @@ export class CampusRoom extends Room<GameState> {
     }
   }
 
-  private registerMessages() {
-    // 1. claim_tile
-    this.onMessage("claim_tile", (client, data: ClientClaimMessage) => {
-      const player = this.state.players.get(client.sessionId);
-      if (!player) return;
+  private sendLandAck(client: Client, op: string, x: number, y: number, ok: boolean, reason?: string) {
+    this.landData.sendAck((type, payload) => client.send(type, payload), op, x, y, ok, reason);
+  }
 
-      const { x, y } = data;
-      if (x < 0 || x >= 1000 || y < 0 || y >= 1000) return;
+  /**
+   * Claim path (game rules unchanged). Writes LandState on every mutation.
+   * Sends ack to the actor. Handles both legacy "claim_tile" and protocol "claim".
+   */
+  private handleClaimAction(client: Client, data: { x: number; y: number }, op: string = "claim") {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
 
-      const key = `${x},${y}`;
-      const existing = this.state.claimedTiles.get(key);
+    const { x, y } = data;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x >= 1000 || y < 0 || y >= 1000) {
+      this.sendLandAck(client, op, x, y, false, "out_of_bounds");
+      return;
+    }
 
-      // Adjacency check
-      const neighbors = [
-        [x + 1, y],
-        [x - 1, y],
-        [x, y + 1],
-        [x, y - 1]
-      ];
-      let isAdjacent = false;
-      for (const [nx, ny] of neighbors) {
-        const n = this.state.claimedTiles.get(`${nx},${ny}`);
-        if (n && n.ownerId === player.schoolId) {
-          isAdjacent = true;
-          break;
-        }
+    const key = `${x},${y}`;
+    const existing = this.state.claimedTiles.get(key);
+
+    // Adjacency check
+    const neighbors = [
+      [x + 1, y],
+      [x - 1, y],
+      [x, y + 1],
+      [x, y - 1]
+    ];
+    let isAdjacent = false;
+    for (const [nx, ny] of neighbors) {
+      const n = this.state.claimedTiles.get(`${nx},${ny}`);
+      if (n && n.ownerId === player.schoolId) {
+        isAdjacent = true;
+        break;
       }
+    }
 
-      if (!isAdjacent) {
-        client.send("error", { message: "Ô không tiếp giáp với lãnh thổ của bạn!" });
+    if (!isAdjacent) {
+      client.send("error", { message: "Ô không tiếp giáp với lãnh thổ của bạn!" });
+      this.sendLandAck(client, op, x, y, false, "not_adjacent");
+      return;
+    }
+
+    const schoolTroops = this.state.schoolTroops.get(player.schoolId) || 0;
+
+    const lmInfo = this.landmarkTileMap.get(key);
+    const lmConfig = lmInfo ? LANDMARK_ROSTER[lmInfo.landmarkKey] : null;
+
+    if (lmConfig && existing) {
+      // Landmark tile handling
+      if (existing.ownerId === player.schoolId) {
+        client.send("error", { message: "Ô công trình này đã thuộc quyền kiểm soát của trường bạn!" });
+        this.sendLandAck(client, op, x, y, false, "already_owned");
         return;
       }
 
-      const schoolTroops = this.state.schoolTroops.get(player.schoolId) || 0;
+      const isEnemyControlled = existing.ownerId !== "" && existing.ownerId !== player.schoolId;
+      const requiredCost = isEnemyControlled ? lmConfig.attackCost : lmConfig.claimCost;
 
-      const lmInfo = this.landmarkTileMap.get(key);
-      const lmConfig = lmInfo ? LANDMARK_ROSTER[lmInfo.landmarkKey] : null;
+      if (player.email && player.personalTroops < requiredCost) {
+        client.send("error", {
+          message: `Không đủ điểm chạy! Cần ${requiredCost} điểm giải chạy để ${isEnemyControlled ? "tấn công" : "đánh chiếm"} ô công trình.`
+        });
+        this.sendLandAck(client, op, x, y, false, "not_enough_personal");
+        return;
+      }
 
-      if (lmConfig && existing) {
-        // Landmark tile handling
-        if (existing.ownerId === player.schoolId) {
-          client.send("error", { message: "Ô công trình này đã thuộc quyền kiểm soát của trường bạn!" });
-          return;
-        }
+      if (schoolTroops < requiredCost) {
+        client.send("error", {
+          message: `Không đủ quân lực! Cần ${requiredCost} quân để ${isEnemyControlled ? "tấn công" : "đánh chiếm"} ô công trình biểu tượng.`
+        });
+        this.sendLandAck(client, op, x, y, false, "not_enough_troops");
+        return;
+      }
 
-        const isEnemyControlled = existing.ownerId !== "" && existing.ownerId !== player.schoolId;
-        const requiredCost = isEnemyControlled ? lmConfig.attackCost : lmConfig.claimCost;
+      // Deduct troops
+      if (player.email) {
+        player.personalTroops -= requiredCost;
+      }
+      this.state.schoolTroops.set(player.schoolId, schoolTroops - requiredCost);
 
-        if (player.email && player.personalTroops < requiredCost) {
-          client.send("error", {
-            message: `Không đủ điểm chạy! Cần ${requiredCost} điểm giải chạy để ${isEnemyControlled ? "tấn công" : "đánh chiếm"} ô công trình.`
-          });
-          return;
-        }
+      // Role damage bonus: assault deals +35% damage
+      const baseDamage = player.currentRole === "assault" ? Math.floor(40 * 1.35) : 40;
+      // Defense Tier absorbs damage (8 per tier)
+      const absorbed = existing.defenseTier * 8;
+      const damage = Math.max(12, baseDamage - absorbed);
 
-        if (schoolTroops < requiredCost) {
-          client.send("error", {
-            message: `Không đủ quân lực! Cần ${requiredCost} quân để ${isEnemyControlled ? "tấn công" : "đánh chiếm"} ô công trình biểu tượng.`
-          });
-          return;
-        }
+      existing.hp -= damage;
 
-        // Deduct troops
-        if (player.email) {
-          player.personalTroops -= requiredCost;
-        }
-        this.state.schoolTroops.set(player.schoolId, schoolTroops - requiredCost);
-
-        // Role damage bonus: assault deals +35% damage
-        const baseDamage = player.currentRole === "assault" ? Math.floor(40 * 1.35) : 40;
-        // Defense Tier absorbs damage (8 per tier)
-        const absorbed = existing.defenseTier * 8;
-        const damage = Math.max(12, baseDamage - absorbed);
-
-        existing.hp -= damage;
-
-        if (existing.hp <= 0) {
-          const oldOwner = existing.ownerId;
-          if (oldOwner) {
-            this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
-            this.clusterEngine.setTile(x, y, 0, 0, 0); // clear temporarily
-            // Re-evaluate old owner's clusters for neighbors
-            const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
-            for (const [nx, ny] of neighbors) {
-              if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
-                this.handleClusterUpdate(oldOwner, nx, ny);
-              }
+      if (existing.hp <= 0) {
+        const oldOwner = existing.ownerId;
+        if (oldOwner) {
+          this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
+          this.clusterEngine.setTile(x, y, 0, 0, 0); // clear temporarily
+          // Re-evaluate old owner's clusters for neighbors
+          const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+          for (const [nx, ny] of neighbors) {
+            if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
+              this.handleClusterUpdate(oldOwner, nx, ny);
             }
           }
-          existing.ownerId = player.schoolId;
-          // Capture HP is 40% of maxHp
-          existing.hp = Math.floor(existing.maxHp * 0.4);
-          this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
-          this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), existing.defenseTier, existing.hp);
-          this.handleClusterUpdate(player.schoolId, x, y);
-
-          // Check if landmark whole structure capture status changed immediately
-          this.checkLandmarkCapture(lmInfo.landmarkKey);
-        } else {
-          this.clusterEngine.setTile(x, y, this.getSchoolNumericId(existing.ownerId), existing.defenseTier, existing.hp);
         }
-      } else if (!existing) {
-        // Wild tile: costs 1 point
-        if (player.email && player.personalTroops < 1) {
-          client.send("error", { message: "Không đủ điểm cống hiến! Cần 1 điểm để mở rộng ô đất." });
-          return;
-        }
-
-        if (schoolTroops < 1) {
-          client.send("error", { message: "Không đủ quân lực!" });
-          return;
-        }
-
-        if (player.email) {
-          player.personalTroops -= 1;
-        }
-        this.state.schoolTroops.set(player.schoolId, schoolTroops - 1);
-        const newTile = new TileState();
-        newTile.x = x;
-        newTile.y = y;
-        newTile.ownerId = player.schoolId;
-        newTile.hp = 100;
-        newTile.maxHp = 100;
-        newTile.defenseTier = 0;
-
-        this.state.claimedTiles.set(key, newTile);
+        existing.ownerId = player.schoolId;
+        // Capture HP is 40% of maxHp
+        existing.hp = Math.floor(existing.maxHp * 0.4);
+        this.landData.writeTile(x, y, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
         this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
-        this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), newTile.defenseTier, newTile.hp);
+        this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), existing.defenseTier, existing.hp);
         this.handleClusterUpdate(player.schoolId, x, y);
-      } else if (existing.ownerId !== player.schoolId) {
-        // Enemy tile: costs 2 points
-        if (player.email && player.personalTroops < 2) {
-          client.send("error", { message: "Không đủ điểm cống hiến! Cần 2 điểm để tấn công." });
-          return;
-        }
 
-        if (schoolTroops < 2) {
-          client.send("error", { message: "Không đủ quân lực để tấn công!" });
-          return;
-        }
-
-        if (player.email) {
-          player.personalTroops -= 2;
-        }
-        this.state.schoolTroops.set(player.schoolId, schoolTroops - 2);
-        // Assault role damage bonus (+35%)
-        const baseDamage = player.currentRole === "assault" ? Math.floor(40 * 1.35) : 40;
-        const absorbed = existing.defenseTier * 8;
-        const damage = Math.max(12, baseDamage - absorbed);
-        existing.hp -= damage;
-
-        if (existing.hp <= 0) {
-          const oldOwner = existing.ownerId;
-          if (oldOwner) {
-            this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
-            this.clusterEngine.setTile(x, y, 0, 0, 0); // clear temporarily
-            // Re-evaluate old owner's clusters for neighbors
-            const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
-            for (const [nx, ny] of neighbors) {
-              if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
-                this.handleClusterUpdate(oldOwner, nx, ny);
-              }
-            }
-          }
-          existing.ownerId = player.schoolId;
-          existing.hp = 60;
-          existing.defenseTier = 0; // reset defense on capture
-          this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
-          this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), existing.defenseTier, existing.hp);
-          this.handleClusterUpdate(player.schoolId, x, y);
-        } else {
-          this.clusterEngine.setTile(x, y, this.getSchoolNumericId(existing.ownerId), existing.defenseTier, existing.hp);
-        }
+        // Check if landmark whole structure capture status changed immediately
+        this.checkLandmarkCapture(lmInfo.landmarkKey);
+        this.sendLandAck(client, op, x, y, true);
+      } else {
+        this.landData.setCombat(x, y, existing.hp, existing.maxHp, existing.defenseTier);
+        this.clusterEngine.setTile(x, y, this.getSchoolNumericId(existing.ownerId), existing.defenseTier, existing.hp);
+        this.sendLandAck(client, op, x, y, true);
       }
-    });
-
-    // 2. fortify_tile
-    this.onMessage("fortify_tile", (client, data: ClientFortifyMessage) => {
-      const player = this.state.players.get(client.sessionId);
-      if (!player) return;
-
-      const { x, y } = data;
-      const key = `${x},${y}`;
-      const tile = this.state.claimedTiles.get(key);
-
-      if (!tile || tile.ownerId !== player.schoolId) {
-        client.send("error", { message: "Chỉ có thể gia cố ô đất của trường bạn!" });
+    } else if (!existing) {
+      // Wild tile: costs 1 point
+      if (player.email && player.personalTroops < 1) {
+        client.send("error", { message: "Không đủ điểm cống hiến! Cần 1 điểm để mở rộng ô đất." });
+        this.sendLandAck(client, op, x, y, false, "not_enough_personal");
         return;
       }
 
-      if (tile.defenseTier >= 3) {
-        client.send("error", { message: "Ô đất đã đạt cấp phòng thủ tối đa!" });
-        return;
-      }
-
-      const cost = 1;
-      const troops = this.state.schoolTroops.get(player.schoolId) || 0;
-
-      if (player.email && player.personalTroops < cost) {
-        client.send("error", { message: `Không đủ điểm cống hiến! Cần ${cost} điểm để gia cố.` });
-        return;
-      }
-
-      if (troops < cost) {
-        client.send("error", { message: "Không đủ quân lực để gia cố!" });
+      if (schoolTroops < 1) {
+        client.send("error", { message: "Không đủ quân lực!" });
+        this.sendLandAck(client, op, x, y, false, "not_enough_troops");
         return;
       }
 
       if (player.email) {
-        player.personalTroops -= cost;
+        player.personalTroops -= 1;
       }
-      this.state.schoolTroops.set(player.schoolId, troops - cost);
-      tile.defenseTier += 1;
-      tile.maxHp += 100;
-      tile.hp = tile.maxHp;
+      this.state.schoolTroops.set(player.schoolId, schoolTroops - 1);
+      const newTile = new TileState();
+      newTile.x = x;
+      newTile.y = y;
+      newTile.ownerId = player.schoolId;
+      newTile.hp = 100;
+      newTile.maxHp = 100;
+      newTile.defenseTier = 0;
 
-      this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), tile.defenseTier, tile.hp);
-      if (tile.defenseTier >= 3) {
+      this.state.claimedTiles.set(key, newTile);
+      if (!this.landData.writeTile(x, y, player.schoolId, newTile.hp, newTile.maxHp, newTile.defenseTier)) {
+        // RangeError from LandState: roll back claim, never leave divergent state
+        this.state.claimedTiles.delete(key);
+        if (player.email) player.personalTroops += 1;
+        this.state.schoolTroops.set(player.schoolId, schoolTroops);
+        this.sendLandAck(client, op, x, y, false, "out_of_bounds");
+        return;
+      }
+      this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
+      this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), newTile.defenseTier, newTile.hp);
+      this.handleClusterUpdate(player.schoolId, x, y);
+      this.sendLandAck(client, op, x, y, true);
+    } else if (existing.ownerId !== player.schoolId) {
+      // Enemy tile: costs 2 points
+      if (player.email && player.personalTroops < 2) {
+        client.send("error", { message: "Không đủ điểm cống hiến! Cần 2 điểm để tấn công." });
+        this.sendLandAck(client, op, x, y, false, "not_enough_personal");
+        return;
+      }
+
+      if (schoolTroops < 2) {
+        client.send("error", { message: "Không đủ quân lực để tấn công!" });
+        this.sendLandAck(client, op, x, y, false, "not_enough_troops");
+        return;
+      }
+
+      if (player.email) {
+        player.personalTroops -= 2;
+      }
+      this.state.schoolTroops.set(player.schoolId, schoolTroops - 2);
+      // Assault role damage bonus (+35%)
+      const baseDamage = player.currentRole === "assault" ? Math.floor(40 * 1.35) : 40;
+      const absorbed = existing.defenseTier * 8;
+      const damage = Math.max(12, baseDamage - absorbed);
+      existing.hp -= damage;
+
+      if (existing.hp <= 0) {
+        const oldOwner = existing.ownerId;
+        if (oldOwner) {
+          this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
+          this.clusterEngine.setTile(x, y, 0, 0, 0); // clear temporarily
+          // Re-evaluate old owner's clusters for neighbors
+          const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+          for (const [nx, ny] of neighbors) {
+            if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
+              this.handleClusterUpdate(oldOwner, nx, ny);
+            }
+          }
+        }
+        existing.ownerId = player.schoolId;
+        existing.hp = 60;
+        existing.defenseTier = 0; // reset defense on capture
+        this.landData.writeTile(x, y, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
+        this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
+        this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), existing.defenseTier, existing.hp);
         this.handleClusterUpdate(player.schoolId, x, y);
+        this.sendLandAck(client, op, x, y, true);
+      } else {
+        this.landData.setCombat(x, y, existing.hp, existing.maxHp, existing.defenseTier);
+        this.clusterEngine.setTile(x, y, this.getSchoolNumericId(existing.ownerId), existing.defenseTier, existing.hp);
+        this.sendLandAck(client, op, x, y, true);
+      }
+    } else {
+      // Already own this tile (non-landmark): no-op success
+      this.sendLandAck(client, op, x, y, true);
+    }
+  }
+
+  /**
+   * Fortify path (game rules unchanged). Writes combat dirty via LandState.
+   * Sends ack to the actor. Handles both legacy "fortify_tile" and protocol "fortify".
+   */
+  private handleFortifyAction(client: Client, data: { x: number; y: number }, op: string = "fortify") {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    const { x, y } = data;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x >= 1000 || y < 0 || y >= 1000) {
+      this.sendLandAck(client, op, x, y, false, "out_of_bounds");
+      return;
+    }
+
+    const key = `${x},${y}`;
+    const tile = this.state.claimedTiles.get(key);
+
+    if (!tile || tile.ownerId !== player.schoolId) {
+      client.send("error", { message: "Chỉ có thể gia cố ô đất của trường bạn!" });
+      this.sendLandAck(client, op, x, y, false, "not_owned");
+      return;
+    }
+
+    if (tile.defenseTier >= 3) {
+      client.send("error", { message: "Ô đất đã đạt cấp phòng thủ tối đa!" });
+      this.sendLandAck(client, op, x, y, false, "max_tier");
+      return;
+    }
+
+    const cost = 1;
+    const troops = this.state.schoolTroops.get(player.schoolId) || 0;
+
+    if (player.email && player.personalTroops < cost) {
+      client.send("error", { message: `Không đủ điểm cống hiến! Cần ${cost} điểm để gia cố.` });
+      this.sendLandAck(client, op, x, y, false, "not_enough_personal");
+      return;
+    }
+
+    if (troops < cost) {
+      client.send("error", { message: "Không đủ quân lực để gia cố!" });
+      this.sendLandAck(client, op, x, y, false, "not_enough_troops");
+      return;
+    }
+
+    if (player.email) {
+      player.personalTroops -= cost;
+    }
+    this.state.schoolTroops.set(player.schoolId, troops - cost);
+    tile.defenseTier += 1;
+    tile.maxHp += 100;
+    tile.hp = tile.maxHp;
+
+    if (!this.landData.setCombat(x, y, tile.hp, tile.maxHp, tile.defenseTier)) {
+      tile.defenseTier -= 1;
+      tile.maxHp -= 100;
+      if (player.email) player.personalTroops += cost;
+      this.state.schoolTroops.set(player.schoolId, troops);
+      this.sendLandAck(client, op, x, y, false, "out_of_bounds");
+      return;
+    }
+
+    this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), tile.defenseTier, tile.hp);
+    if (tile.defenseTier >= 3) {
+      this.handleClusterUpdate(player.schoolId, x, y);
+    }
+    this.sendLandAck(client, op, x, y, true);
+  }
+
+  private registerMessages() {
+    // 1. claim_tile (legacy name kept for old clients) + protocol "claim" frame
+    this.onMessage("claim_tile", (client, data: ClientClaimMessage) => {
+      this.handleClaimAction(client, data || { x: NaN, y: NaN }, "claim_tile");
+    });
+    this.onMessage("claim", (client, data: ClaimFrame | ClientClaimMessage) => {
+      const frame = decodeClientFrame(data) || data;
+      this.handleClaimAction(client, { x: (frame as any).x, y: (frame as any).y }, "claim");
+    });
+
+    // 2. fortify_tile (legacy name kept) + protocol "fortify" frame
+    this.onMessage("fortify_tile", (client, data: ClientFortifyMessage) => {
+      this.handleFortifyAction(client, data || { x: NaN, y: NaN }, "fortify_tile");
+    });
+    this.onMessage("fortify", (client, data: FortifyFrame | ClientFortifyMessage) => {
+      const frame = decodeClientFrame(data) || data;
+      this.handleFortifyAction(client, { x: (frame as any).x, y: (frame as any).y }, "fortify");
+    });
+
+    // 2b. protocol frames on the land channel (t: claim | fortify)
+    this.onMessage(LAND_FRAME_CHANNEL, (client, data: any) => {
+      const frame = decodeClientFrame(data);
+      if (!frame) return; // unknown / non-client frame: ignore
+      if (frame.t === "claim") {
+        this.handleClaimAction(client, frame, "claim");
+      } else if (frame.t === "fortify") {
+        this.handleFortifyAction(client, frame, "fortify");
       }
     });
 
@@ -584,7 +699,7 @@ export class CampusRoom extends Room<GameState> {
       this.setSimulationSpeed(speed);
     });
 
-    // 4. bulk_dispatch
+    // 4. bulk_dispatch (troops only — control plane; no tile writes)
     this.onMessage("bulk_dispatch", (client, data: ClientBulkDispatchMessage) => {
       const amount = data.amount || 500;
       for (const schoolId of SCHOOL_IDS) {
@@ -593,10 +708,11 @@ export class CampusRoom extends Room<GameState> {
       }
     });
 
-    // 5. soft_reset
+    // 5. soft_reset — full land reload: reset LandState, rebuild tiles, bump epoch + resend snap
     this.onMessage("soft_reset", () => {
       // Clear all claimed tiles
       this.state.claimedTiles.clear();
+      this.landData.reset();
       this.botManager.reset();
       this.clusterEngine = new TerritoryClusterEngine(1000, 1000);
 
@@ -613,6 +729,7 @@ export class CampusRoom extends Room<GameState> {
           tile.maxHp = t.hp ?? 500;
 
           this.state.claimedTiles.set(key, tile);
+          this.landData.writeTile(t.x, t.y, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
           this.botManager.addOwnedTile(schoolId, t.x, t.y, this.state);
           this.clusterEngine.setTile(t.x, t.y, this.getSchoolNumericId(schoolId), tile.defenseTier, tile.hp);
         }
@@ -629,6 +746,7 @@ export class CampusRoom extends Room<GameState> {
         tile.hp = t.hp;
         tile.maxHp = t.maxHp;
         this.state.claimedTiles.set(key, tile);
+        this.landData.writeTile(t.x, t.y, "", tile.hp, tile.maxHp, tile.defenseTier);
         this.clusterEngine.setTile(t.x, t.y, 0, tile.defenseTier, tile.hp);
       }
 
@@ -636,6 +754,9 @@ export class CampusRoom extends Room<GameState> {
       this.state.landmarks.forEach((lm) => {
         lm.ownerId = "";
       });
+
+      // Rebuild dirty is dropped; clients resync from a fresh snap under a new epoch
+      this.landData.finishReset();
     });
 
     // 6. select_school
@@ -730,6 +851,7 @@ export class CampusRoom extends Room<GameState> {
           tile.hp = 400;
           tile.maxHp = 400;
 
+          this.landData.writeTile(tx, ty, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
           this.botManager.addOwnedTile(schoolId, tx, ty, this.state);
           this.clusterEngine.setTile(tx, ty, this.getSchoolNumericId(schoolId), 3, 100);
         }
@@ -765,6 +887,7 @@ export class CampusRoom extends Room<GameState> {
           tile.hp = 400;
           tile.maxHp = 400;
 
+          this.landData.writeTile(tx, ty, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
           this.botManager.addOwnedTile(schoolId, tx, ty, this.state);
           this.clusterEngine.setTile(tx, ty, this.getSchoolNumericId(schoolId), 3, 100);
         }
@@ -809,6 +932,8 @@ export class CampusRoom extends Room<GameState> {
                 tile.ownerId = "";
                 tile.defenseTier = 0;
                 tile.hp = 0;
+                this.landData.setOwner(cx, cy, "");
+                this.landData.clearCombat(cx, cy);
                 this.botManager.removeOwnedTile(schoolId, cx, cy, this.state);
                 this.clusterEngine.setTile(cx, cy, 0, 0, 0);
                 destroyedCount++;
@@ -866,6 +991,7 @@ export class CampusRoom extends Room<GameState> {
               tile.defenseTier = 3;
               tile.hp = 400;
               tile.maxHp = Math.max(tile.maxHp, 400);
+              this.landData.setCombat(tile.x, tile.y, tile.hp, tile.maxHp, tile.defenseTier);
               this.clusterEngine.setTile(tile.x, tile.y, this.getSchoolNumericId(schoolId), 3, 100);
               lastX = tile.x;
               lastY = tile.y;
@@ -916,6 +1042,9 @@ export class CampusRoom extends Room<GameState> {
       this.state.schoolTroops.set(player.schoolId, initialPoints);
     }
 
+    // Data-plane snap FIRST (before any live batches)
+    this.landData.sendSnap((type, payload) => client.send(type, payload));
+
     client.send("active_clusters_sync", {
       bastions: Array.from(this.activeBastions.values()),
       megaEmblems: Array.from(this.activeMegaEmblems.values())
@@ -934,6 +1063,9 @@ export class CampusRoom extends Room<GameState> {
   onDispose() {
     if (this.gameInterval) {
       this.gameInterval.clear();
+    }
+    if (this.landFlushInterval) {
+      this.landFlushInterval.clear();
     }
     console.log("[CampusRoom] Disposed");
   }

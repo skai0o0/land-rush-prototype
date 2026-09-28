@@ -230,6 +230,7 @@ export class BotManager {
             // Retain fortress stats on capture (40% max HP)
             existing.hp = Math.floor(existing.maxHp * 0.4);
             this.addOwnedTile(schoolId, tx, ty, state);
+            room?.syncLandTile?.(tx, ty, schoolId, existing.hp, existing.maxHp, existing.defenseTier);
 
             if (room?.clusterEngine) {
               const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(schoolId) : 0;
@@ -243,6 +244,7 @@ export class BotManager {
               room.checkLandmarkCapture(lmKey);
             }
           } else {
+            room?.syncLandTile?.(tx, ty, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
             if (room?.clusterEngine && existing.ownerId) {
               const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(existing.ownerId) : 0;
               room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
@@ -277,6 +279,7 @@ export class BotManager {
             existing.maxHp = 100;
             existing.defenseTier = 0;
             this.addOwnedTile(schoolId, tx, ty, state);
+            room?.syncLandTile?.(tx, ty, schoolId, existing.hp, existing.maxHp, existing.defenseTier);
 
             if (room?.clusterEngine) {
               const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(schoolId) : 0;
@@ -286,6 +289,7 @@ export class BotManager {
               }
             }
           } else {
+            room?.syncLandTile?.(tx, ty, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
             if (room?.clusterEngine && existing.ownerId) {
               const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(existing.ownerId) : 0;
               room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
@@ -306,6 +310,7 @@ export class BotManager {
 
           state.claimedTiles.set(bestKey, newTile);
           this.addOwnedTile(schoolId, tx, ty, state);
+          room?.syncLandTile?.(tx, ty, schoolId, newTile.hp, newTile.maxHp, newTile.defenseTier);
 
           if (room?.clusterEngine) {
             const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(schoolId) : 0;

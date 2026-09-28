@@ -2,7 +2,7 @@ import { Client, Room } from "colyseus.js";
 import { ChunkGridManager } from "../engine/chunkGridManager";
 import { ModelLoader } from "../engine/modelLoader";
 import { NatureGridManager } from "../engine/natureGridManager";
-import { getSchoolColor } from "../../../shared/constants/schools";
+import { getSchoolColor, SCHOOL_IDS } from "../../../shared/constants/schools";
 import { LANDMARK_ROSTER } from "../../../shared/constants/landmarks";
 import { PlayerRole } from "../../../shared/types";
 import {
@@ -10,6 +10,22 @@ import {
   getFootprintFoundationHeight,
   isInsideLeveledZone
 } from "../engine/terrainNoise";
+import { ClientLandSync, DirtyTileChange } from "../../../shared/land/clientSync";
+import { MAP_WIDTH, CombatTile } from "../../../shared/land/landState";
+import {
+  decodeServerFrame,
+  makeClaim,
+  makeFortify,
+  ServerFrame,
+  SnapFrame,
+  OwnBatchFrame,
+  CombatFrame,
+  AckFrame,
+  LAND_FRAME_CHANNEL
+} from "../../../shared/land/protocol";
+
+// Re-export so UI modules share the single protocol constant.
+export { LAND_FRAME_CHANNEL };
 
 export interface NetworkCallbacks {
   onConnected?: (room: Room) => void;
@@ -26,12 +42,17 @@ export interface NetworkCallbacks {
   onMegaEmblemBroken?: (data: { schoolId: string; clusterId?: string }) => void;
   onActiveClustersSync?: (data: { bastions: any[]; megaEmblems: any[] }) => void;
   onDevBreachSuccess?: (data: { targetX: number; targetY: number; destroyedCount?: number }) => void;
+  /** Fired after snap/own_batch/combat so UI can refresh owner/combat overlays. */
+  onLandSync?: (info: { kind: "snap" | "own_batch" | "combat"; dirtyTiles?: DirtyTileChange[] }) => void;
+  onLandAck?: (ack: AckFrame) => void;
 }
 
 export class ColyseusClient {
   private client: Client;
   public room?: Room;
   public territoryCounts: Record<string, number> = {};
+  /** Dense ownership bytes + sparse combat overlay (no 1e6 tile objects). */
+  public readonly landSync = new ClientLandSync();
   private lastJoinOptions: any = { schoolId: "hcmut" };
   private isReconnecting = false;
   private territoryDebounceTimer: any = null;
@@ -107,6 +128,20 @@ export class ColyseusClient {
     if (!this.room) return;
 
     const room = this.room;
+
+    // LandState data plane (S2.4): register FIRST so snap/own_batch/combat/ack
+    // always attach even if control-plane schema maps are empty or missing.
+    const handleLandPayload = (payload: unknown) => {
+      const frame = decodeServerFrame(payload as any);
+      if (!frame) return;
+      this.handleLandFrame(frame);
+    };
+    room.onMessage(LAND_FRAME_CHANNEL, handleLandPayload);
+    room.onMessage("snap", handleLandPayload);
+    room.onMessage("own_batch", handleLandPayload);
+    room.onMessage("combat", handleLandPayload);
+    room.onMessage("ack", handleLandPayload);
+
     const collectedHQs: { x: number; y: number }[] = [];
     const collectedLMs: { x: number; y: number; width: number; height: number }[] = [];
     const processedHQs = new Set<string>();
@@ -121,126 +156,99 @@ export class ColyseusClient {
     };
 
     // Listen to HQ additions
-    room.state.hqs.onAdd((hq: any, key: string) => {
-      const hqKey = key || hq.schoolId;
-      if (!processedHQs.has(hqKey)) {
-        processedHQs.add(hqKey);
-        collectedHQs.push({ x: hq.x, y: hq.y });
-      }
+    if (room.state.hqs && typeof room.state.hqs.onAdd === "function") {
+      room.state.hqs.onAdd((hq: any, key: string) => {
+        const hqKey = key || hq.schoolId;
+        if (!processedHQs.has(hqKey)) {
+          processedHQs.add(hqKey);
+          collectedHQs.push({ x: hq.x, y: hq.y });
+        }
 
-      // HQ leveling: diameter ~20 tiles (radius 10) + 2 tiles apron
-      const hqMinX = hq.x - 12;
-      const hqMaxX = hq.x + 12;
-      const hqMinY = hq.y - 12;
-      const hqMaxY = hq.y + 12;
-      const foundationHeight = getFootprintFoundationHeight(hqMinX, hqMaxX, hqMinY, hqMaxY);
-      registerLeveledZone(`hq_${hq.schoolId}`, hqMinX, hqMaxX, hqMinY, hqMaxY, foundationHeight);
-      this.chunkGridManager.flattenArea(hqMinX, hqMaxX, hqMinY, hqMaxY, foundationHeight);
+        // HQ leveling: diameter ~20 tiles (radius 10) + 2 tiles apron
+        const hqMinX = hq.x - 12;
+        const hqMaxX = hq.x + 12;
+        const hqMinY = hq.y - 12;
+        const hqMaxY = hq.y + 12;
+        const foundationHeight = getFootprintFoundationHeight(hqMinX, hqMaxX, hqMinY, hqMaxY);
+        registerLeveledZone(`hq_${hq.schoolId}`, hqMinX, hqMaxX, hqMinY, hqMaxY, foundationHeight);
+        this.chunkGridManager.flattenArea(hqMinX, hqMaxX, hqMinY, hqMaxY, foundationHeight);
 
-      this.modelLoader.spawnHQ(hq.schoolId, hq.x, hq.y);
+        this.modelLoader.spawnHQ(hq.schoolId, hq.x, hq.y);
 
-      if (this.callbacks.onHQAdded) {
-        this.callbacks.onHQAdded({ schoolId: hq.schoolId, x: hq.x, y: hq.y });
-      }
+        if (this.callbacks.onHQAdded) {
+          this.callbacks.onHQAdded({ schoolId: hq.schoolId, x: hq.x, y: hq.y });
+        }
 
-      triggerExclusionUpdate();
-    });
+        triggerExclusionUpdate();
+      });
+    }
 
     // Listen to Landmark additions
-    room.state.landmarks.onAdd((lm: any, key: string) => {
-      const lmKey = key || lm.landmarkKey;
-      const config = LANDMARK_ROSTER[lm.landmarkKey];
-      const w = config?.footprint.width || 14;
-      const h = config?.footprint.height || 12;
+    if (room.state.landmarks && typeof room.state.landmarks.onAdd === "function") {
+      room.state.landmarks.onAdd((lm: any, key: string) => {
+        const lmKey = key || lm.landmarkKey;
+        const config = LANDMARK_ROSTER[lm.landmarkKey];
+        const w = config?.footprint.width || 14;
+        const h = config?.footprint.height || 12;
 
-      if (!processedLMs.has(lmKey)) {
-        processedLMs.add(lmKey);
-        collectedLMs.push({ x: lm.x, y: lm.y, width: w, height: h });
-      }
+        if (!processedLMs.has(lmKey)) {
+          processedLMs.add(lmKey);
+          collectedLMs.push({ x: lm.x, y: lm.y, width: w, height: h });
+        }
 
-      // Landmark leveling: footprint + 1 tile apron margin
-      const lmMinX = lm.x - 1;
-      const lmMaxX = lm.x + w;
-      const lmMinY = lm.y - 1;
-      const lmMaxY = lm.y + h;
-      const foundationHeight = getFootprintFoundationHeight(lmMinX, lmMaxX, lmMinY, lmMaxY);
-      registerLeveledZone(`lm_${lm.landmarkKey}`, lmMinX, lmMaxX, lmMinY, lmMaxY, foundationHeight);
-      this.chunkGridManager.flattenArea(lmMinX, lmMaxX, lmMinY, lmMaxY, foundationHeight);
+        // Landmark leveling: footprint + 1 tile apron margin
+        const lmMinX = lm.x - 1;
+        const lmMaxX = lm.x + w;
+        const lmMinY = lm.y - 1;
+        const lmMaxY = lm.y + h;
+        const foundationHeight = getFootprintFoundationHeight(lmMinX, lmMaxX, lmMinY, lmMaxY);
+        registerLeveledZone(`lm_${lm.landmarkKey}`, lmMinX, lmMaxX, lmMinY, lmMaxY, foundationHeight);
+        this.chunkGridManager.flattenArea(lmMinX, lmMaxX, lmMinY, lmMaxY, foundationHeight);
 
-      this.modelLoader.spawnLandmark(lm.landmarkKey, lm.x, lm.y, lm.ownerId);
+        this.modelLoader.spawnLandmark(lm.landmarkKey, lm.x, lm.y, lm.ownerId);
 
-      if (this.callbacks.onLandmarkAdded) {
-        this.callbacks.onLandmarkAdded({ landmarkKey: lm.landmarkKey, x: lm.x, y: lm.y, ownerId: lm.ownerId });
-      }
+        if (this.callbacks.onLandmarkAdded) {
+          this.callbacks.onLandmarkAdded({ landmarkKey: lm.landmarkKey, x: lm.x, y: lm.y, ownerId: lm.ownerId });
+        }
 
-      triggerExclusionUpdate();
+        triggerExclusionUpdate();
 
-      // Listen for ownership changes on this landmark
-      if (typeof lm.onChange === "function") {
-        lm.onChange(() => {
+        // Listen for ownership changes on this landmark
+        if (typeof lm.onChange === "function") {
+          lm.onChange(() => {
+            if (lm.ownerId) {
+              this.modelLoader.updateLandmarkOwner(lm.landmarkKey, lm.ownerId);
+            }
+          });
+        }
+      });
+
+      if (typeof room.state.landmarks.onChange === "function") {
+        room.state.landmarks.onChange((lm: any) => {
           if (lm.ownerId) {
             this.modelLoader.updateLandmarkOwner(lm.landmarkKey, lm.ownerId);
           }
         });
       }
-    });
+    }
 
-    room.state.landmarks.onChange((lm: any) => {
-      if (lm.ownerId) {
-        this.modelLoader.updateLandmarkOwner(lm.landmarkKey, lm.ownerId);
-      }
-    });
-
-    // Listen to Claimed Tiles (Sparse optimization)
-    room.state.claimedTiles.onAdd((tile: any, key: string) => {
-      const color = getSchoolColor(tile.ownerId);
-      this.chunkGridManager.setTileColor(tile.x, tile.y, color, this.isInitialSyncDone);
-      if (!isInsideLeveledZone(tile.x, tile.y)) {
-        this.chunkGridManager.setTileElevation(tile.x, tile.y, (tile.defenseTier || 0) * 0.15);
-      }
-
-      this.territoryCounts[tile.ownerId] = (this.territoryCounts[tile.ownerId] || 0) + 1;
-      this.triggerTerritoryUpdate();
-
-      if (typeof tile.onChange === "function") {
-        tile.onChange(() => {
-          const c = getSchoolColor(tile.ownerId);
-          this.chunkGridManager.setTileColor(tile.x, tile.y, c, this.isInitialSyncDone);
-          if (!isInsideLeveledZone(tile.x, tile.y)) {
-            this.chunkGridManager.setTileElevation(tile.x, tile.y, (tile.defenseTier || 0) * 0.15);
-          }
-        });
-      }
-    });
-
-    room.state.claimedTiles.onChange((tile: any, key: string) => {
-      const color = getSchoolColor(tile.ownerId);
-      this.chunkGridManager.setTileColor(tile.x, tile.y, color, this.isInitialSyncDone);
-      if (!isInsideLeveledZone(tile.x, tile.y)) {
-        this.chunkGridManager.setTileElevation(tile.x, tile.y, (tile.defenseTier || 0) * 0.15);
-      }
-    });
-
-    room.state.claimedTiles.onRemove((tile: any, key: string) => {
-      this.chunkGridManager.resetTerrainColor(tile.x, tile.y);
-      if (this.territoryCounts[tile.ownerId] && this.territoryCounts[tile.ownerId] > 0) {
-        this.territoryCounts[tile.ownerId]--;
-      }
-      this.triggerTerritoryUpdate();
-    });
+    // NOTE: claimedTiles is intentionally NOT networked (no @type on GameState).
+    // Ownership/HP/defense paint and territory counts come from land frames only.
 
     // Listen to School Troops
-    room.state.schoolTroops.onAdd((troops: number, schoolId: string) => {
-      if (this.callbacks.onSchoolTroopsChange) {
-        this.callbacks.onSchoolTroopsChange(schoolId, troops);
-      }
-    });
+    if (room.state.schoolTroops && typeof room.state.schoolTroops.onAdd === "function") {
+      room.state.schoolTroops.onAdd((troops: number, schoolId: string) => {
+        if (this.callbacks.onSchoolTroopsChange) {
+          this.callbacks.onSchoolTroopsChange(schoolId, troops);
+        }
+      });
 
-    room.state.schoolTroops.onChange((troops: number, schoolId: string) => {
-      if (this.callbacks.onSchoolTroopsChange) {
-        this.callbacks.onSchoolTroopsChange(schoolId, troops);
-      }
-    });
+      room.state.schoolTroops.onChange((troops: number, schoolId: string) => {
+        if (this.callbacks.onSchoolTroopsChange) {
+          this.callbacks.onSchoolTroopsChange(schoolId, troops);
+        }
+      });
+    }
 
     // Listen to Errors
     room.onMessage("error", (data: { message: string }) => {
@@ -311,13 +319,194 @@ export class ColyseusClient {
     }, 80);
   }
 
+  // ── LandState data plane (T4 / S2.4) ───────────────────────────────────────
+
+  private handleLandFrame(frame: ServerFrame) {
+    switch (frame.t) {
+      case "snap":
+        this.applySnapFrame(frame);
+        break;
+      case "own_batch":
+        this.applyOwnBatchFrame(frame);
+        break;
+      case "combat":
+        this.applyCombatFrame(frame);
+        break;
+      case "ack":
+        if (this.callbacks.onLandAck) this.callbacks.onLandAck(frame);
+        break;
+    }
+  }
+
+  /** Full ownership resync: fill local Uint8Array, repaint owned tiles only. */
+  private applySnapFrame(frame: SnapFrame) {
+    try {
+      this.landSync.applySnap(frame);
+    } catch (e) {
+      console.error("[ColyseusClient] snap rejected:", e);
+      return;
+    }
+
+    this.rebuildTerritoryCountsFromLand();
+    this.paintAllOwnedTilesFromLand();
+
+    if (this.callbacks.onLandSync) {
+      this.callbacks.onLandSync({ kind: "snap" });
+    }
+  }
+
+  /**
+   * Coalesced ownership delta: write local bytes, then repaint ONLY the
+   * tiles that actually changed (their chunks get instanceColor.needsUpdate
+   * via setTileColor / resetTerrainColor — never a whole-map repaint).
+   */
+  private applyOwnBatchFrame(frame: OwnBatchFrame) {
+    const result = this.landSync.applyOwnBatch(frame);
+    if (!result.applied) {
+      // Stale (seq <= lastSnapSeq) or no-op batch — drop without touching render.
+      return;
+    }
+
+    for (const change of result.dirtyTiles) {
+      this.paintLandTile(change);
+    }
+
+    this.rebuildTerritoryCountsFromLand();
+    this.triggerTerritoryUpdate();
+
+    if (this.callbacks.onLandSync) {
+      this.callbacks.onLandSync({ kind: "own_batch", dirtyTiles: result.dirtyTiles });
+    }
+  }
+
+  /**
+   * Sparse HP/defense overlay: update the combat map tooltips/stats read from,
+   * and nudge elevation for tier changes on those tiles only.
+   */
+  private applyCombatFrame(frame: CombatFrame) {
+    const result = this.landSync.applyCombat(frame);
+    if (!result.applied) return;
+
+    for (const tile of result.tiles) {
+      const x = tile.i % MAP_WIDTH;
+      const y = (tile.i / MAP_WIDTH) | 0;
+      if (!isInsideLeveledZone(x, y)) {
+        this.chunkGridManager.setTileElevation(x, y, (tile.tier || 0) * 0.15);
+      }
+    }
+
+    if (this.callbacks.onLandSync) {
+      this.callbacks.onLandSync({ kind: "combat" });
+    }
+  }
+
+  private paintLandTile(change: DirtyTileChange) {
+    if (change.owner === 0) {
+      this.chunkGridManager.resetTerrainColor(change.x, change.y);
+      return;
+    }
+    const schoolId = SCHOOL_IDS[change.owner - 1];
+    const color = getSchoolColor(schoolId || "");
+    this.chunkGridManager.setTileColor(change.x, change.y, color, this.isInitialSyncDone);
+    const combat = this.landSync.getCombatAt(change.y * MAP_WIDTH + change.x);
+    if (combat && !isInsideLeveledZone(change.x, change.y)) {
+      this.chunkGridManager.setTileElevation(change.x, change.y, (combat.defenseTier || 0) * 0.15);
+    }
+  }
+
+  /** Snapshot paint: walk dense bytes once, color only non-zero owners. */
+  private paintAllOwnedTilesFromLand() {
+    const owner = this.landSync.owner;
+    const w = this.landSync.width;
+    const h = this.landSync.height;
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const o = owner[row + x];
+        if (o === 0) continue;
+        const schoolId = SCHOOL_IDS[o - 1];
+        this.chunkGridManager.setTileColor(x, y, getSchoolColor(schoolId || ""), false);
+        const combat = this.landSync.combat.get(row + x);
+        if (combat && !isInsideLeveledZone(x, y)) {
+          this.chunkGridManager.setTileElevation(x, y, (combat.defenseTier || 0) * 0.15);
+        }
+      }
+    }
+  }
+
+  private rebuildTerritoryCountsFromLand() {
+    // Incremental counts (O(owners)) — never a 1e6 scan per batch.
+    const counts = this.landSync.countOwners();
+    const next: Record<string, number> = {};
+    for (const key of Object.keys(counts)) {
+      const o = Number(key);
+      const schoolId = SCHOOL_IDS[o - 1];
+      if (schoolId) next[schoolId] = counts[o];
+    }
+    this.territoryCounts = next;
+  }
+
+  /** Owner bytes for minimap / tooltips (dense, no tile objects). */
+  public getLandOwner(x: number, y: number): number {
+    return this.landSync.getOwner(x, y);
+  }
+
+  public getLandCombat(x: number, y: number) {
+    return this.landSync.getCombat(x, y);
+  }
+
+  /**
+   * Schema claimedTiles fallback — only used when the field still exists and
+   * exposes .get (i.e. a build that re-typed it). Prefer landSync first.
+   */
+  private getSchemaTile(x: number, y: number): any | undefined {
+    const map = (this.room?.state as any)?.claimedTiles;
+    if (!map || typeof map.get !== "function") return undefined;
+    return map.get(`${x},${y}`);
+  }
+
+  /** School id for a tile via land overlay; schema fallback only if typed. */
+  public getTileOwnerSchoolId(x: number, y: number): string | null {
+    const landOwnerNum = this.landSync.getOwner(x, y);
+    if (landOwnerNum > 0) {
+      return SCHOOL_IDS[landOwnerNum - 1] ?? null;
+    }
+    const schemaTile = this.getSchemaTile(x, y);
+    return schemaTile?.ownerId || null;
+  }
+
+  /** Combat info (hp/maxHp/defenseTier) via land overlay; schema fallback only if typed. */
+  public getTileCombatInfo(x: number, y: number): { hp: number; maxHp: number; defenseTier: number } | undefined {
+    const landCombat = this.landSync.getCombat(x, y);
+    if (landCombat) return landCombat;
+    const schemaTile = this.getSchemaTile(x, y);
+    if (!schemaTile) return undefined;
+    return { hp: schemaTile.hp, maxHp: schemaTile.maxHp, defenseTier: schemaTile.defenseTier };
+  }
+
+  /** True if any 4-neighbour is owned by schoolId (land overlay first). */
+  public isAdjacentToSchool(x: number, y: number, schoolId: string): boolean {
+    const neighbors = [
+      [x + 1, y],
+      [x - 1, y],
+      [x, y + 1],
+      [x, y - 1]
+    ];
+    for (const [nx, ny] of neighbors) {
+      if (this.getTileOwnerSchoolId(nx, ny) === schoolId) return true;
+    }
+    return false;
+  }
+
   // Tactical Actions
+  // T3 CampusRoom routes "claim_tile" | "claim" | LAND_FRAME_CHANNEL all into the
+  // same handler — send exactly ONE frame per action to avoid double-processing.
   public claimTile(x: number, y: number) {
-    this.room?.send("claim_tile", { x, y });
+    this.room?.send(LAND_FRAME_CHANNEL, makeClaim(x, y));
   }
 
   public fortifyTile(x: number, y: number) {
-    this.room?.send("fortify_tile", { x, y });
+    this.room?.send(LAND_FRAME_CHANNEL, makeFortify(x, y));
   }
 
   public setSimulationSpeed(speed: number) {
@@ -330,6 +519,7 @@ export class ColyseusClient {
 
   public softReset() {
     this.territoryCounts = {};
+    this.landSync.reset();
     this.room?.send("soft_reset");
   }
 
