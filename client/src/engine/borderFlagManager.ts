@@ -30,28 +30,48 @@ export class BorderFlagManager {
   }
 
   private initMesh() {
-    // Procedural low-poly flag
-    const poleGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.5, 6).toNonIndexed();
-    poleGeo.translate(0, 0.75, 0); // Base at 0
-    poleGeo.deleteAttribute('uv'); // Fix mergeGeometries error (make attributes match)
+    // 1. Sleek dark carbon metallic pole
+    const poleGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.55, 6).toNonIndexed();
+    poleGeo.translate(0, 0.775, 0); // Base at 0
+    poleGeo.deleteAttribute('uv');
     
-    // Add gray color to pole
+    // Dark carbon metallic color [0.12, 0.15, 0.20]
     const poleCount = poleGeo.attributes.position.count;
     const poleColors = new Float32Array(poleCount * 3);
     for (let i = 0; i < poleCount; i++) {
-      poleColors[i * 3] = 0.8;
-      poleColors[i * 3 + 1] = 0.8;
-      poleColors[i * 3 + 2] = 0.8;
+      poleColors[i * 3] = 0.12;
+      poleColors[i * 3 + 1] = 0.15;
+      poleColors[i * 3 + 2] = 0.20;
     }
     poleGeo.setAttribute('color', new THREE.BufferAttribute(poleColors, 3));
+    poleGeo.computeVertexNormals();
 
+    // 2. Neon cyan Predator beacon finial cap
+    const capGeo = new THREE.ConeGeometry(0.09, 0.2, 6).toNonIndexed();
+    capGeo.translate(0, 1.62, 0);
+    capGeo.deleteAttribute('uv');
+    const capCount = capGeo.attributes.position.count;
+    const capColors = new Float32Array(capCount * 3);
+    for (let i = 0; i < capCount; i++) {
+      // Neon Cyan [0.0, 1.0, 0.91]
+      capColors[i * 3] = 0.0;
+      capColors[i * 3 + 1] = 1.0;
+      capColors[i * 3 + 2] = 0.91;
+    }
+    capGeo.setAttribute('color', new THREE.BufferAttribute(capColors, 3));
+    capGeo.computeVertexNormals();
+
+    // 3. Angled cyber pennant (Predator chevron shape)
     const clothGeo = new THREE.BufferGeometry();
-    // Triangle cloth pointing right
-    // Vertices: top-left, bottom-left, right-middle
     const clothVertices = new Float32Array([
-      0, 1.4, 0,
-      0, 0.8, 0,
-      0.8, 1.1, 0
+      // Upper triangle
+      0, 1.48, 0,
+      0, 0.76, 0,
+      0.88, 1.24, 0,
+      // Lower chevron triangle
+      0, 0.76, 0,
+      0.68, 0.96, 0,
+      0.88, 1.24, 0
     ]);
     clothGeo.setAttribute('position', new THREE.BufferAttribute(clothVertices, 3));
     clothGeo.computeVertexNormals();
@@ -65,7 +85,7 @@ export class BorderFlagManager {
     }
     clothGeo.setAttribute('color', new THREE.BufferAttribute(clothColorsArr, 3));
 
-    let mergedGeo = mergeGeometries([poleGeo, clothGeo]);
+    let mergedGeo = mergeGeometries([poleGeo, capGeo, clothGeo]);
     if (!mergedGeo) {
       console.warn('[BorderFlagManager] mergeGeometries failed, using fallback cone geometry.');
       mergedGeo = new THREE.ConeGeometry(0.2, 0.8, 4);
@@ -73,8 +93,8 @@ export class BorderFlagManager {
 
     const material = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.7,
-      metalness: 0.1,
+      roughness: 0.35,
+      metalness: 0.35,
       side: THREE.DoubleSide
     });
 

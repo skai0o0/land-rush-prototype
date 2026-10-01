@@ -5,7 +5,8 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "ts-node --project tsconfig.json test/knowledge_bonfire.test.ts && ts-node --project tsconfig.json test/unistop_chest.test.ts"
   },
   "dependencies": {
     "@colyseus/schema": "^2.0.36",

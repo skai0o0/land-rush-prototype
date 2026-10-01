@@ -13,7 +13,21 @@ export interface FortifyFrame {
   y: number;
 }
 
+export interface StudyFrame {
+  t: 'study';
+  x: number;
+  y: number;
+  points?: number;
+}
+
+export interface FuelFrame {
+  t: 'fuel';
+  landmarkId: string;
+  points?: number;
+}
+
 export interface SnapFrame {
+
   t: 'snap';
   epoch: number;
   seq: number;
@@ -63,7 +77,7 @@ export interface AckFrame {
   reason?: string;
 }
 
-export type ClientFrame = ClaimFrame | FortifyFrame;
+export type ClientFrame = ClaimFrame | FortifyFrame | StudyFrame | FuelFrame;
 export type ServerFrame = SnapFrame | OwnBatchFrame | CombatFrame | AckFrame;
 export type AnyFrame = ClientFrame | ServerFrame;
 
@@ -92,6 +106,27 @@ function decodeFortify(v: any): FortifyFrame | null {
   if (!isInt(v.x) || !isInt(v.y)) return null;
   return { t: 'fortify', x: v.x, y: v.y };
 }
+
+function decodeStudy(v: any): StudyFrame | null {
+  if (!isInt(v.x) || !isInt(v.y)) return null;
+  const frame: StudyFrame = { t: 'study', x: v.x, y: v.y };
+  if (v.points !== undefined) {
+    if (!isNum(v.points) || v.points < 0) return null;
+    frame.points = v.points;
+  }
+  return frame;
+}
+
+function decodeFuel(v: any): FuelFrame | null {
+  if (!isStr(v.landmarkId) || !v.landmarkId) return null;
+  const frame: FuelFrame = { t: 'fuel', landmarkId: v.landmarkId };
+  if (v.points !== undefined) {
+    if (!isNum(v.points) || v.points < 0) return null;
+    frame.points = v.points;
+  }
+  return frame;
+}
+
 
 function decodeCombatTiles(v: any): CombatTileWire[] | null {
   if (!Array.isArray(v)) return null;
@@ -174,6 +209,10 @@ export function decodeFrame(raw: string | object): AnyFrame | null {
       return decodeClaim(v);
     case 'fortify':
       return decodeFortify(v);
+    case 'study':
+      return decodeStudy(v);
+    case 'fuel':
+      return decodeFuel(v);
     case 'snap':
       return decodeSnap(v);
     case 'own_batch':
@@ -189,7 +228,7 @@ export function decodeFrame(raw: string | object): AnyFrame | null {
 
 export function decodeClientFrame(raw: string | object): ClientFrame | null {
   const f = decodeFrame(raw);
-  if (f && (f.t === 'claim' || f.t === 'fortify')) return f;
+  if (f && (f.t === 'claim' || f.t === 'fortify' || f.t === 'study' || f.t === 'fuel')) return f;
   return null;
 }
 
@@ -206,6 +245,19 @@ export function makeClaim(x: number, y: number): ClaimFrame {
 export function makeFortify(x: number, y: number): FortifyFrame {
   return { t: 'fortify', x, y };
 }
+
+export function makeStudy(x: number, y: number, points?: number): StudyFrame {
+  const frame: StudyFrame = { t: 'study', x, y };
+  if (points !== undefined) frame.points = points;
+  return frame;
+}
+
+export function makeFuel(landmarkId: string, points?: number): FuelFrame {
+  const frame: FuelFrame = { t: 'fuel', landmarkId };
+  if (points !== undefined) frame.points = points;
+  return frame;
+}
+
 
 export function makeSnap(
   epoch: number,

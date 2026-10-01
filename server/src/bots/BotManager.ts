@@ -201,112 +201,76 @@ export class BotManager {
       const existing = state.claimedTiles.get(bestKey);
 
       if (isLandmark && lmConfig && existing) {
-        // Landmark fortress tile action
-        const isEnemyControlled = existing.ownerId !== "" && existing.ownerId !== schoolId;
-        const cost = isEnemyControlled ? lmConfig.attackCost : lmConfig.claimCost;
-
-        if (troops >= cost) {
-          state.schoolTroops.set(schoolId, troops - cost);
-          const rawDamage = 40;
-          const armorReduction = existing.defenseTier * 8;
-          const damage = Math.max(12, rawDamage - armorReduction);
-          existing.hp -= damage;
-
-          if (existing.hp <= 0) {
-            const oldOwner = existing.ownerId;
-            if (oldOwner) {
-              this.removeOwnedTile(oldOwner, tx, ty, state);
-              if (room?.clusterEngine) {
-                room.clusterEngine.setTile(tx, ty, 0, 0, 0);
-                const nbors = [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]];
-                for (const [nx, ny] of nbors) {
-                  if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
-                    room.handleClusterUpdate?.(oldOwner, nx, ny);
-                  }
-                }
-              }
-            }
-            existing.ownerId = schoolId;
-            // Retain fortress stats on capture (40% max HP)
-            existing.hp = Math.floor(existing.maxHp * 0.4);
-            this.addOwnedTile(schoolId, tx, ty, state);
-            room?.syncLandTile?.(tx, ty, schoolId, existing.hp, existing.maxHp, existing.defenseTier);
-
-            if (room?.clusterEngine) {
-              const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(schoolId) : 0;
-              room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
-              if (typeof room.handleClusterUpdate === "function") {
-                room.handleClusterUpdate(schoolId, tx, ty);
-              }
-            }
-
-            if (typeof room.checkLandmarkCapture === "function") {
-              room.checkLandmarkCapture(lmKey);
-            }
-          } else {
-            room?.syncLandTile?.(tx, ty, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
-            if (room?.clusterEngine && existing.ownerId) {
-              const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(existing.ownerId) : 0;
-              room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
-            }
-          }
+        // Landmark bonfire contribution by bot
+        if (troops >= 20) {
+          state.schoolTroops.set(schoolId, troops - 20);
+          room?.handleBotContributeFuel?.(schoolId, lmKey, 20);
         }
       } else if (existing && existing.ownerId !== schoolId) {
-        // Normal enemy tile attack
-        if (troops >= 15) {
-          state.schoolTroops.set(schoolId, troops - 15);
-          const rawDamage = 40;
-          const armorReduction = existing.defenseTier * 8;
-          const damage = Math.max(12, rawDamage - armorReduction);
-          existing.hp -= damage;
-
-          if (existing.hp <= 0) {
-            const oldOwner = existing.ownerId;
-            if (oldOwner) {
-              this.removeOwnedTile(oldOwner, tx, ty, state);
-              if (room?.clusterEngine) {
-                room.clusterEngine.setTile(tx, ty, 0, 0, 0);
-                const nbors = [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]];
-                for (const [nx, ny] of nbors) {
-                  if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
-                    room.handleClusterUpdate?.(oldOwner, nx, ny);
+        // Normal enemy overlap tile: Study (Giao lưu tri thức)
+        if (troops >= 10) {
+          state.schoolTroops.set(schoolId, troops - 10);
+          if (typeof room?.handleBotStudy === "function") {
+            room.handleBotStudy(schoolId, tx, ty, 1);
+          } else {
+            // Fallback for tests using mock room
+            const prev = existing.studyCountBySchool.get(schoolId) || 0;
+            existing.studyCountBySchool.set(schoolId, prev + 1);
+            existing.retention = Math.max(0, existing.retention - 10);
+            existing.hp = existing.retention;
+            if (existing.retention <= 0) {
+              const oldOwner = existing.ownerId;
+              if (oldOwner) {
+                this.removeOwnedTile(oldOwner, tx, ty, state);
+                if (room?.clusterEngine) {
+                  room.clusterEngine.setTile(tx, ty, 0, 0, 0);
+                  const nbors = [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]];
+                  for (const [nx, ny] of nbors) {
+                    if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
+                      room.handleClusterUpdate?.(oldOwner, nx, ny);
+                    }
                   }
                 }
               }
-            }
-            existing.ownerId = schoolId;
-            existing.hp = 60;
-            existing.maxHp = 100;
-            existing.defenseTier = 0;
-            this.addOwnedTile(schoolId, tx, ty, state);
-            room?.syncLandTile?.(tx, ty, schoolId, existing.hp, existing.maxHp, existing.defenseTier);
+              existing.ownerId = schoolId;
+              existing.retention = 60;
+              existing.hp = 60;
+              existing.maxHp = 100;
+              existing.defenseTier = 0;
+              this.addOwnedTile(schoolId, tx, ty, state);
+              room?.syncLandTile?.(tx, ty, schoolId, existing.hp, existing.maxHp, existing.defenseTier);
 
-            if (room?.clusterEngine) {
-              const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(schoolId) : 0;
-              room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
-              if (typeof room.handleClusterUpdate === "function") {
-                room.handleClusterUpdate(schoolId, tx, ty);
+              if (room?.clusterEngine) {
+                const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(schoolId) : 0;
+                room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
+                if (typeof room.handleClusterUpdate === "function") {
+                  room.handleClusterUpdate(schoolId, tx, ty);
+                }
               }
-            }
-          } else {
-            room?.syncLandTile?.(tx, ty, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
-            if (room?.clusterEngine && existing.ownerId) {
-              const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(existing.ownerId) : 0;
-              room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
+            } else {
+              room?.syncLandTile?.(tx, ty, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
+              if (room?.clusterEngine && existing.ownerId) {
+                const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(existing.ownerId) : 0;
+                room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
+              }
             }
           }
         }
       } else if (!existing) {
-        // Normal wild tile claim
+        // Normal wild tile claim: expand knowledge
         if (troops >= 5) {
           state.schoolTroops.set(schoolId, troops - 5);
           const newTile = new TileState();
           newTile.x = tx;
           newTile.y = ty;
           newTile.ownerId = schoolId;
+          newTile.retention = 100;
+          newTile.maxRetention = 100;
           newTile.hp = 100;
           newTile.maxHp = 100;
           newTile.defenseTier = 0;
+          newTile.lastStudiedAt = Date.now();
+          newTile.studyCountBySchool.set(schoolId, 1);
 
           state.claimedTiles.set(bestKey, newTile);
           this.addOwnedTile(schoolId, tx, ty, state);
@@ -321,6 +285,7 @@ export class BotManager {
           }
         }
       }
+
     }
   }
 }

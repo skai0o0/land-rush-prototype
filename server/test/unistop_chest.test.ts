@@ -1,0 +1,426 @@
+import * as assert from "assert";
+import { CampusRoom } from "../src/rooms/CampusRoom";
+import { GameState, UniStopState, ChestState, PlayerState } from "../src/schema/GameState";
+import {
+  UNISTOP_CONFIGS,
+  CHEST_CONFIGS,
+  LOOT_ITEMS,
+  UNISTOP_LOOT_TABLES,
+  CHEST_LOOT_TABLES,
+  rollLoot,
+  generateCarouselItems,
+  UniStopTier,
+  ChestTier
+} from "../../shared/constants/unistops";
+
+// Mock client helper
+class MockClient {
+  public sessionId: string;
+  public messages: { type: string; payload: any }[] = [];
+
+  constructor(id: string) {
+    this.sessionId = id;
+  }
+
+  send(type: string, payload?: any) {
+    this.messages.push({ type, payload });
+  }
+
+  lastMessage(type?: string) {
+    if (!type) return this.messages[this.messages.length - 1];
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].type === type) return this.messages[i];
+    }
+    return undefined;
+  }
+
+  clear() {
+    this.messages = [];
+  }
+}
+
+async function runTests() {
+  console.log("=== Testing UniStop, Chest, Key & Map Layout Logic ===");
+
+  // ----------------------------------------------------
+  // TEST 1: Constants, Tiers, Loot Tables & Weighted RNG
+  // ----------------------------------------------------
+  console.log("\n[Test 1] Constants, Tiers, Loot Tables & Server Weighted RNG");
+  {
+    // Check UniStop configs
+    assert.ok(UNISTOP_CONFIGS.aspire, "UniStop Aspire config must exist");
+    assert.ok(UNISTOP_CONFIGS.nitro, "UniStop Nitro config must exist");
+    assert.ok(UNISTOP_CONFIGS.predator, "UniStop Predator config must exist");
+    assert.strictEqual(UNISTOP_CONFIGS.aspire.name, "UniStop - Aspire");
+    assert.strictEqual(UNISTOP_CONFIGS.nitro.name, "UniStop - Nitro");
+    assert.strictEqual(UNISTOP_CONFIGS.predator.name, "UniStop - Predator");
+
+    // Check Chest configs
+    assert.ok(CHEST_CONFIGS.silver, "Chest Silver config must exist");
+    assert.ok(CHEST_CONFIGS.gold, "Chest Gold config must exist");
+    assert.ok(CHEST_CONFIGS.platinum, "Chest Platinum config must exist");
+    assert.strictEqual(CHEST_CONFIGS.silver.chestName, "Chest - Silver");
+    assert.strictEqual(CHEST_CONFIGS.gold.chestName, "Chest - Gold");
+    assert.strictEqual(CHEST_CONFIGS.platinum.chestName, "Chest - Platinum");
+
+    // Check Loot items
+    assert.ok(LOOT_ITEMS.points_20 && LOOT_ITEMS.points_50 && LOOT_ITEMS.points_100, "Point items must exist");
+    assert.ok(LOOT_ITEMS.charcoal_15 && LOOT_ITEMS.charcoal_30 && LOOT_ITEMS.charcoal_60, "Charcoal items must exist");
+    assert.ok(LOOT_ITEMS.key_silver && LOOT_ITEMS.key_gold && LOOT_ITEMS.key_platinum, "Key items must exist");
+    assert.ok(LOOT_ITEMS.gift_tshirt && LOOT_ITEMS.gift_keychain && LOOT_ITEMS.gift_socks, "Real gift items must exist");
+    assert.strictEqual(LOOT_ITEMS.gift_tshirt.isRealGift, true, "gift_tshirt must have isRealGift: true");
+    assert.strictEqual(LOOT_ITEMS.gift_keychain.isRealGift, true, "gift_keychain must have isRealGift: true");
+    assert.strictEqual(LOOT_ITEMS.gift_socks.isRealGift, true, "gift_socks must have isRealGift: true");
+
+    // Test Weighted RNG without weekly running points: NEVER roll real gifts
+    const predatorLootTable = UNISTOP_LOOT_TABLES.predator;
+    for (let i = 0; i < 500; i++) {
+      const rolled = rollLoot(predatorLootTable, false);
+      assert.strictEqual(
+        rolled.isRealGift || false,
+        false,
+        "Student without weekly running points must NEVER receive a real gift"
+      );
+    }
+
+    // Test Weighted RNG with weekly running points: Can roll real gifts
+    let realGiftCount = 0;
+    for (let i = 0; i < 1000; i++) {
+      const rolled = rollLoot(predatorLootTable, true);
+      if (rolled.isRealGift) {
+        realGiftCount++;
+      }
+    }
+    assert.ok(realGiftCount > 0, "Student with weekly running points must be able to roll real gifts");
+
+    // Test Carousel Generation
+    const winningItem = LOOT_ITEMS.gift_tshirt;
+    const carousel = generateCarouselItems(winningItem, predatorLootTable, 30, 24);
+    assert.strictEqual(carousel.length, 30, "Carousel items length must be 30");
+    assert.strictEqual(carousel[24].id, winningItem.id, "Winning item must be at index 24");
+
+    console.log("✅ Test 1 Passed: Tiers, loot tables, and weighted RNG gating verified!");
+  }
+
+  // ----------------------------------------------------
+  // TEST 2: Schema Initialization & Map Spawning
+  // ----------------------------------------------------
+  console.log("\n[Test 2] Schema Initialization & Map Spawning");
+  {
+    const room = new CampusRoom();
+    room.onCreate({});
+
+    assert.ok(room.state.unistops.size >= 15, "At least 15 UniStops must be spawned on the map");
+    assert.ok(room.state.chests.size >= 15, "At least 15 Chests must be spawned on the map");
+
+    // Check tier distribution in spawned stops
+    let aspireCount = 0;
+    let nitroCount = 0;
+    let predatorCount = 0;
+    room.state.unistops.forEach((stop) => {
+      assert.ok(stop.x >= 0 && stop.x <= 1000, "UniStop x must be within map bounds");
+      assert.ok(stop.z >= 0 && stop.z <= 1000, "UniStop z must be within map bounds");
+      assert.strictEqual(stop.cooldownUntil, 0, "Initial cooldown must be 0");
+      if (stop.tier === "aspire") aspireCount++;
+      if (stop.tier === "nitro") nitroCount++;
+      if (stop.tier === "predator") predatorCount++;
+    });
+    assert.ok(aspireCount > 0 && nitroCount > 0 && predatorCount > 0, "All 3 UniStop tiers must be spawned");
+
+    // Check chests
+    let silverCount = 0;
+    let goldCount = 0;
+    let platinumCount = 0;
+    room.state.chests.forEach((chest) => {
+      assert.ok(chest.x >= 0 && chest.x <= 1000, "Chest x must be within map bounds");
+      assert.ok(chest.z >= 0 && chest.z <= 1000, "Chest z must be within map bounds");
+      assert.strictEqual(chest.isOpened, false, "Initial isOpened must be false");
+      assert.strictEqual(chest.openedBySchoolId, "", "Initial openedBySchoolId must be empty");
+      if (chest.tier === "silver") silverCount++;
+      if (chest.tier === "gold") goldCount++;
+      if (chest.tier === "platinum") platinumCount++;
+    });
+    assert.ok(silverCount > 0 && goldCount > 0 && platinumCount > 0, "All 3 Chest tiers must be spawned");
+
+    room.onDispose();
+    console.log("✅ Test 2 Passed: Spawning of UniStops and Chests verified!");
+  }
+
+  // ----------------------------------------------------
+  // TEST 3: UniStop Roll Action, Cooldown & Distance Checks
+  // ----------------------------------------------------
+  console.log("\n[Test 3] UniStop Roll Action, Distance Check & Cooldown Mechanics");
+  {
+    const room = new CampusRoom();
+    room.onCreate({});
+
+    const client = new MockClient("session_student_1");
+    room.onJoin(client as any, {
+      email: "sv@hcmut.edu.vn",
+      schoolId: "hcmut",
+      points: 200,
+      hasWeeklyRunningPoints: true
+    });
+
+    const player = room.state.players.get("session_student_1")!;
+    assert.strictEqual(player.hasWeeklyRunningPoints, true);
+
+    // Pick first UniStop
+    const stop = Array.from(room.state.unistops.values())[0];
+    assert.ok(stop, "UniStop must exist");
+
+    // Case 1: Student is too far (> 50 tiles)
+    client.clear();
+    room.handleRollUniStop(client as any, {
+      stopId: stop.id,
+      x: stop.x + 100,
+      z: stop.z + 100
+    });
+    const farErr = client.lastMessage("error");
+    assert.ok(farErr, "Must return error when player is too far from UniStop");
+    assert.ok(farErr.payload.message.includes("quá xa"), "Error message must indicate distance");
+
+    // Case 2: Student is in range (<= 50 tiles)
+    client.clear();
+    const prevTroops = player.personalTroops;
+    const prevCharcoal = player.charcoal;
+    const prevSilverKeys = player.silverKeys;
+
+    room.handleRollUniStop(client as any, {
+      stopId: stop.id,
+      x: stop.x,
+      z: stop.z
+    });
+
+    const rolledMsg = client.lastMessage("unistop_rolled");
+    assert.ok(rolledMsg, "Must receive unistop_rolled message on success");
+    assert.strictEqual(rolledMsg.payload.stopId, stop.id);
+    assert.ok(rolledMsg.payload.winningItem, "Winning item must be returned");
+    assert.strictEqual(rolledMsg.payload.carouselItems.length, 30, "Carousel items length must be 30");
+    assert.strictEqual(rolledMsg.payload.carouselItems[24].id, rolledMsg.payload.winningItem.id);
+
+    // Verify cooldown is set
+    assert.ok(stop.cooldownUntil > Date.now(), "Cooldown must be set after rolling");
+
+    // Case 3: Rolling again while in cooldown -> must be rejected
+    client.clear();
+    room.handleRollUniStop(client as any, {
+      stopId: stop.id,
+      x: stop.x,
+      z: stop.z
+    });
+    const cdErr = client.lastMessage("error");
+    assert.ok(cdErr, "Must reject rolling while cooldown is active");
+    assert.ok(cdErr.payload.message.includes("hồi chiêu"), "Error message must indicate cooldown");
+
+    // Reset cooldown and roll again
+    stop.cooldownUntil = 0;
+    client.clear();
+    room.handleRollUniStop(client as any, {
+      stopId: stop.id,
+      x: stop.x,
+      z: stop.z
+    });
+    assert.ok(client.lastMessage("unistop_rolled"), "Roll should succeed after cooldown expires");
+
+    room.onDispose();
+    console.log("✅ Test 3 Passed: UniStop roll, distance check, and cooldown mechanics work as expected!");
+  }
+
+  // ----------------------------------------------------
+  // TEST 4: Chest & Key Mechanics (Silver, Gold, Platinum)
+  // ----------------------------------------------------
+  console.log("\n[Test 4] Chest & Key Mechanics (Requirement checks, opening & carousel)");
+  {
+    const room = new CampusRoom();
+    room.onCreate({});
+
+    const client = new MockClient("session_student_2");
+    room.onJoin(client as any, {
+      email: "runner@dtu.edu.vn",
+      schoolId: "dtu",
+      points: 100,
+      hasWeeklyRunningPoints: false
+    });
+
+    const player = room.state.players.get("session_student_2")!;
+
+    // Find a silver chest
+    let silverChest: ChestState | undefined;
+    let goldChest: ChestState | undefined;
+    let platinumChest: ChestState | undefined;
+
+    room.state.chests.forEach((c) => {
+      if (c.tier === "silver" && !silverChest) silverChest = c;
+      if (c.tier === "gold" && !goldChest) goldChest = c;
+      if (c.tier === "platinum" && !platinumChest) platinumChest = c;
+    });
+
+    assert.ok(silverChest && goldChest && platinumChest, "All chest tiers must be present");
+
+    // 1. Try to open Silver Chest without Silver Key
+    client.clear();
+    player.silverKeys = 0;
+    room.handleOpenChest(client as any, {
+      chestId: silverChest.id,
+      x: silverChest.x,
+      z: silverChest.z
+    });
+    let keyErr = client.lastMessage("error");
+    assert.ok(keyErr, "Opening Silver Chest without Silver Key must fail");
+    assert.ok(keyErr.payload.message.includes("Chìa khoá Bạc"), "Error message must mention Silver Key");
+
+    // 2. Grant Silver Key and open Silver Chest
+    player.silverKeys = 1;
+    client.clear();
+    room.handleOpenChest(client as any, {
+      chestId: silverChest.id,
+      x: silverChest.x,
+      z: silverChest.z
+    });
+    const openedMsg = client.lastMessage("chest_opened");
+    assert.ok(openedMsg, "Must receive chest_opened message");
+    assert.strictEqual(openedMsg.payload.chestId, silverChest.id);
+    assert.strictEqual(silverChest.isOpened, true, "Chest must be marked as opened");
+    assert.strictEqual(silverChest.openedBySchoolId, "dtu", "Chest must record opened school");
+    assert.strictEqual(player.silverKeys, 0, "Silver key must be consumed");
+    assert.strictEqual(openedMsg.payload.carouselItems.length, 30);
+    assert.strictEqual(openedMsg.payload.carouselItems[24].id, openedMsg.payload.winningItem.id);
+
+    // 3. Try to open already opened chest -> should fail
+    client.clear();
+    player.silverKeys = 1;
+    room.handleOpenChest(client as any, {
+      chestId: silverChest.id,
+      x: silverChest.x,
+      z: silverChest.z
+    });
+    const alreadyErr = client.lastMessage("error");
+    assert.ok(alreadyErr, "Opening already opened chest must fail");
+    assert.ok(alreadyErr.payload.message.includes("đã được mở"), "Error must indicate chest is already opened");
+
+    // 4. Test Gold and Platinum Keys
+    player.goldKeys = 1;
+    client.clear();
+    room.handleOpenChest(client as any, {
+      chestId: goldChest.id,
+      x: goldChest.x,
+      z: goldChest.z
+    });
+    assert.ok(client.lastMessage("chest_opened"), "Opening Gold chest with Gold Key must succeed");
+    assert.strictEqual(goldChest.isOpened, true);
+    assert.strictEqual(player.goldKeys, 0);
+
+    player.platinumKeys = 1;
+    client.clear();
+    room.handleOpenChest(client as any, {
+      chestId: platinumChest.id,
+      x: platinumChest.x,
+      z: platinumChest.z
+    });
+    assert.ok(client.lastMessage("chest_opened"), "Opening Platinum chest with Platinum Key must succeed");
+    assert.strictEqual(platinumChest.isOpened, true);
+    assert.strictEqual(player.platinumKeys, 0);
+
+    room.onDispose();
+    console.log("✅ Test 4 Passed: Chest opening, key consumption, and state locking work flawlessly!");
+  }
+
+  // ----------------------------------------------------
+  // TEST 5: Flexible Map Layout Update (Map Editor Support)
+  // ----------------------------------------------------
+  console.log("\n[Test 5] Flexible Map Layout Updates (updateMapLayout)");
+  {
+    const room = new CampusRoom();
+    room.onCreate({});
+
+    const client = new MockClient("session_editor");
+    room.onJoin(client as any, { email: "admin@r2pl.vn", mode: "dev" });
+
+    client.clear();
+    room.handleUpdateMapLayout(client as any, {
+      hqs: [
+        { schoolId: "hcmut", x: 150, y: 150 },
+        { schoolId: "dtu", x: 750, y: 750 }
+      ],
+      landmarks: [
+        { id: "fansipan", x: 220, y: 330, maxFuel: 600 }
+      ],
+      unistops: [
+        { id: "custom_stop_1", name: "Trạm Trung Tâm", tier: "predator", x: 500, z: 500 }
+      ],
+      chests: [
+        { id: "custom_chest_1", tier: "platinum", x: 520, z: 520 }
+      ]
+    });
+
+    const ack = client.lastMessage("map_layout_ack");
+    assert.ok(ack, "Client must receive map_layout_ack");
+    assert.strictEqual(ack.payload.success, true);
+    assert.strictEqual(ack.payload.hqsUpdated, 2);
+    assert.strictEqual(ack.payload.landmarksUpdated, 1);
+    assert.strictEqual(ack.payload.unistopsUpdated, 1);
+    assert.strictEqual(ack.payload.chestsUpdated, 1);
+
+    // Verify state updates in GameState
+    const hqHcmut = room.state.hqs.get("hcmut")!;
+    assert.strictEqual(hqHcmut.x, 150);
+    assert.strictEqual(hqHcmut.y, 150);
+
+    const lmFansipan = room.state.landmarks.get("fansipan")!;
+    assert.strictEqual(lmFansipan.x, 220);
+    assert.strictEqual(lmFansipan.y, 330);
+    assert.strictEqual(lmFansipan.maxFuel, 600);
+
+    const customStop = room.state.unistops.get("custom_stop_1")!;
+    assert.ok(customStop, "custom_stop_1 must be added to GameState unistops");
+    assert.strictEqual(customStop.name, "Trạm Trung Tâm");
+    assert.strictEqual(customStop.tier, "predator");
+    assert.strictEqual(customStop.x, 500);
+    assert.strictEqual(customStop.z, 500);
+
+    const customChest = room.state.chests.get("custom_chest_1")!;
+    assert.ok(customChest, "custom_chest_1 must be added to GameState chests");
+    assert.strictEqual(customChest.tier, "platinum");
+    assert.strictEqual(customChest.x, 520);
+    assert.strictEqual(customChest.z, 520);
+    assert.strictEqual(customChest.isOpened, false);
+
+    room.onDispose();
+    console.log("✅ Test 5 Passed: updateMapLayout successfully modifies GameState in real time!");
+  }
+
+  // ----------------------------------------------------
+  // TEST 6: Soft Reset preserves objects and clears states
+  // ----------------------------------------------------
+  console.log("\n[Test 6] Soft Reset clears cooldowns and opened status");
+  {
+    const room = new CampusRoom();
+    room.onCreate({});
+
+    const stop = Array.from(room.state.unistops.values())[0];
+    const chest = Array.from(room.state.chests.values())[0];
+
+    stop.cooldownUntil = Date.now() + 50000;
+    chest.isOpened = true;
+    chest.openedBySchoolId = "hcmut";
+
+    // Trigger soft_reset
+    (room as any).onMessageHandlers["soft_reset"](new MockClient("admin"), {});
+
+    assert.strictEqual(stop.cooldownUntil, 0, "soft_reset must clear unistop cooldowns");
+    assert.strictEqual(chest.isOpened, false, "soft_reset must reset chest isOpened to false");
+    assert.strictEqual(chest.openedBySchoolId, "", "soft_reset must clear chest openedBySchoolId");
+
+    room.onDispose();
+    console.log("✅ Test 6 Passed: soft_reset cleanly resets UniStop and Chest status!");
+  }
+
+  console.log("\n=== ALL UNISTOP, CHEST & MAP LAYOUT TESTS PASSED 100%! ===");
+  process.exit(0);
+}
+
+runTests().catch((err) => {
+  console.error("Test failed:", err);
+  process.exit(1);
+});

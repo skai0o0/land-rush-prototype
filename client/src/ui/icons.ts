@@ -152,7 +152,54 @@ export const Icons = {
     <line x1="12" y1="19" x2="12" y2="22"/>
     <line x1="2" y1="12" x2="5" y2="12"/>
     <line x1="19" y1="12" x2="22" y2="12"/>
-  `, size, 'icon-target')
+  `, size, 'icon-target'),
+
+  // Ngọn lửa / Bonfire Landmark
+  flame: (size: IconSize = 'md') => createSvg(`
+    <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+  `, size, 'icon-flame'),
+
+  fire: (size: IconSize = 'md') => createSvg(`
+    <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+  `, size, 'icon-flame'),
+
+  // Ôn bài / Sách tri thức (Study / Knowledge Book)
+  book: (size: IconSize = 'md') => createSvg(`
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+  `, size, 'icon-book'),
+
+  // Chìa khóa rương (Key)
+  key: (size: IconSize = 'md') => createSvg(`
+    <path d="m21 2-2 2m-1.5 1.5L14 9l-1.5-1.5L11 9l-1.5-1.5L8 9"/>
+    <circle cx="7.5" cy="15.5" r="5.5"/>
+    <path d="m15.5 7.5 3 3"/>
+  `, size, 'icon-key'),
+
+  // Hộp quà hiện vật (Gift)
+  gift: (size: IconSize = 'md') => createSvg(`
+    <polyline points="20 12 20 22 4 22 4 12"/>
+    <rect x="2" y="7" width="20" height="5"/>
+    <line x1="12" y1="22" x2="12" y2="7"/>
+    <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/>
+    <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>
+  `, size, 'icon-gift'),
+
+  // Hòm Cyber / Rương (Box / Chest)
+  box: (size: IconSize = 'md') => createSvg(`
+    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+    <path d="M3.27 6.96 12 12.01l8.73-5.05"/>
+    <path d="M12 22.08V12"/>
+  `, size, 'icon-box'),
+
+  // Hiệu ứng ánh sáng / Sparkles
+  sparkles: (size: IconSize = 'md') => createSvg(`
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+    <path d="M5 3v4"/>
+    <path d="M19 17v4"/>
+    <path d="M3 5h4"/>
+    <path d="M17 19h4"/>
+  `, size, 'icon-sparkles')
 };
 
 // Legacy alias compatibility

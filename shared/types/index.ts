@@ -22,6 +22,9 @@ export interface TileData {
   hp: number;
   maxHp: number;
   defenseTier: number;
+  retention?: number;
+  maxRetention?: number;
+  lastStudiedAt?: number;
 }
 
 export interface PlayerData {
@@ -54,6 +57,19 @@ export interface ClientFortifyMessage {
   y: number;
 }
 
+export interface ClientStudyTileMessage {
+  x: number;
+  y?: number;
+  z?: number;
+  points?: number;
+}
+
+export interface ClientContributeFuelMessage {
+  landmarkId: string;
+  points?: number;
+  amount?: number;
+}
+
 export interface ClientSetSpeedMessage {
   speed: number;
 }
@@ -69,3 +85,60 @@ export interface ClientSelectSchoolMessage {
 export interface ClientSetRoleMessage {
   role: PlayerRole;
 }
+
+export interface ClientRollUniStopMessage {
+  stopId: string;
+  x?: number;
+  y?: number;
+  z?: number;
+}
+
+export interface ClientOpenChestMessage {
+  chestId: string;
+  x?: number;
+  y?: number;
+  z?: number;
+}
+
+export interface MapHQPlacement {
+  schoolId: string;
+  x: number;
+  y?: number;
+  z?: number;
+}
+
+export interface MapLandmarkPlacement {
+  id: string;
+  landmarkKey?: string;
+  x: number;
+  y?: number;
+  z?: number;
+  maxFuel?: number;
+}
+
+export interface MapUniStopPlacement {
+  id: string;
+  name?: string;
+  tier: 'aspire' | 'nitro' | 'predator';
+  x: number;
+  z?: number;
+  y?: number;
+}
+
+export interface MapChestPlacement {
+  id: string;
+  tier: 'silver' | 'gold' | 'platinum';
+  x: number;
+  z?: number;
+  y?: number;
+  isOpened?: boolean;
+  openedBySchoolId?: string;
+}
+
+export interface ClientUpdateMapLayoutMessage {
+  hqs?: MapHQPlacement[];
+  landmarks?: MapLandmarkPlacement[];
+  unistops?: MapUniStopPlacement[];
+  chests?: MapChestPlacement[];
+}
+

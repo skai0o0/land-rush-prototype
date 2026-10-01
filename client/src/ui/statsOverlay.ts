@@ -12,6 +12,9 @@ export interface StudentStats {
   claimedTiles: number;
   totalSchoolTiles: number;
   controlPercentage: number;
+  explorationPercentage?: number;
+  revealedTilesCount?: number;
+  totalMapTiles?: number;
   mode: "normal" | "dev";
   isLocked: boolean;
 }
@@ -26,14 +29,17 @@ export class StatsOverlay {
   constructor(parent?: HTMLElement, initialStats?: Partial<StudentStats>) {
     const defaultSchool = SCHOOL_ROSTER["hcmut"];
     this.stats = {
-      studentName: "Chiến binh ĐHQG",
+      studentName: "Sinh viên Khám phá",
       schoolId: "hcmut",
-      schoolName: defaultSchool?.name || "ĐH Bách Khoa",
-      schoolColor: defaultSchool?.colorHex || "#0055a5",
+      schoolName: defaultSchool?.name || "HCMUT",
+      schoolColor: defaultSchool?.colorHex || "#0062FF",
       points: 500,
       claimedTiles: 0,
       totalSchoolTiles: 9,
       controlPercentage: 10.0,
+      explorationPercentage: 0.0,
+      revealedTilesCount: 0,
+      totalMapTiles: 1000000,
       mode: "dev",
       isLocked: false,
       ...initialStats
@@ -90,7 +96,23 @@ export class StatsOverlay {
 
     const terrValEl = this.element.querySelector('.stat-territory .stat-value');
     if (terrValEl) {
-      terrValEl.innerHTML = `${myTiles} <small style="font-size:11px; color:var(--text-secondary);">ô (${pct}%)</small>`;
+      terrValEl.innerHTML = `${myTiles} <small style="font-size:11px; color:var(--text-secondary);">vùng (${pct}%)</small>`;
+    } else {
+      this.render();
+    }
+  }
+
+  public updateExploration(revealedCount: number, percentage: number): void {
+    if (this.stats.revealedTilesCount === revealedCount && this.stats.explorationPercentage === percentage) {
+      return;
+    }
+
+    this.stats.revealedTilesCount = revealedCount;
+    this.stats.explorationPercentage = percentage;
+
+    const expValEl = this.element.querySelector('.stat-exploration .stat-value');
+    if (expValEl) {
+      expValEl.innerHTML = `${percentage.toFixed(2)}% <small class="exploration-sub">(${revealedCount.toLocaleString()} ô)</small>`;
     } else {
       this.render();
     }
@@ -99,7 +121,13 @@ export class StatsOverlay {
   private render(): void {
     this.element.innerHTML = `
       <div class="hud-left">
-        <div class="school-pill" id="btnFlyHQ" style="--school-color: ${this.stats.schoolColor};" title="Chạm để bay về Căn cứ HQ [Phím tắt: H / Space]">
+        <!-- Predator R2PL Gaming Brand Tag -->
+        <div class="hud-brand-tag" title="Acer Predator // Road to Predator League">
+          <span class="brand-predator-text"><span class="predator-bracket">[</span>PREDATOR<span class="predator-bracket">]</span></span>
+          <span class="brand-r2pl-badge">R2PL</span>
+        </div>
+
+        <div class="school-pill" id="btnFlyHQ" style="--school-color: ${this.stats.schoolColor};" title="Chạm để bay về Trụ sở Headquarters [Phím tắt: H / Space]">
           <div class="school-icon-wrapper">
             ${Icons.school('md')}
           </div>
@@ -112,7 +140,7 @@ export class StatsOverlay {
                       ${Icons.lock(11)}
                       <span class="locked-email-text">${this.stats.studentEmail.split('@')[0]}</span>
                     </span>`
-                  : `<span class="school-hq-jump-hint" title="Chạm để bay về HQ">${Icons.crosshair(11)} HQ</span>`
+                  : `<span class="school-hq-jump-hint" title="Chạm để bay về Trụ sở Headquarters">${Icons.crosshair(11)} HQ</span>`
               }
               ${
                 this.stats.mode === "dev"
@@ -126,37 +154,48 @@ export class StatsOverlay {
       </div>
 
       <div class="hud-center">
-        <!-- Điểm cống hiến hiện có -->
-        <div class="stat-badge stat-points" title="Điểm cống hiến giải chạy">
+        <!-- Điểm tích luỹ hiện có -->
+        <div class="stat-badge stat-points" title="Điểm (Points) tích luỹ từ giải chạy">
           <div class="stat-icon-box point-glow">
             ${Icons.star(16)}
           </div>
           <div class="stat-content">
-            <span class="stat-label">ĐIỂM</span>
+            <span class="stat-label">ĐIỂM (POINTS)</span>
             <span class="stat-value point-number">${this.stats.points.toLocaleString()}</span>
           </div>
         </div>
 
-        <!-- Ô đất trường đang kiểm soát (hiển thị trên tablet/desktop) -->
-        <div class="stat-badge stat-territory" title="Lãnh thổ trường kiểm soát">
+        <!-- Vùng tri thức trường đang kiểm soát -->
+        <div class="stat-badge stat-territory" title="Vùng tri thức (Knowledge) trường kiểm soát">
           <div class="stat-icon-box">
             ${Icons.tile('md')}
           </div>
           <div class="stat-content">
-            <span class="stat-label">LÃNH THỔ</span>
+            <span class="stat-label">VÙNG TRI THỨC</span>
             <span class="stat-value">${this.stats.totalSchoolTiles} <small class="territory-pct-text">(${this.stats.controlPercentage}%)</small></span>
+          </div>
+        </div>
+
+        <!-- Tiến độ khám phá bản đồ toàn cục (Xua tan sương mù) -->
+        <div class="stat-badge stat-exploration" title="Tiến độ khám phá toàn bản đồ (Khám phá ô đất để xua tan sương mù)">
+          <div class="stat-icon-box exploration-glow">
+            ${Icons.compass('md')}
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">TIẾN ĐỘ KHÁM PHÁ</span>
+            <span class="stat-value exploration-number">${(this.stats.explorationPercentage || 0).toFixed(2)}% <small class="exploration-sub">(${(this.stats.revealedTilesCount || 0).toLocaleString()} ô)</small></span>
           </div>
         </div>
       </div>
 
       <div class="hud-right">
-        <div class="stat-badge stat-rank">
+        <div class="stat-badge stat-rank" title="Số vùng tri thức sinh viên đã khai phá">
           <div class="stat-icon-box">
             ${Icons.trophy('md')}
           </div>
           <div class="stat-content">
-            <span class="stat-label">ĐÃ ĐỔI</span>
-            <span class="stat-value">${this.stats.claimedTiles} ô</span>
+            <span class="stat-label">ĐÃ KHÁM PHÁ</span>
+            <span class="stat-value">${this.stats.claimedTiles} vùng</span>
           </div>
         </div>
       </div>

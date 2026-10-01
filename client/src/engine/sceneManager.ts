@@ -568,6 +568,13 @@ export class SceneManager {
   }
 
   /**
+   * Get current camera focal target position
+   */
+  public getTargetPosition(): THREE.Vector3 {
+    return this.targetPosition.clone();
+  }
+
+  /**
    * Direct live target position setting for real-time minimap dragging / pan
    */
   public setTargetPosition(x: number, z: number): void {

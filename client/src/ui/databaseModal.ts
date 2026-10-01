@@ -83,15 +83,15 @@ export class DatabaseModal {
         <div class="db-modal-header">
           <div class="db-header-titles">
             <div class="db-modal-title">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color: var(--accent-blue);">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color: #00ffe8;">
                 <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
                 <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
                 <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
               </svg>
-              <span>QUẢN LÝ DATABASE GIẢI CHẠY (1 KM = 10 ĐIỂM)</span>
+              <span>QUẢN LÝ DATABASE GIẢI CHẠY (1 KM = 10 ĐIỂM (POINTS))</span>
             </div>
             <div class="db-modal-subtitle">
-              Hệ thống đồng bộ trực tiếp từ Giải chạy Sinh viên ĐHQG. Không tăng điểm theo thời gian - điểm chỉ sinh ra từ km chạy bộ.
+              Hệ thống đồng bộ từ Giải chạy Sinh viên Road to Predator League (R2PL). Điểm (Points) sinh ra từ km chạy bộ, dùng để mở rộng tri thức và quy đổi tại trạm tiếp tế UniStop.
             </div>
           </div>
           <button class="db-modal-close" id="db-btn-close" title="Đóng [Esc]">${Icons.close(18)}</button>
@@ -108,12 +108,12 @@ export class DatabaseModal {
             <span class="db-metric-value text-blue">${totalKm.toFixed(1)} <small>km</small></span>
           </div>
           <div class="db-metric-card">
-            <span class="db-metric-label">ĐÃ CỐNG HIẾN</span>
-            <span class="db-metric-value text-yellow">${totalSpent.toLocaleString()} <small>điểm</small></span>
+            <span class="db-metric-label">ĐIỂM ĐÃ SỬ DỤNG</span>
+            <span class="db-metric-value text-yellow">${totalSpent.toLocaleString()} <small>pts</small></span>
           </div>
           <div class="db-metric-card">
-            <span class="db-metric-label">ĐIỂM KHẢ DỤNG</span>
-            <span class="db-metric-value text-green">${totalAvailable.toLocaleString()} <small>điểm</small></span>
+            <span class="db-metric-label">ĐIỂM (POINTS) KHẢ DỤNG</span>
+            <span class="db-metric-value text-green">${totalAvailable.toLocaleString()} <small>pts</small></span>
           </div>
         </div>
 
@@ -126,8 +126,8 @@ export class DatabaseModal {
                 <th>EMAIL SINH VIÊN (.EDU.VN)</th>
                 <th>HỌ VÀ TÊN</th>
                 <th style="text-align: center;">QUÃNG ĐƯỜNG (KM)</th>
-                <th style="text-align: center;">ĐÃ TIÊU</th>
-                <th style="text-align: center;">ĐIỂM KHẢ DỤNG</th>
+                <th style="text-align: center;">ĐÃ DÙNG</th>
+                <th style="text-align: center;">ĐIỂM (POINTS)</th>
                 <th style="text-align: right;">THAO TÁC</th>
               </tr>
             </thead>
@@ -186,9 +186,9 @@ export class DatabaseModal {
 
         <!-- Add New Student Section -->
         <div class="db-add-section">
-          <div class="db-add-title">THÊM SINH VIÊN GIẢI CHẠY MỚI</div>
+          <div class="db-add-title">THÊM SINH VIÊN GIẢI CHẠY PREDATOR R2PL</div>
           <form id="form-add-student" class="db-add-form">
-            <input type="email" id="input-new-email" class="db-input" placeholder="sinhvienXX@uit.edu.vn" required />
+            <input type="email" id="input-new-email" class="db-input" placeholder="sinhvienXX@hcmut.edu.vn" required />
             <input type="text" id="input-new-name" class="db-input" placeholder="Họ và Tên sinh viên" required />
             <input type="number" id="input-new-km" class="db-input km" placeholder="Số km (ví dụ 80)" min="0" step="1" value="60" required />
             <button type="submit" class="btn-db-add">
@@ -200,14 +200,14 @@ export class DatabaseModal {
             </button>
           </form>
           <div class="db-add-hint">
-            Hỗ trợ tự động nhận diện 7 trường ĐHQG theo email: @hcmut.edu.vn, @uit.edu.vn, @medvnu.edu.vn, @hcmus.edu.vn, @hcmussh.edu.vn, @uel.edu.vn, @hcmiu.edu.vn.
+            Hỗ trợ tự động nhận diện 5 trường theo email: @hcmut.edu.vn, @ou.edu.vn, @dtu.edu.vn, @dhhp.edu.vn, @sinhvien.hoasen.edu.vn.
           </div>
         </div>
 
         <!-- Modal Footer -->
         <div class="db-modal-footer">
-          <button class="btn-db-reset" id="db-btn-reset" title="Khôi phục 7 tài khoản mặc định">
-            Khôi phục dữ liệu gốc (Reset DB)
+          <button class="btn-db-reset" id="db-btn-reset" title="Khôi phục 5 tài khoản mặc định">
+            Khôi phục 5 tài khoản mặc định (Reset DB)
           </button>
           <button class="btn-db-close" id="db-btn-close-bottom">
             Đóng
@@ -313,7 +313,7 @@ export class DatabaseModal {
 
       const schoolId = getSchoolIdFromEmail(email);
       if (!schoolId) {
-        if (!confirm(`Tên miền email ${email.split('@')[1]} chưa thuộc danh sách 7 trường ĐHQG chính thức. Hệ thống sẽ gán mặc định về HCMUT. Bạn có muốn tiếp tục?`)) {
+        if (!confirm(`Tên miền email ${email.split('@')[1]} chưa thuộc danh sách 5 trường chính thức. Hệ thống sẽ gán mặc định về HCMUT. Bạn có muốn tiếp tục?`)) {
           return;
         }
       }

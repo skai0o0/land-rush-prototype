@@ -45,6 +45,18 @@ export interface NetworkCallbacks {
   /** Fired after snap/own_batch/combat so UI can refresh owner/combat overlays. */
   onLandSync?: (info: { kind: "snap" | "own_batch" | "combat"; dirtyTiles?: DirtyTileChange[] }) => void;
   onLandAck?: (ack: AckFrame) => void;
+  onLandmarkLit?: (data: { landmarkId: string; schoolId: string; previousSchoolId?: string; fuel: number }) => void;
+  onLandmarkChange?: (lm: any) => void;
+  onTileStudied?: (data: { x: number; y: number; schoolId: string; retention: number; lastStudiedAt: number }) => void;
+  onUniStopRolled?: (data: any) => void;
+  onChestOpened?: (data: any) => void;
+  onChestClaimed?: (data: any) => void;
+  onRealGiftWon?: (data: any) => void;
+  onMapLayoutUpdated?: (data: any) => void;
+  onUniStopAdded?: (stop: any) => void;
+  onUniStopChange?: (stop: any) => void;
+  onChestAdded?: (chest: any) => void;
+  onChestChange?: (chest: any) => void;
 }
 
 export class ColyseusClient {
@@ -213,11 +225,21 @@ export class ColyseusClient {
 
         triggerExclusionUpdate();
 
-        // Listen for ownership changes on this landmark
+        if (lm.litBySchoolId) {
+          this.modelLoader.setLandmarkBonfire(lm.landmarkKey, lm.litBySchoolId);
+        }
+
+        // Listen for ownership & bonfire changes on this landmark
         if (typeof lm.onChange === "function") {
           lm.onChange(() => {
+            if (lm.litBySchoolId !== undefined) {
+              this.modelLoader.setLandmarkBonfire(lm.landmarkKey, lm.litBySchoolId);
+            }
             if (lm.ownerId) {
               this.modelLoader.updateLandmarkOwner(lm.landmarkKey, lm.ownerId);
+            }
+            if (this.callbacks.onLandmarkChange) {
+              this.callbacks.onLandmarkChange(lm);
             }
           });
         }
@@ -225,8 +247,62 @@ export class ColyseusClient {
 
       if (typeof room.state.landmarks.onChange === "function") {
         room.state.landmarks.onChange((lm: any) => {
+          if (lm.litBySchoolId !== undefined) {
+            this.modelLoader.setLandmarkBonfire(lm.landmarkKey, lm.litBySchoolId);
+          }
           if (lm.ownerId) {
             this.modelLoader.updateLandmarkOwner(lm.landmarkKey, lm.ownerId);
+          }
+          if (this.callbacks.onLandmarkChange) {
+            this.callbacks.onLandmarkChange(lm);
+          }
+        });
+      }
+    }
+
+    // Listen to UniStop additions & changes
+    if (room.state.unistops && typeof room.state.unistops.onAdd === "function") {
+      room.state.unistops.onAdd((stop: any, key: string) => {
+        if (this.callbacks.onUniStopAdded) {
+          this.callbacks.onUniStopAdded(stop);
+        }
+        if (typeof stop.onChange === "function") {
+          stop.onChange(() => {
+            if (this.callbacks.onUniStopChange) {
+              this.callbacks.onUniStopChange(stop);
+            }
+          });
+        }
+      });
+
+      if (typeof room.state.unistops.onChange === "function") {
+        room.state.unistops.onChange((stop: any) => {
+          if (this.callbacks.onUniStopChange) {
+            this.callbacks.onUniStopChange(stop);
+          }
+        });
+      }
+    }
+
+    // Listen to Chest additions & changes
+    if (room.state.chests && typeof room.state.chests.onAdd === "function") {
+      room.state.chests.onAdd((chest: any, key: string) => {
+        if (this.callbacks.onChestAdded) {
+          this.callbacks.onChestAdded(chest);
+        }
+        if (typeof chest.onChange === "function") {
+          chest.onChange(() => {
+            if (this.callbacks.onChestChange) {
+              this.callbacks.onChestChange(chest);
+            }
+          });
+        }
+      });
+
+      if (typeof room.state.chests.onChange === "function") {
+        room.state.chests.onChange((chest: any) => {
+          if (this.callbacks.onChestChange) {
+            this.callbacks.onChestChange(chest);
           }
         });
       }
@@ -291,6 +367,57 @@ export class ColyseusClient {
     room.onMessage("dev_breach_success", (data: { targetX: number; targetY: number; destroyedCount?: number }) => {
       if (this.callbacks.onDevBreachSuccess) {
         this.callbacks.onDevBreachSuccess(data);
+      }
+    });
+
+    // Listen to Landmark Lit & Bonfire events
+    room.onMessage("landmark_lit", (data: { landmarkId: string; schoolId: string; previousSchoolId?: string; fuel: number }) => {
+      this.modelLoader.setLandmarkBonfire(data.landmarkId, data.schoolId);
+      this.modelLoader.updateLandmarkOwner(data.landmarkId, data.schoolId);
+      if (this.callbacks.onLandmarkLit) {
+        this.callbacks.onLandmarkLit(data);
+      }
+    });
+
+    // Listen to Tile Studied events
+    room.onMessage("tile_studied", (data: { x: number; y: number; schoolId: string; retention: number; lastStudiedAt: number }) => {
+      if (this.callbacks.onTileStudied) {
+        this.callbacks.onTileStudied(data);
+      }
+    });
+
+    // Listen to UniStop Rolled (CS:GO Carousel Loot)
+    room.onMessage("unistop_rolled", (data: any) => {
+      if (this.callbacks.onUniStopRolled) {
+        this.callbacks.onUniStopRolled(data);
+      }
+    });
+
+    // Listen to Chest Opened (CS:GO Carousel Loot)
+    room.onMessage("chest_opened", (data: any) => {
+      if (this.callbacks.onChestOpened) {
+        this.callbacks.onChestOpened(data);
+      }
+    });
+
+    // Listen to Chest Claimed broadcast
+    room.onMessage("chest_claimed", (data: any) => {
+      if (this.callbacks.onChestClaimed) {
+        this.callbacks.onChestClaimed(data);
+      }
+    });
+
+    // Listen to Real Gift Won broadcast
+    room.onMessage("real_gift_won", (data: any) => {
+      if (this.callbacks.onRealGiftWon) {
+        this.callbacks.onRealGiftWon(data);
+      }
+    });
+
+    // Listen to Map Layout Updated broadcast
+    room.onMessage("map_layout_updated", (data: any) => {
+      if (this.callbacks.onMapLayoutUpdated) {
+        this.callbacks.onMapLayoutUpdated(data);
       }
     });
 
@@ -509,6 +636,14 @@ export class ColyseusClient {
     this.room?.send(LAND_FRAME_CHANNEL, makeFortify(x, y));
   }
 
+  public studyTile(x: number, y: number, points = 1) {
+    this.room?.send("studyTile", { x, y, z: y, points });
+  }
+
+  public contributeFuel(landmarkId: string, amount: number) {
+    this.room?.send("contributeFuel", { landmarkId, amount, points: amount });
+  }
+
   public setSimulationSpeed(speed: number) {
     this.room?.send("set_simulation_speed", { speed });
   }
@@ -541,5 +676,17 @@ export class ColyseusClient {
 
   public addPoints(amount: number) {
     this.room?.send("add_points", { amount });
+  }
+
+  public rollUniStop(stopId: string, x?: number, z?: number) {
+    this.room?.send("rollUniStop", { stopId, x, z, y: z });
+  }
+
+  public openChest(chestId: string, x?: number, z?: number) {
+    this.room?.send("openChest", { chestId, x, z, y: z });
+  }
+
+  public updateMapLayout(layout: any) {
+    this.room?.send("updateMapLayout", layout);
   }
 }

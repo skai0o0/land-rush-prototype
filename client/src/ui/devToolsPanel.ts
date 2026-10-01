@@ -9,6 +9,7 @@ export interface DevPanelCallbacks {
   onResetMap: () => void;
   onResetCamera: () => void;
   onToggleGrid?: (show: boolean) => void;
+  onToggleFog?: (show: boolean) => void;
   onSwitchAccount?: (email: string, schoolId: string, km: number) => void;
   onToggleMode?: (mode: "normal" | "dev") => void;
   onOpenNewTab?: (schoolId: string, email: string, km: number) => void;
@@ -25,6 +26,7 @@ export class DevToolsPanel {
   private isOpen = false;
   private isBotRunning = false;
   private showGrid = true;
+  private showFog = true;
   private currentMode: "normal" | "dev" = "dev";
   private currentTier: 'performance' | 'balanced' | 'high' = 'balanced';
   private selectedMockEmail: string = MOCK_STUDENT_ACCOUNTS[0].email;
@@ -112,16 +114,16 @@ export class DevToolsPanel {
         
         <!-- 1. CHẾ ĐỘ CHƠI -->
         <div class="dev-menu-section">
-          <div class="section-title">CHẾ ĐỘ TÁC CHIẾN</div>
+          <div class="section-title">CHẾ ĐỘ HÀNH TRÌNH</div>
           <div class="dev-row">
             <span>Chế độ:</span>
-            <button id="mode-toggle-btn" class="btn-dev-toggle ${this.currentMode === 'dev' ? 'active' : ''}" title="Chuyển giữa chế độ Dev tự do và Normal khóa trường">
-              ${this.currentMode === 'dev' ? 'DEV (TỰ DO)' : 'NORMAL (KHÓA TRƯỜNG)'}
+            <button id="mode-toggle-btn" class="btn-dev-toggle ${this.currentMode === 'dev' ? 'active' : ''}" title="Chuyển giữa chế độ Dev tự do và Khám phá khóa trường">
+              ${this.currentMode === 'dev' ? 'DEV (TỰ DO)' : 'KHÁM PHÁ (THEO TRƯỜNG)'}
             </button>
           </div>
         </div>
 
-        <!-- 2. TÀI KHOẢN MẪU 7 TRƯỜNG ĐHQG -->
+        <!-- 2. TÀI KHOẢN SINH VIÊN -->
         <div class="dev-menu-section">
           <div class="section-title">TÀI KHOẢN SINH VIÊN (${students.length} TÀI KHOẢN)</div>
           <select id="mock-account-select" class="dev-account-select">
@@ -137,7 +139,7 @@ export class DevToolsPanel {
           <div class="dev-btn-group" style="margin-top: 4px;">
             <button class="btn-dev-action" id="btn-switch-account" title="Chuyển sang tài khoản sinh viên này ngay trong tab này">Đăng nhập tài khoản</button>
             <button class="btn-dev-action" id="btn-open-tab" title="Mở tab mới với tài khoản này để test nhiều người chơi cùng lúc">Mở tab mới (+)</button>
-            <button class="btn-dev-action" id="btn-open-db" style="grid-column: span 2; background: rgba(14, 165, 233, 0.2); border-color: rgba(56, 189, 248, 0.5); color: #38bdf8; font-weight: 700;" title="Mở bảng điều khiển cơ sở dữ liệu giải chạy sinh viên ĐHQG">
+            <button class="btn-dev-action" id="btn-open-db" style="grid-column: span 2; background: rgba(0, 255, 232, 0.15); border-color: rgba(0, 255, 232, 0.45); color: #00ffe8; font-weight: 700;" title="Mở bảng điều khiển cơ sở dữ liệu giải chạy Road to Predator League">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align: -2px; margin-right: 4px;">
                 <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
                 <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
@@ -150,11 +152,11 @@ export class DevToolsPanel {
 
         <!-- 3. ĐIỂM GIẢI CHẠY (1 KM = 10 ĐIỂM) -->
         <div class="dev-menu-section">
-          <div class="section-title">GIẢ LẬP ĐIỂM CHẠY (1 KM = 10 ĐIỂM)</div>
+          <div class="section-title">GIẢ LẬP ĐIỂM (POINTS) (1 KM = 10 ĐIỂM)</div>
           <div class="dev-btn-group">
-            <button class="btn-dev-action" id="btn-add-50pts">+5 km (50đ)</button>
-            <button class="btn-dev-action" id="btn-add-100pts">+10 km (100đ)</button>
-            <button class="btn-dev-action" id="btn-add-500pts">+50 km (500đ)</button>
+            <button class="btn-dev-action" id="btn-add-50pts">+5 km (50 pts)</button>
+            <button class="btn-dev-action" id="btn-add-100pts">+10 km (100 pts)</button>
+            <button class="btn-dev-action" id="btn-add-500pts">+50 km (500 pts)</button>
           </div>
         </div>
 
@@ -183,29 +185,30 @@ export class DevToolsPanel {
         <div class="dev-menu-section">
           <div class="section-title">HỆ THỐNG & CAMERA</div>
           <div class="dev-btn-group">
-            <button class="btn-dev-action" id="btn-dev-recenter">Căn camera HQ</button>
+            <button class="btn-dev-action" id="btn-dev-recenter">Căn camera Trụ sở HQ</button>
             <button class="btn-dev-action" id="btn-dev-grid">Ẩn/Hiện lưới</button>
-            <button class="btn-dev-action danger" id="btn-dev-reset" style="grid-column: span 2;">Reset Toàn Bộ Bản Đồ</button>
+            <button class="btn-dev-action" id="btn-dev-fog">Ẩn/Hiện sương mù</button>
+            <button class="btn-dev-action danger" id="btn-dev-reset">Reset Bản Đồ</button>
           </div>
         </div>
 
-        <!-- 7. GIẢ LẬP LÃNH THỔ & GIA CỐ -->
+        <!-- 7. GIẢ LẬP VÙNG TRI THỨC & CỦNG CỐ -->
         <div class="dev-menu-section">
-          <div class="section-title" style="color: #f59e0b; display: flex; align-items: center; gap: 6px;">
-            🏰 GIẢ LẬP LÃNH THỔ & GIA CỐ
+          <div class="section-title" style="color: #00ffe8; display: flex; align-items: center; gap: 6px;">
+            ⚡ GIẢ LẬP VÙNG TRI THỨC & CỦNG CỐ
           </div>
           <div class="dev-btn-group" style="grid-template-columns: 1fr;">
-            <button class="btn-dev-action" id="btn-spawn-bastion" style="background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); justify-content: flex-start; text-align: left;" title="Tạo cụm 10x10 Max Tier 3, tự động kích hoạt cắm cờ viền & Buff Tier 4">
-              <span style="font-size: 16px; margin-right: 8px;">🚩</span> Spawn Bastion (10×10)
+            <button class="btn-dev-action" id="btn-spawn-bastion" style="background: rgba(0, 255, 232, 0.08); border-color: rgba(0, 255, 232, 0.3); justify-content: flex-start; text-align: left;" title="Tạo cụm 10x10 Max Tier 3, tự động kích hoạt cắm cờ Predator & Buff Tier 4">
+              <span style="font-size: 16px; margin-right: 8px;">🚩</span> Spawn Bastion Tri Thức (10×10)
             </button>
-            <button class="btn-dev-action" id="btn-spawn-mega" style="background: rgba(139, 92, 246, 0.1); border-color: rgba(139, 92, 246, 0.3); justify-content: flex-start; text-align: left;" title="Tạo cụm 100x100, phủ Logo trường, xóa cờ nhỏ bên trong & Buff Tier 6">
-              <span style="font-size: 16px; margin-right: 8px;">🌟</span> Spawn Đại Lãnh Thổ (100×100)
+            <button class="btn-dev-action" id="btn-spawn-mega" style="background: rgba(0, 98, 255, 0.15); border-color: rgba(0, 98, 255, 0.35); justify-content: flex-start; text-align: left;" title="Tạo cụm 100x100, phủ Logo trường với khung viền Predator & Buff Tier 6">
+              <span style="font-size: 16px; margin-right: 8px;">🌟</span> Spawn Đại Vùng Tri Thức (100×100)
             </button>
-            <button class="btn-dev-action" id="btn-breach-cluster" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); justify-content: flex-start; text-align: left;" title="Giả lập địch phá 1 ô lõi, kiểm tra gỡ cờ/logo và hạ Tier">
-              <span style="font-size: 16px; margin-right: 8px;">💥</span> Chọc Thủng Cụm (Breach)
+            <button class="btn-dev-action" id="btn-breach-cluster" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); justify-content: flex-start; text-align: left;" title="Giả lập đối thủ giao lưu tri thức tại 1 ô lõi, kiểm tra cập nhật cờ/logo và hạ Tier">
+              <span style="font-size: 16px; margin-right: 8px;">💥</span> Giao Lưu Kiểm Tra Cụm (Breach)
             </button>
-            <button class="btn-dev-action" id="btn-max-fortify" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); justify-content: flex-start; text-align: left;" title="Nâng toàn bộ ô đang sở hữu lên Tier 3">
-              <span style="font-size: 16px; margin-right: 8px;">🛡️</span> Max Gia Cố Toàn Bộ Đất
+            <button class="btn-dev-action" id="btn-max-fortify" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); justify-content: flex-start; text-align: left;" title="Nâng toàn bộ Vùng tri thức đang sở hữu lên Cấp 3">
+              <span style="font-size: 16px; margin-right: 8px;">🛡️</span> Max Củng Cố Toàn Bộ Vùng Tri Thức
             </button>
           </div>
         </div>
@@ -326,6 +329,11 @@ export class DevToolsPanel {
       e.stopPropagation();
       this.showGrid = !this.showGrid;
       this.callbacks.onToggleGrid?.(this.showGrid);
+    });
+    this.container.querySelector('#btn-dev-fog')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.showFog = !this.showFog;
+      this.callbacks.onToggleFog?.(this.showFog);
     });
     this.container.querySelector('#btn-dev-reset')?.addEventListener('click', (e) => {
       e.stopPropagation();

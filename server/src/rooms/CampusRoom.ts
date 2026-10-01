@@ -1,20 +1,47 @@
 import { Room, Client, Delayed } from "colyseus";
-import { GameState, TileState, PlayerState, HQState, LandmarkState } from "../schema/GameState";
+import {
+  GameState,
+  TileState,
+  PlayerState,
+  HQState,
+  LandmarkState,
+  UniStopState,
+  ChestState
+} from "../schema/GameState";
 import { BotManager } from "../bots/BotManager";
 import { SCHOOL_IDS, SCHOOL_ROSTER, getSchoolIdFromEmail } from "../../../shared/constants/schools";
 import { LANDMARK_IDS, LANDMARK_ROSTER } from "../../../shared/constants/landmarks";
 import {
+  UniStopTier,
+  ChestTier,
+  UNISTOP_CONFIGS,
+  CHEST_CONFIGS,
+  UNISTOP_LOOT_TABLES,
+  CHEST_LOOT_TABLES,
+  MAX_UNISTOP_INTERACTION_DISTANCE,
+  MAX_CHEST_INTERACTION_DISTANCE,
+  rollLoot,
+  generateCarouselItems,
+  ALL_LOOT_ITEMS
+} from "../../../shared/constants/unistops";
+import {
   ClientClaimMessage,
   ClientFortifyMessage,
+  ClientStudyTileMessage,
+  ClientContributeFuelMessage,
   ClientSetSpeedMessage,
   ClientBulkDispatchMessage,
   ClientSelectSchoolMessage,
   ClientSetRoleMessage,
+  ClientRollUniStopMessage,
+  ClientOpenChestMessage,
+  ClientUpdateMapLayoutMessage,
   PlayerRole
 } from "../../../shared/types";
 import { TerritoryClusterEngine } from "../../../shared/engine/territoryClusterEngine";
 import { LandDataPlane, LAND_FRAME_CHANNEL, DEFAULT_FLUSH_MS } from "../land/landDataPlane";
-import { decodeClientFrame, ClaimFrame, FortifyFrame } from "../../../shared/land/protocol";
+import { decodeClientFrame, ClaimFrame, FortifyFrame, StudyFrame, FuelFrame } from "../../../shared/land/protocol";
+
 
 export class CampusRoom extends Room<GameState> {
   private gameInterval?: Delayed;
@@ -50,11 +77,15 @@ export class CampusRoom extends Room<GameState> {
     this.autoDispose = false;
     this.setState(new GameState());
 
-    // 1. Spawn 10 School HQs (distance > 180 tiles)
+    // 1. Spawn 5 School HQs (distance > 200 tiles)
     this.spawnHQs();
 
     // 2. Spawn 10 Landmarks (distance from HQs > 75 tiles, from each other > 65 tiles)
     this.spawnLandmarks();
+
+    // 2b. Spawn UniStops and Chests
+    this.spawnUniStops();
+    this.spawnChests();
 
     // 3. Initialize initial troops (500 per school)
     for (const schoolId of SCHOOL_IDS) {
@@ -73,7 +104,7 @@ export class CampusRoom extends Room<GameState> {
 
   private spawnHQs() {
     const placed: { x: number; y: number }[] = [];
-    const minDistance = 180;
+    const minDistance = 200;
     const margin = 120;
     const maxBound = 880;
 
@@ -125,6 +156,10 @@ export class CampusRoom extends Room<GameState> {
           tile.defenseTier = dist <= 3 ? 3 : (dist <= 7 ? 2 : 1);
           tile.hp = 500;
           tile.maxHp = 500;
+          tile.retention = 100;
+          tile.maxRetention = 100;
+          tile.lastStudiedAt = Date.now();
+          tile.studyCountBySchool.set(schoolId, 10);
 
           this.state.claimedTiles.set(key, tile);
           this.landData.writeTile(tx, ty, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
@@ -184,6 +219,10 @@ export class CampusRoom extends Room<GameState> {
       lmState.x = x;
       lmState.y = y;
       lmState.ownerId = "";
+      lmState.currentFuel = 0;
+      lmState.maxFuel = 500;
+      lmState.litBySchoolId = "";
+      lmState.buffActive = false;
       this.state.landmarks.set(lmKey, lmState);
 
       lmMapForBot.set(lmKey, { x, y, landmarkKey: lmKey });
@@ -210,6 +249,10 @@ export class CampusRoom extends Room<GameState> {
             tile.hp = isCore ? config.coreHp : config.tileHp;
             tile.maxHp = tile.hp;
             tile.defenseTier = isCore ? Math.min(3, config.defenseTier + 1) : config.defenseTier;
+            tile.retention = 100;
+            tile.maxRetention = 100;
+            tile.lastStudiedAt = Date.now();
+
 
             this.state.claimedTiles.set(key, tile);
             this.landData.writeTile(tx, ty, "", tile.hp, tile.maxHp, tile.defenseTier);
@@ -230,41 +273,155 @@ export class CampusRoom extends Room<GameState> {
     this.botManager.initLandmarks(lmMapForBot);
   }
 
+  private spawnUniStops() {
+    const placed: { x: number; z: number }[] = [];
+    const minHqDistance = 35;
+    const minLmDistance = 35;
+    const minStopDistance = 30;
+    const margin = 80;
+    const maxBound = 920;
+
+    // 15 UniStops: 8 Aspire, 5 Nitro, 2 Predator
+    const tiers: UniStopTier[] = [
+      'aspire', 'aspire', 'aspire', 'aspire', 'aspire', 'aspire', 'aspire', 'aspire',
+      'nitro', 'nitro', 'nitro', 'nitro', 'nitro',
+      'predator', 'predator'
+    ];
+
+    for (let i = 0; i < tiers.length; i++) {
+      const tier = tiers[i];
+      let x = 0;
+      let z = 0;
+      let attempts = 0;
+      let valid = false;
+
+      while (!valid && attempts < 1000) {
+        attempts++;
+        x = Math.floor(margin + Math.random() * (maxBound - margin));
+        z = Math.floor(margin + Math.random() * (maxBound - margin));
+
+        valid = true;
+        // Distance against HQs
+        this.state.hqs.forEach((hq) => {
+          if (Math.hypot(x - hq.x, z - hq.y) < minHqDistance) {
+            valid = false;
+          }
+        });
+        if (!valid) continue;
+
+        // Distance against Landmarks
+        this.state.landmarks.forEach((lm) => {
+          if (Math.hypot(x - lm.x, z - lm.y) < minLmDistance) {
+            valid = false;
+          }
+        });
+        if (!valid) continue;
+
+        // Distance against other placed UniStops
+        for (const p of placed) {
+          if (Math.hypot(x - p.x, z - p.z) < minStopDistance) {
+            valid = false;
+            break;
+          }
+        }
+      }
+
+      placed.push({ x, z });
+      const cfg = UNISTOP_CONFIGS[tier];
+      const stopState = new UniStopState();
+      stopState.id = `unistop_${tier}_${i + 1}`;
+      stopState.name = `${cfg.name} #${i + 1}`;
+      stopState.tier = tier;
+      stopState.x = x;
+      stopState.z = z;
+      stopState.cooldownUntil = 0;
+      this.state.unistops.set(stopState.id, stopState);
+    }
+  }
+
+  private spawnChests() {
+    const placed: { x: number; z: number }[] = [];
+    const minHqDistance = 40;
+    const minLmDistance = 35;
+    const minChestDistance = 30;
+    const margin = 90;
+    const maxBound = 910;
+
+    // 15 Chests: 8 Silver, 5 Gold, 2 Platinum
+    const tiers: ChestTier[] = [
+      'silver', 'silver', 'silver', 'silver', 'silver', 'silver', 'silver', 'silver',
+      'gold', 'gold', 'gold', 'gold', 'gold',
+      'platinum', 'platinum'
+    ];
+
+    for (let i = 0; i < tiers.length; i++) {
+      const tier = tiers[i];
+      let x = 0;
+      let z = 0;
+      let attempts = 0;
+      let valid = false;
+
+      while (!valid && attempts < 1000) {
+        attempts++;
+        x = Math.floor(margin + Math.random() * (maxBound - margin));
+        z = Math.floor(margin + Math.random() * (maxBound - margin));
+
+        valid = true;
+        // Distance against HQs
+        this.state.hqs.forEach((hq) => {
+          if (Math.hypot(x - hq.x, z - hq.y) < minHqDistance) {
+            valid = false;
+          }
+        });
+        if (!valid) continue;
+
+        // Distance against Landmarks
+        this.state.landmarks.forEach((lm) => {
+          if (Math.hypot(x - lm.x, z - lm.y) < minLmDistance) {
+            valid = false;
+          }
+        });
+        if (!valid) continue;
+
+        // Distance against UniStops
+        this.state.unistops.forEach((stop) => {
+          if (Math.hypot(x - stop.x, z - stop.z) < 20) {
+            valid = false;
+          }
+        });
+        if (!valid) continue;
+
+        // Distance against other Chests
+        for (const p of placed) {
+          if (Math.hypot(x - p.x, z - p.z) < minChestDistance) {
+            valid = false;
+            break;
+          }
+        }
+      }
+
+      placed.push({ x, z });
+      const chestState = new ChestState();
+      chestState.id = `chest_${tier}_${i + 1}`;
+      chestState.tier = tier;
+      chestState.x = x;
+      chestState.z = z;
+      chestState.isOpened = false;
+      chestState.openedBySchoolId = "";
+      this.state.chests.set(chestState.id, chestState);
+    }
+  }
+
+
   public checkLandmarkCapture(lmKey: string) {
     const lm = this.state.landmarks.get(lmKey);
     const config = LANDMARK_ROSTER[lmKey];
     if (!lm || !config) return;
 
-    const fw = config.footprint.width;
-    const fh = config.footprint.height;
-    const totalTiles = fw * fh;
-    const coreX = lm.x + Math.floor(fw / 2);
-    const coreY = lm.y + Math.floor(fh / 2);
-
-    const coreTile = this.state.claimedTiles.get(`${coreX},${coreY}`);
-    const coreOwner = coreTile?.ownerId || "";
-
-    let newOwner = "";
-    if (coreOwner) {
-      let ownedCount = 0;
-      for (let dx = 0; dx < fw; dx++) {
-        for (let dy = 0; dy < fh; dy++) {
-          const t = this.state.claimedTiles.get(`${lm.x + dx},${lm.y + dy}`);
-          if (t && t.ownerId === coreOwner) {
-            ownedCount++;
-          }
-        }
-      }
-
-      // To capture Landmark: School must control Core node AND >= 35% of total tiles
-      if (ownedCount / totalTiles >= 0.35) {
-        newOwner = coreOwner;
-      }
-    }
-
-    if (lm.ownerId !== newOwner) {
-      lm.ownerId = newOwner;
-      console.log(`[CampusRoom] Landmark ${config.name} (${lmKey}) ownership updated: "${newOwner || 'NEUTRAL'}"`);
+    if (lm.litBySchoolId && lm.ownerId !== lm.litBySchoolId) {
+      lm.ownerId = lm.litBySchoolId;
+      lm.buffActive = true;
+      console.log(`[CampusRoom] Landmark ${config.name} (${lmKey}) bonfire controlled by: "${lm.litBySchoolId}"`);
     }
   }
 
@@ -334,47 +491,26 @@ export class CampusRoom extends Room<GameState> {
         this.state.schoolTroops.set(schoolId, cur + 1);
       }
 
-      // Process Landmark effects & self-repair for all 10 landmarks
-      const troopBonusMap: Record<string, number> = {
-        landmark_cho_dem: 12,
-        landmark_nha_dieu_hanh: 8,
-        landmark_cong_chinh: 7,
-        landmark_ktx_khu_b: 8,
-        landmark_ktx_khu_a: 6,
-        landmark_nvhsv: 6,
-        landmark_doc_tinh: 6,
-        landmark_duong_danh_nhan: 6,
-        landmark_tram_xe_buyt: 6,
-        landmark_ho_da: 5
-      };
-
+      // Process Landmark Bonfire effects for lit landmarks
       for (const lmKey of LANDMARK_IDS) {
         this.checkLandmarkCapture(lmKey);
         const lm = this.state.landmarks.get(lmKey);
         const config = LANDMARK_ROSTER[lmKey];
-        if (lm && config && lm.ownerId) {
-          // 1. Troop generation buff based on landmark
-          const bonus = troopBonusMap[lmKey] || 5;
-          const cur = this.state.schoolTroops.get(lm.ownerId) || 0;
-          this.state.schoolTroops.set(lm.ownerId, cur + bonus);
-
-          // 2. Self-repair landmark tiles (+5 HP/sec up to maxHp)
-          const fw = config.footprint.width;
-          const fh = config.footprint.height;
-          for (let dx = 0; dx < fw; dx++) {
-            for (let dy = 0; dy < fh; dy++) {
-              const tx = lm.x + dx;
-              const ty = lm.y + dy;
-              const t = this.state.claimedTiles.get(`${tx},${ty}`);
-              if (t && t.ownerId === lm.ownerId && t.hp < t.maxHp) {
-                t.hp = Math.min(t.maxHp, t.hp + 5);
-                this.landData.setCombat(tx, ty, t.hp, t.maxHp, t.defenseTier);
-              }
-            }
-          }
+        if (lm && config && lm.buffActive && lm.litBySchoolId) {
+          // Troop / Point generation buff based on landmark config
+          const bonus = config.troopBonus || 6;
+          const cur = this.state.schoolTroops.get(lm.litBySchoolId) || 0;
+          this.state.schoolTroops.set(lm.litBySchoolId, cur + bonus);
         }
       }
     }
+
+    // Process Knowledge Decay heartbeat (every 10 ticks = 10s at 1x)
+    const decayIntervalTicks = Math.max(1, Math.floor(ticksPerSec)) * 10;
+    if (this.state.currentTick % decayIntervalTicks === 0) {
+      this.processKnowledgeDecay();
+    }
+
 
     // Run Bot autonomous simulation (only if enabled)
     if (this.botsEnabled) {
@@ -389,6 +525,35 @@ export class CampusRoom extends Room<GameState> {
   /**
    * Claim path (game rules unchanged). Writes LandState on every mutation.
    * Sends ack to the actor. Handles both legacy "claim_tile" and protocol "claim".
+   */
+  /**
+   * Check if a school has opened a path to the Landmark.
+   * Path exists if at least one tile inside or directly adjacent to the Landmark footprint
+   * is owned by the school.
+   */
+  public hasPathToLandmark(schoolId: string, lm: LandmarkState): boolean {
+    const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
+    const fw = config?.footprint.width || 14;
+    const fh = config?.footprint.height || 14;
+
+    for (let dx = -1; dx <= fw; dx++) {
+      for (let dy = -1; dy <= fh; dy++) {
+        const tx = lm.x + dx;
+        const ty = lm.y + dy;
+        if (tx < 0 || tx >= 1000 || ty < 0 || ty >= 1000) continue;
+        const t = this.state.claimedTiles.get(`${tx},${ty}`);
+        if (t && t.ownerId === schoolId) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Claim path: Mở rộng vùng tri thức cho các ô hoang dã chưa có chủ.
+   * Cũ: tấn công trừ HP đất đã có chủ.
+   * Mới: Bỏ cơ chế gia cố và tấn công trừ HP. Đất có chủ phải dùng 'Ôn bài' (Giao lưu tri thức).
    */
   private handleClaimAction(client: Client, data: { x: number; y: number }, op: string = "claim") {
     const player = this.state.players.get(client.sessionId);
@@ -420,90 +585,27 @@ export class CampusRoom extends Room<GameState> {
     }
 
     if (!isAdjacent) {
-      client.send("error", { message: "Ô không tiếp giáp với lãnh thổ của bạn!" });
+      client.send("error", { message: "Ô không tiếp giáp với vùng tri thức của trường bạn!" });
       this.sendLandAck(client, op, x, y, false, "not_adjacent");
       return;
     }
 
     const schoolTroops = this.state.schoolTroops.get(player.schoolId) || 0;
 
+    // Check Landmark tile
     const lmInfo = this.landmarkTileMap.get(key);
-    const lmConfig = lmInfo ? LANDMARK_ROSTER[lmInfo.landmarkKey] : null;
+    if (lmInfo) {
+      client.send("error", {
+        message: "Công trình được thắp lửa bằng Than củi! Hãy dùng tính năng 'Thắp lửa Công trình' để tiếp tế Than củi."
+      });
+      this.sendLandAck(client, op, x, y, false, "use_contribute_fuel");
+      return;
+    }
 
-    if (lmConfig && existing) {
-      // Landmark tile handling
-      if (existing.ownerId === player.schoolId) {
-        client.send("error", { message: "Ô công trình này đã thuộc quyền kiểm soát của trường bạn!" });
-        this.sendLandAck(client, op, x, y, false, "already_owned");
-        return;
-      }
-
-      const isEnemyControlled = existing.ownerId !== "" && existing.ownerId !== player.schoolId;
-      const requiredCost = isEnemyControlled ? lmConfig.attackCost : lmConfig.claimCost;
-
-      if (player.email && player.personalTroops < requiredCost) {
-        client.send("error", {
-          message: `Không đủ điểm chạy! Cần ${requiredCost} điểm giải chạy để ${isEnemyControlled ? "tấn công" : "đánh chiếm"} ô công trình.`
-        });
-        this.sendLandAck(client, op, x, y, false, "not_enough_personal");
-        return;
-      }
-
-      if (schoolTroops < requiredCost) {
-        client.send("error", {
-          message: `Không đủ quân lực! Cần ${requiredCost} quân để ${isEnemyControlled ? "tấn công" : "đánh chiếm"} ô công trình biểu tượng.`
-        });
-        this.sendLandAck(client, op, x, y, false, "not_enough_troops");
-        return;
-      }
-
-      // Deduct troops
-      if (player.email) {
-        player.personalTroops -= requiredCost;
-      }
-      this.state.schoolTroops.set(player.schoolId, schoolTroops - requiredCost);
-
-      // Role damage bonus: assault deals +35% damage
-      const baseDamage = player.currentRole === "assault" ? Math.floor(40 * 1.35) : 40;
-      // Defense Tier absorbs damage (8 per tier)
-      const absorbed = existing.defenseTier * 8;
-      const damage = Math.max(12, baseDamage - absorbed);
-
-      existing.hp -= damage;
-
-      if (existing.hp <= 0) {
-        const oldOwner = existing.ownerId;
-        if (oldOwner) {
-          this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
-          this.clusterEngine.setTile(x, y, 0, 0, 0); // clear temporarily
-          // Re-evaluate old owner's clusters for neighbors
-          const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
-          for (const [nx, ny] of neighbors) {
-            if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
-              this.handleClusterUpdate(oldOwner, nx, ny);
-            }
-          }
-        }
-        existing.ownerId = player.schoolId;
-        // Capture HP is 40% of maxHp
-        existing.hp = Math.floor(existing.maxHp * 0.4);
-        this.landData.writeTile(x, y, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
-        this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
-        this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), existing.defenseTier, existing.hp);
-        this.handleClusterUpdate(player.schoolId, x, y);
-
-        // Check if landmark whole structure capture status changed immediately
-        this.checkLandmarkCapture(lmInfo.landmarkKey);
-        this.sendLandAck(client, op, x, y, true);
-      } else {
-        this.landData.setCombat(x, y, existing.hp, existing.maxHp, existing.defenseTier);
-        this.clusterEngine.setTile(x, y, this.getSchoolNumericId(existing.ownerId), existing.defenseTier, existing.hp);
-        this.sendLandAck(client, op, x, y, true);
-      }
-    } else if (!existing) {
-      // Wild tile: costs 1 point
+    // 1. Wild tile (chưa có chủ)
+    if (!existing || existing.ownerId === "") {
       if (player.email && player.personalTroops < 1) {
-        client.send("error", { message: "Không đủ điểm cống hiến! Cần 1 điểm để mở rộng ô đất." });
+        client.send("error", { message: "Không đủ Điểm! Cần 1 Điểm để mở rộng vùng tri thức." });
         this.sendLandAck(client, op, x, y, false, "not_enough_personal");
         return;
       }
@@ -518,150 +620,858 @@ export class CampusRoom extends Room<GameState> {
         player.personalTroops -= 1;
       }
       this.state.schoolTroops.set(player.schoolId, schoolTroops - 1);
+
       const newTile = new TileState();
       newTile.x = x;
       newTile.y = y;
       newTile.ownerId = player.schoolId;
+      newTile.retention = 100;
+      newTile.maxRetention = 100;
       newTile.hp = 100;
       newTile.maxHp = 100;
       newTile.defenseTier = 0;
+      newTile.lastStudiedAt = Date.now();
+      newTile.studyCountBySchool.set(player.schoolId, 1);
 
       this.state.claimedTiles.set(key, newTile);
       if (!this.landData.writeTile(x, y, player.schoolId, newTile.hp, newTile.maxHp, newTile.defenseTier)) {
-        // RangeError from LandState: roll back claim, never leave divergent state
         this.state.claimedTiles.delete(key);
         if (player.email) player.personalTroops += 1;
         this.state.schoolTroops.set(player.schoolId, schoolTroops);
         this.sendLandAck(client, op, x, y, false, "out_of_bounds");
         return;
       }
+
       this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
       this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), newTile.defenseTier, newTile.hp);
       this.handleClusterUpdate(player.schoolId, x, y);
       this.sendLandAck(client, op, x, y, true);
-    } else if (existing.ownerId !== player.schoolId) {
-      // Enemy tile: costs 2 points
-      if (player.email && player.personalTroops < 2) {
-        client.send("error", { message: "Không đủ điểm cống hiến! Cần 2 điểm để tấn công." });
-        this.sendLandAck(client, op, x, y, false, "not_enough_personal");
-        return;
-      }
-
-      if (schoolTroops < 2) {
-        client.send("error", { message: "Không đủ quân lực để tấn công!" });
-        this.sendLandAck(client, op, x, y, false, "not_enough_troops");
-        return;
-      }
-
-      if (player.email) {
-        player.personalTroops -= 2;
-      }
-      this.state.schoolTroops.set(player.schoolId, schoolTroops - 2);
-      // Assault role damage bonus (+35%)
-      const baseDamage = player.currentRole === "assault" ? Math.floor(40 * 1.35) : 40;
-      const absorbed = existing.defenseTier * 8;
-      const damage = Math.max(12, baseDamage - absorbed);
-      existing.hp -= damage;
-
-      if (existing.hp <= 0) {
-        const oldOwner = existing.ownerId;
-        if (oldOwner) {
-          this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
-          this.clusterEngine.setTile(x, y, 0, 0, 0); // clear temporarily
-          // Re-evaluate old owner's clusters for neighbors
-          const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
-          for (const [nx, ny] of neighbors) {
-            if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
-              this.handleClusterUpdate(oldOwner, nx, ny);
-            }
-          }
-        }
-        existing.ownerId = player.schoolId;
-        existing.hp = 60;
-        existing.defenseTier = 0; // reset defense on capture
-        this.landData.writeTile(x, y, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
-        this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
-        this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), existing.defenseTier, existing.hp);
-        this.handleClusterUpdate(player.schoolId, x, y);
-        this.sendLandAck(client, op, x, y, true);
-      } else {
-        this.landData.setCombat(x, y, existing.hp, existing.maxHp, existing.defenseTier);
-        this.clusterEngine.setTile(x, y, this.getSchoolNumericId(existing.ownerId), existing.defenseTier, existing.hp);
-        this.sendLandAck(client, op, x, y, true);
-      }
-    } else {
-      // Already own this tile (non-landmark): no-op success
-      this.sendLandAck(client, op, x, y, true);
+      return;
     }
+
+    // 2. Already owned by player's school
+    if (existing.ownerId === player.schoolId) {
+      this.sendLandAck(client, op, x, y, true);
+      return;
+    }
+
+    // 3. Tile owned by another school -> DIRECT ATTACK REMOVED!
+    // Knowledge Overlap & Decay applies instead.
+    client.send("error", {
+      message: "Không thể tấn công trực tiếp đất đã có chủ! Hãy dùng 'Ôn bài' (Giao lưu tri thức) tại ô tiếp giáp để củng cố tri thức và giành quyền sở hữu khi đối phương lơ là."
+    });
+    this.sendLandAck(client, op, x, y, false, "knowledge_exchange_required");
   }
 
   /**
-   * Fortify path (game rules unchanged). Writes combat dirty via LandState.
-   * Sends ack to the actor. Handles both legacy "fortify_tile" and protocol "fortify".
+   * Hành động Ôn bài / Củng cố tri thức (studyTile):
+   * - Sinh viên dùng Điểm (Points) để ôn bài tại ô của trường mình hoặc ô tiếp giáp.
+   * - Tăng chỉ số retention và cập nhật lastStudiedAt = Date.now().
+   * - Tại ô tiếp giáp đối phương: tích luỹ điểm học tập của trường mình và thử thách độ bền tri thức của đối phương.
    */
-  private handleFortifyAction(client: Client, data: { x: number; y: number }, op: string = "fortify") {
+  public handleStudyAction(
+    client: Client,
+    data: ClientStudyTileMessage | { x: number; y?: number; z?: number; points?: number },
+    op: string = "study"
+  ) {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
 
-    const { x, y } = data;
+    const x = Number((data as any).x);
+    const y = (data as any).y !== undefined ? Number((data as any).y) : Number((data as any).z);
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x >= 1000 || y < 0 || y >= 1000) {
       this.sendLandAck(client, op, x, y, false, "out_of_bounds");
       return;
     }
 
     const key = `${x},${y}`;
-    const tile = this.state.claimedTiles.get(key);
+    const existing = this.state.claimedTiles.get(key);
 
-    if (!tile || tile.ownerId !== player.schoolId) {
-      client.send("error", { message: "Chỉ có thể gia cố ô đất của trường bạn!" });
-      this.sendLandAck(client, op, x, y, false, "not_owned");
+    const isFriendly = existing?.ownerId === player.schoolId;
+    let isAdjacentToFriendly = false;
+    const neighbors = [
+      [x + 1, y],
+      [x - 1, y],
+      [x, y + 1],
+      [x, y - 1]
+    ];
+    for (const [nx, ny] of neighbors) {
+      const n = this.state.claimedTiles.get(`${nx},${ny}`);
+      if (n && n.ownerId === player.schoolId) {
+        isAdjacentToFriendly = true;
+        break;
+      }
+    }
+
+    if (!isFriendly && !isAdjacentToFriendly) {
+      client.send("error", {
+        message: "Chỉ có thể ôn bài tại ô tri thức của trường bạn hoặc ô giao lưu tri thức tiếp giáp!"
+      });
+      this.sendLandAck(client, op, x, y, false, "not_adjacent_or_friendly");
       return;
     }
 
-    if (tile.defenseTier >= 3) {
-      client.send("error", { message: "Ô đất đã đạt cấp phòng thủ tối đa!" });
-      this.sendLandAck(client, op, x, y, false, "max_tier");
-      return;
-    }
+    const points = Math.max(1, Math.floor(data.points || 1));
+    const schoolTroops = this.state.schoolTroops.get(player.schoolId) || 0;
 
-    const cost = 1;
-    const troops = this.state.schoolTroops.get(player.schoolId) || 0;
-
-    if (player.email && player.personalTroops < cost) {
-      client.send("error", { message: `Không đủ điểm cống hiến! Cần ${cost} điểm để gia cố.` });
+    if (player.email && player.personalTroops < points) {
+      client.send("error", { message: `Không đủ Điểm! Cần ${points} Điểm để ôn bài.` });
       this.sendLandAck(client, op, x, y, false, "not_enough_personal");
       return;
     }
 
-    if (troops < cost) {
-      client.send("error", { message: "Không đủ quân lực để gia cố!" });
+    if (schoolTroops < points) {
+      client.send("error", { message: "Không đủ quân lực để ôn bài!" });
       this.sendLandAck(client, op, x, y, false, "not_enough_troops");
       return;
     }
 
+    // Deduct points
     if (player.email) {
-      player.personalTroops -= cost;
+      player.personalTroops -= points;
     }
-    this.state.schoolTroops.set(player.schoolId, troops - cost);
-    tile.defenseTier += 1;
-    tile.maxHp += 100;
-    tile.hp = tile.maxHp;
+    this.state.schoolTroops.set(player.schoolId, schoolTroops - points);
 
-    if (!this.landData.setCombat(x, y, tile.hp, tile.maxHp, tile.defenseTier)) {
-      tile.defenseTier -= 1;
-      tile.maxHp -= 100;
-      if (player.email) player.personalTroops += cost;
-      this.state.schoolTroops.set(player.schoolId, troops);
-      this.sendLandAck(client, op, x, y, false, "out_of_bounds");
+    // Wild tile case: claiming by studying
+    if (!existing || existing.ownerId === "") {
+      const newTile = new TileState();
+      newTile.x = x;
+      newTile.y = y;
+      newTile.ownerId = player.schoolId;
+      newTile.retention = 100;
+      newTile.maxRetention = 100;
+      newTile.hp = 100;
+      newTile.maxHp = 100;
+      newTile.defenseTier = 0;
+      newTile.lastStudiedAt = Date.now();
+      newTile.studyCountBySchool.set(player.schoolId, points);
+
+      this.state.claimedTiles.set(key, newTile);
+      this.landData.writeTile(x, y, player.schoolId, newTile.hp, newTile.maxHp, newTile.defenseTier);
+      this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
+      this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), newTile.defenseTier, newTile.hp);
+      this.handleClusterUpdate(player.schoolId, x, y);
+
+      this.sendLandAck(client, op, x, y, true);
+      client.send("tile_studied", {
+        x,
+        y,
+        schoolId: player.schoolId,
+        retention: newTile.retention,
+        lastStudiedAt: newTile.lastStudiedAt
+      });
       return;
     }
 
-    this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), tile.defenseTier, tile.hp);
-    if (tile.defenseTier >= 3) {
-      this.handleClusterUpdate(player.schoolId, x, y);
+    // Friendly tile: reinforce retention
+    if (isFriendly) {
+      existing.retention = Math.min(existing.maxRetention, existing.retention + points * 15);
+      existing.lastStudiedAt = Date.now();
+      const prevStudy = existing.studyCountBySchool.get(player.schoolId) || 0;
+      existing.studyCountBySchool.set(player.schoolId, prevStudy + points);
+      existing.hp = existing.retention;
+
+      this.landData.setCombat(x, y, existing.hp, existing.maxHp, existing.defenseTier);
+      this.sendLandAck(client, op, x, y, true);
+      client.send("tile_studied", {
+        x,
+        y,
+        schoolId: player.schoolId,
+        retention: existing.retention,
+        lastStudiedAt: existing.lastStudiedAt
+      });
+      return;
     }
+
+    // Overlap tile of another school (Khu vực giao lưu tri thức)
+    const prevEnemyStudy = existing.studyCountBySchool.get(player.schoolId) || 0;
+    existing.studyCountBySchool.set(player.schoolId, prevEnemyStudy + points);
+
+    // Diligent study challenges the neglected retention
+    existing.retention = Math.max(0, existing.retention - points * 10);
+    existing.hp = existing.retention;
+    this.landData.setCombat(x, y, existing.hp, existing.maxHp, existing.defenseTier);
+
+    if (existing.retention <= 0) {
+      // Diligent study succeeds! Transfer ownership to challenger
+      this.transferTileOwnership(existing, player.schoolId, "study_contest");
+    }
+
     this.sendLandAck(client, op, x, y, true);
+    client.send("tile_studied", {
+      x,
+      y,
+      schoolId: player.schoolId,
+      retention: existing.retention,
+      lastStudiedAt: existing.lastStudiedAt
+    });
   }
+
+  /**
+   * Hành động Than củi & Thắp lửa Công trình (contributeFuel):
+   * - Sinh viên đã mở đường tới Công trình dùng Điểm quy đổi thành Than củi (1 Điểm = 1 Than củi).
+   * - Đạt maxFuel (500) sẽ thắp lửa và kích hoạt buff cho trường.
+   * - Trường khác có thể nạp than củi vượt mốc để thắp lửa đè lên.
+   */
+  public handleContributeFuelAction(
+    client: Client,
+    data: { landmarkId: string; points?: number; amount?: number }
+  ) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    const lmKey = data.landmarkId;
+    let lm = this.state.landmarks.get(lmKey);
+    if (!lm) {
+      for (const [_, item] of this.state.landmarks) {
+        if (item.landmarkKey === lmKey || item.id === lmKey) {
+          lm = item;
+          break;
+        }
+      }
+    }
+
+    if (!lm) {
+      client.send("error", { message: "Không tìm thấy Công trình!" });
+      return;
+    }
+
+    // Path check: student's school must have opened a path to the Landmark
+    if (!this.hasPathToLandmark(player.schoolId, lm)) {
+      client.send("error", {
+        message: "Trường của bạn chưa mở đường tới Công trình này! Hãy mở rộng vùng tri thức tiếp giáp công trình trước."
+      });
+      return;
+    }
+
+    const amount = Math.max(1, Math.floor(data.points || data.amount || 1));
+    const schoolTroops = this.state.schoolTroops.get(player.schoolId) || 0;
+
+    if (player.email && player.personalTroops < amount) {
+      client.send("error", {
+        message: `Không đủ Điểm! Cần ${amount} Điểm để đổi thành Than củi nạp vào Công trình.`
+      });
+      return;
+    }
+
+    if (schoolTroops < amount) {
+      client.send("error", { message: "Không đủ quân lực để nạp Than củi!" });
+      return;
+    }
+
+    // Deduct points
+    if (player.email) {
+      player.personalTroops -= amount;
+    }
+    this.state.schoolTroops.set(player.schoolId, schoolTroops - amount);
+
+    // 1 Điểm = 1 Than củi
+    const curSchoolFuel = (lm.fuelBySchool.get(player.schoolId) || 0) + amount;
+    lm.fuelBySchool.set(player.schoolId, curSchoolFuel);
+
+    // Determine leading school with highest fuel
+    let leadingSchoolId = "";
+    let maxFuel = 0;
+    lm.fuelBySchool.forEach((fuel, sId) => {
+      if (fuel > maxFuel) {
+        maxFuel = fuel;
+        leadingSchoolId = sId;
+      }
+    });
+
+    lm.currentFuel = maxFuel;
+
+    // Bonfire lighting check:
+    // When a school reaches maxFuel (500), it lights the bonfire.
+    // Another school can overtake by exceeding the current lit school's fuel!
+    if (maxFuel >= lm.maxFuel) {
+      if (lm.litBySchoolId !== leadingSchoolId) {
+        const prevSchool = lm.litBySchoolId;
+        lm.litBySchoolId = leadingSchoolId;
+        lm.ownerId = leadingSchoolId;
+        lm.buffActive = true;
+
+        // Color landmark footprint tiles to match the lit school
+        const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
+        if (config) {
+          for (let dx = 0; dx < config.footprint.width; dx++) {
+            for (let dy = 0; dy < config.footprint.height; dy++) {
+              const tx = lm.x + dx;
+              const ty = lm.y + dy;
+              const t = this.state.claimedTiles.get(`${tx},${ty}`);
+              if (t) {
+                t.ownerId = leadingSchoolId;
+                this.landData.writeTile(tx, ty, leadingSchoolId, t.hp, t.maxHp, t.defenseTier);
+              }
+            }
+          }
+        }
+
+        this.broadcast("landmark_lit", {
+          landmarkId: lm.id,
+          schoolId: leadingSchoolId,
+          previousSchoolId: prevSchool,
+          fuel: maxFuel
+        });
+
+        console.log(
+          `[CampusRoom] Landmark ${lm.landmarkKey || lm.id} LIT by ${leadingSchoolId} (${maxFuel}/${lm.maxFuel} fuel)!`
+        );
+      }
+    }
+
+    client.send("fuel_contributed", {
+      landmarkId: lm.id,
+      schoolId: player.schoolId,
+      schoolFuel: curSchoolFuel,
+      currentFuel: lm.currentFuel,
+      maxFuel: lm.maxFuel,
+      litBySchoolId: lm.litBySchoolId,
+      buffActive: lm.buffActive
+    });
+  }
+
+  /**
+   * Hành động quay Trạm tiếp tế UniStop (rollUniStop):
+   * - Kiểm tra khoảng cách sinh viên tới trạm
+   * - Kiểm tra thời gian hồi chiêu
+   * - Tính toán trúng thưởng từ Server Weighted RNG (áp dụng điều kiện hasWeeklyRunningPoints cho quà thật)
+   * - Phản hồi kết quả kèm Carousel Items
+   */
+  public handleRollUniStop(client: Client, data: ClientRollUniStopMessage) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    if (!data || !data.stopId) {
+      client.send("error", { message: "Mã Trạm tiếp tế không hợp lệ!" });
+      return;
+    }
+
+    const stop = this.state.unistops.get(data.stopId);
+    if (!stop) {
+      client.send("error", { message: "Trạm tiếp tế không tồn tại!" });
+      return;
+    }
+
+    const now = Date.now();
+    if (stop.cooldownUntil && now < stop.cooldownUntil) {
+      const remainingSec = Math.ceil((stop.cooldownUntil - now) / 1000);
+      client.send("error", {
+        message: `Trạm tiếp tế đang trong thời gian hồi chiêu! Vui lòng quay lại sau ${remainingSec}s.`
+      });
+      return;
+    }
+
+    // Kiểm tra khoảng cách nếu client gửi toạ độ
+    if (data.x !== undefined && (data.z !== undefined || data.y !== undefined)) {
+      const targetZ = data.z !== undefined ? data.z : data.y!;
+      const dist = Math.hypot(data.x - stop.x, targetZ - stop.z);
+      if (dist > MAX_UNISTOP_INTERACTION_DISTANCE) {
+        client.send("error", {
+          message: `Bạn đang ở quá xa trạm tiếp tế! (Khoảng cách: ${Math.round(dist)}, tối đa: ${MAX_UNISTOP_INTERACTION_DISTANCE})`
+        });
+        return;
+      }
+    }
+
+    const tier = stop.tier as UniStopTier;
+    const cfg = UNISTOP_CONFIGS[tier] || UNISTOP_CONFIGS.aspire;
+    const lootTable = UNISTOP_LOOT_TABLES[tier] || UNISTOP_LOOT_TABLES.aspire;
+    const winningItem = rollLoot(lootTable, player.hasWeeklyRunningPoints);
+
+    // Kích hoạt thời gian hồi chiêu
+    stop.cooldownUntil = now + cfg.cooldownMs;
+
+    // Cộng phần thưởng cho người chơi
+    if (winningItem.type === "points") {
+      const pts = winningItem.amount || 20;
+      player.personalTroops += pts;
+      const curTroops = this.state.schoolTroops.get(player.schoolId) || 0;
+      this.state.schoolTroops.set(player.schoolId, curTroops + pts);
+    } else if (winningItem.type === "charcoal") {
+      const charcoal = winningItem.amount || 15;
+      player.charcoal = (player.charcoal || 0) + charcoal;
+    } else if (winningItem.type === "key") {
+      if (winningItem.keyTier === "silver") player.silverKeys = (player.silverKeys || 0) + 1;
+      else if (winningItem.keyTier === "gold") player.goldKeys = (player.goldKeys || 0) + 1;
+      else if (winningItem.keyTier === "platinum") player.platinumKeys = (player.platinumKeys || 0) + 1;
+    }
+
+    if (winningItem.isRealGift) {
+      this.broadcast("real_gift_won", {
+        studentEmail: player.email || client.sessionId,
+        schoolId: player.schoolId,
+        item: winningItem,
+        source: "unistop",
+        sourceId: stop.id
+      });
+      console.log(
+        `[CampusRoom] 🎁 Real Gift won by ${player.email || client.sessionId} (${player.schoolId}): ${winningItem.name}`
+      );
+    }
+
+    const carouselItems = generateCarouselItems(winningItem, lootTable, 30, 24);
+
+    client.send("unistop_rolled", {
+      stopId: stop.id,
+      tier: stop.tier,
+      winningItem,
+      carouselItems,
+      winningIndex: 24,
+      cooldownUntil: stop.cooldownUntil,
+      playerPoints: player.personalTroops,
+      playerCharcoal: player.charcoal,
+      silverKeys: player.silverKeys,
+      goldKeys: player.goldKeys,
+      platinumKeys: player.platinumKeys
+    });
+  }
+
+  /**
+   * Hành động mở Rương (openChest):
+   * - Kiểm tra sinh viên có chìa khóa tương ứng (Silver / Gold / Platinum)
+   * - Kiểm tra khoảng cách
+   * - Mở rương và trả về kết quả Carousel
+   */
+  public handleOpenChest(client: Client, data: ClientOpenChestMessage) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    if (!data || !data.chestId) {
+      client.send("error", { message: "Mã Rương không hợp lệ!" });
+      return;
+    }
+
+    const chest = this.state.chests.get(data.chestId);
+    if (!chest) {
+      client.send("error", { message: "Rương không tồn tại!" });
+      return;
+    }
+
+    if (chest.isOpened) {
+      client.send("error", {
+        message: `Rương đã được mở bởi trường ${chest.openedBySchoolId.toUpperCase()}!`
+      });
+      return;
+    }
+
+    // Kiểm tra khoảng cách nếu client gửi toạ độ
+    if (data.x !== undefined && (data.z !== undefined || data.y !== undefined)) {
+      const targetZ = data.z !== undefined ? data.z : data.y!;
+      const dist = Math.hypot(data.x - chest.x, targetZ - chest.z);
+      if (dist > MAX_CHEST_INTERACTION_DISTANCE) {
+        client.send("error", {
+          message: `Bạn đang ở quá xa rương! (Khoảng cách: ${Math.round(dist)}, tối đa: ${MAX_CHEST_INTERACTION_DISTANCE})`
+        });
+        return;
+      }
+    }
+
+    // Kiểm tra chìa khóa tương ứng
+    const tier = chest.tier as ChestTier;
+    if (tier === "silver") {
+      if ((player.silverKeys || 0) < 1) {
+        client.send("error", { message: "Bạn cần có Chìa khoá Bạc (Key - Silver) để mở rương này!" });
+        return;
+      }
+      player.silverKeys -= 1;
+    } else if (tier === "gold") {
+      if ((player.goldKeys || 0) < 1) {
+        client.send("error", { message: "Bạn cần có Chìa khoá Vàng (Key - Gold) để mở rương này!" });
+        return;
+      }
+      player.goldKeys -= 1;
+    } else if (tier === "platinum") {
+      if ((player.platinumKeys || 0) < 1) {
+        client.send("error", { message: "Bạn cần có Chìa khoá Bạch Kim (Key - Platinum) để mở rương này!" });
+        return;
+      }
+      player.platinumKeys -= 1;
+    }
+
+    chest.isOpened = true;
+    chest.openedBySchoolId = player.schoolId;
+
+    const lootTable = CHEST_LOOT_TABLES[tier] || CHEST_LOOT_TABLES.silver;
+    const winningItem = rollLoot(lootTable, player.hasWeeklyRunningPoints);
+
+    // Cộng phần thưởng
+    if (winningItem.type === "points") {
+      const pts = winningItem.amount || 50;
+      player.personalTroops += pts;
+      const curTroops = this.state.schoolTroops.get(player.schoolId) || 0;
+      this.state.schoolTroops.set(player.schoolId, curTroops + pts);
+    } else if (winningItem.type === "charcoal") {
+      const charcoal = winningItem.amount || 30;
+      player.charcoal = (player.charcoal || 0) + charcoal;
+    } else if (winningItem.type === "key") {
+      if (winningItem.keyTier === "silver") player.silverKeys = (player.silverKeys || 0) + 1;
+      else if (winningItem.keyTier === "gold") player.goldKeys = (player.goldKeys || 0) + 1;
+      else if (winningItem.keyTier === "platinum") player.platinumKeys = (player.platinumKeys || 0) + 1;
+    }
+
+    if (winningItem.isRealGift) {
+      this.broadcast("real_gift_won", {
+        studentEmail: player.email || client.sessionId,
+        schoolId: player.schoolId,
+        item: winningItem,
+        source: "chest",
+        sourceId: chest.id
+      });
+      console.log(
+        `[CampusRoom] 🎁 Real Gift won from Chest by ${player.email || client.sessionId} (${player.schoolId}): ${winningItem.name}`
+      );
+    }
+
+    const carouselItems = generateCarouselItems(winningItem, lootTable, 30, 24);
+
+    client.send("chest_opened", {
+      chestId: chest.id,
+      tier: chest.tier,
+      winningItem,
+      carouselItems,
+      winningIndex: 24,
+      schoolId: player.schoolId,
+      playerPoints: player.personalTroops,
+      playerCharcoal: player.charcoal,
+      silverKeys: player.silverKeys,
+      goldKeys: player.goldKeys,
+      platinumKeys: player.platinumKeys
+    });
+
+    this.broadcast("chest_claimed", {
+      chestId: chest.id,
+      tier: chest.tier,
+      schoolId: player.schoolId
+    });
+  }
+
+  /**
+   * Cập nhật Bản Đồ Linh Hoạt (Map Layout):
+   * Nhận tọa độ mới của HQs, Landmarks, UniStops, Chests từ Map Editor và áp dụng ngay vào GameState.
+   */
+  public handleUpdateMapLayout(client: Client, data: ClientUpdateMapLayoutMessage) {
+    if (!data) return;
+
+    let hqsUpdated = 0;
+    let landmarksUpdated = 0;
+    let unistopsUpdated = 0;
+    let chestsUpdated = 0;
+
+    // 1. Update HQs
+    if (data.hqs && Array.isArray(data.hqs)) {
+      for (const hqData of data.hqs) {
+        if (!hqData.schoolId) continue;
+        const targetY = hqData.y !== undefined ? hqData.y : (hqData.z ?? 0);
+        let hq = this.state.hqs.get(hqData.schoolId);
+        if (hq) {
+          hq.x = hqData.x;
+          hq.y = targetY;
+        } else {
+          hq = new HQState();
+          hq.schoolId = hqData.schoolId;
+          hq.x = hqData.x;
+          hq.y = targetY;
+          this.state.hqs.set(hqData.schoolId, hq);
+        }
+        hqsUpdated++;
+      }
+    }
+
+    // 2. Update Landmarks
+    if (data.landmarks && Array.isArray(data.landmarks)) {
+      for (const lmData of data.landmarks) {
+        if (!lmData.id && !lmData.landmarkKey) continue;
+        const key = lmData.id || lmData.landmarkKey!;
+        const targetY = lmData.y !== undefined ? lmData.y : (lmData.z ?? 0);
+        let lm = this.state.landmarks.get(key);
+        if (lm) {
+          lm.x = lmData.x;
+          lm.y = targetY;
+          if (lmData.maxFuel) lm.maxFuel = lmData.maxFuel;
+        } else {
+          lm = new LandmarkState();
+          lm.id = key;
+          lm.landmarkKey = lmData.landmarkKey || key;
+          lm.x = lmData.x;
+          lm.y = targetY;
+          if (lmData.maxFuel) lm.maxFuel = lmData.maxFuel;
+          this.state.landmarks.set(key, lm);
+        }
+        landmarksUpdated++;
+      }
+    }
+
+    // 3. Update UniStops
+    if (data.unistops && Array.isArray(data.unistops)) {
+      for (const uData of data.unistops) {
+        if (!uData.id) continue;
+        const targetZ = uData.z !== undefined ? uData.z : (uData.y ?? 0);
+        let stop = this.state.unistops.get(uData.id);
+        if (stop) {
+          stop.x = uData.x;
+          stop.z = targetZ;
+          if (uData.tier) stop.tier = uData.tier;
+          if (uData.name) stop.name = uData.name;
+        } else {
+          stop = new UniStopState();
+          stop.id = uData.id;
+          stop.tier = uData.tier || 'aspire';
+          stop.name = uData.name || `UniStop - ${stop.tier.toUpperCase()}`;
+          stop.x = uData.x;
+          stop.z = targetZ;
+          stop.cooldownUntil = 0;
+          this.state.unistops.set(uData.id, stop);
+        }
+        unistopsUpdated++;
+      }
+    }
+
+    // 4. Update Chests
+    if (data.chests && Array.isArray(data.chests)) {
+      for (const cData of data.chests) {
+        if (!cData.id) continue;
+        const targetZ = cData.z !== undefined ? cData.z : (cData.y ?? 0);
+        let chest = this.state.chests.get(cData.id);
+        if (chest) {
+          chest.x = cData.x;
+          chest.z = targetZ;
+          if (cData.tier) chest.tier = cData.tier;
+          if (cData.isOpened !== undefined) chest.isOpened = cData.isOpened;
+          if (cData.openedBySchoolId !== undefined) chest.openedBySchoolId = cData.openedBySchoolId;
+        } else {
+          chest = new ChestState();
+          chest.id = cData.id;
+          chest.tier = cData.tier || 'silver';
+          chest.x = cData.x;
+          chest.z = targetZ;
+          chest.isOpened = cData.isOpened || false;
+          chest.openedBySchoolId = cData.openedBySchoolId || "";
+          this.state.chests.set(cData.id, chest);
+        }
+        chestsUpdated++;
+      }
+    }
+
+    this.broadcast("map_layout_updated", data);
+    client.send("map_layout_ack", {
+      success: true,
+      hqsUpdated,
+      landmarksUpdated,
+      unistopsUpdated,
+      chestsUpdated
+    });
+
+    console.log(
+      `[CampusRoom] Map layout updated: ${hqsUpdated} HQs, ${landmarksUpdated} Landmarks, ${unistopsUpdated} UniStops, ${chestsUpdated} Chests`
+    );
+  }
+
+
+  /**
+   * Heartbeat kiểm tra quên bài (Decay loop, chạy mỗi 10-15s):
+   * Nếu ô tiếp giáp bị "bỏ bê" quá lâu (không có sinh viên ôn bài), retention giảm dần.
+   * Khi retention <= 0 và trường đối phương tiếp giáp chăm ôn bài hơn, quyền sở hữu tự động chuyển giao.
+   */
+  public processKnowledgeDecay() {
+    const now = Date.now();
+    const DECAY_NEGLECT_THRESHOLD_MS = 30000; // 30s không ôn bài thì coi như bỏ bê
+    const DECAY_RETENTION_RATE = 10; // Giảm 10 retention mỗi chu kỳ heartbeat
+
+    for (const [_, tile] of this.state.claimedTiles) {
+      if (!tile.ownerId) continue;
+
+      const x = tile.x;
+      const y = tile.y;
+      const neighbors = [
+        [x + 1, y],
+        [x - 1, y],
+        [x, y + 1],
+        [x, y - 1]
+      ];
+
+      const enemyNeighbors: { schoolId: string; x: number; y: number }[] = [];
+      for (const [nx, ny] of neighbors) {
+        if (nx < 0 || nx >= 1000 || ny < 0 || ny >= 1000) continue;
+        const n = this.state.claimedTiles.get(`${nx},${ny}`);
+        if (n && n.ownerId && n.ownerId !== tile.ownerId) {
+          enemyNeighbors.push({ schoolId: n.ownerId, x: nx, y: ny });
+        }
+      }
+
+      // Chỉ ô tiếp giáp giao lưu tri thức mới bị quên bài khi bỏ bê
+      if (enemyNeighbors.length === 0) continue;
+
+      const timeSinceStudied = now - (tile.lastStudiedAt || 0);
+      if (timeSinceStudied < DECAY_NEGLECT_THRESHOLD_MS) continue;
+
+      tile.retention = Math.max(0, tile.retention - DECAY_RETENTION_RATE);
+      tile.hp = tile.retention;
+      this.landData.setCombat(x, y, tile.hp, tile.maxHp, tile.defenseTier);
+
+      if (tile.retention <= 0) {
+        let bestCandidate = "";
+        let bestScore = -1;
+
+        for (const enemy of enemyNeighbors) {
+          const studyAtTile = tile.studyCountBySchool.get(enemy.schoolId) || 0;
+          const neighborTile = this.state.claimedTiles.get(`${enemy.x},${enemy.y}`);
+          const neighborRetention = neighborTile ? neighborTile.retention : 50;
+          const score = studyAtTile * 10 + neighborRetention;
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestCandidate = enemy.schoolId;
+          }
+        }
+
+        if (bestCandidate) {
+          this.transferTileOwnership(tile, bestCandidate, "decay_diligent");
+        } else {
+          // Trở thành ô trung lập nếu không có trường nào chăm hơn
+          const oldOwner = tile.ownerId;
+          this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
+          this.clusterEngine.setTile(x, y, 0, 0, 0);
+          tile.ownerId = "";
+          tile.retention = 0;
+          tile.hp = 0;
+          this.landData.writeTile(x, y, "", 0, tile.maxHp, tile.defenseTier);
+        }
+      }
+    }
+  }
+
+  /**
+   * Chuyển quyền sở hữu ô tri thức sang trường chăm hơn.
+   */
+  public transferTileOwnership(tile: TileState, newSchoolId: string, reason: string) {
+    const oldOwner = tile.ownerId;
+    const x = tile.x;
+    const y = tile.y;
+
+    if (oldOwner) {
+      this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
+      this.clusterEngine.setTile(x, y, 0, 0, 0);
+      const neighbors = [
+        [x + 1, y],
+        [x - 1, y],
+        [x, y + 1],
+        [x, y - 1]
+      ];
+      for (const [nx, ny] of neighbors) {
+        if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
+          this.handleClusterUpdate(oldOwner, nx, ny);
+        }
+      }
+    }
+
+    tile.ownerId = newSchoolId;
+    tile.retention = 60; // Độ bền tri thức ban đầu sau khi tiếp quản
+    tile.maxRetention = 100;
+    tile.hp = tile.retention;
+    tile.maxHp = tile.maxRetention;
+    tile.lastStudiedAt = Date.now();
+    tile.studyCountBySchool.clear();
+    tile.studyCountBySchool.set(newSchoolId, 1);
+
+    this.landData.writeTile(x, y, newSchoolId, tile.hp, tile.maxHp, tile.defenseTier);
+    this.botManager.addOwnedTile(newSchoolId, x, y, this.state);
+    this.clusterEngine.setTile(x, y, this.getSchoolNumericId(newSchoolId), tile.defenseTier, tile.hp);
+    this.handleClusterUpdate(newSchoolId, x, y);
+
+    this.broadcast("knowledge_transferred", {
+      x,
+      y,
+      fromSchool: oldOwner,
+      toSchool: newSchoolId,
+      reason
+    });
+
+    console.log(
+      `[CampusRoom] Knowledge transferred at (${x}, ${y}) from "${oldOwner}" to "${newSchoolId}" (reason: ${reason})`
+    );
+  }
+
+  /**
+   * Helper cho Bot ôn bài tại ô tiếp giáp.
+   */
+  public handleBotStudy(schoolId: string, x: number, y: number, points: number = 1) {
+    const key = `${x},${y}`;
+    const tile = this.state.claimedTiles.get(key);
+    if (!tile) return;
+
+    if (tile.ownerId === schoolId) {
+      tile.retention = Math.min(tile.maxRetention, tile.retention + points * 15);
+      tile.lastStudiedAt = Date.now();
+      const prev = tile.studyCountBySchool.get(schoolId) || 0;
+      tile.studyCountBySchool.set(schoolId, prev + points);
+      tile.hp = tile.retention;
+      this.landData.setCombat(x, y, tile.hp, tile.maxHp, tile.defenseTier);
+    } else if (tile.ownerId) {
+      const prev = tile.studyCountBySchool.get(schoolId) || 0;
+      tile.studyCountBySchool.set(schoolId, prev + points);
+      tile.retention = Math.max(0, tile.retention - points * 10);
+      tile.hp = tile.retention;
+      this.landData.setCombat(x, y, tile.hp, tile.maxHp, tile.defenseTier);
+
+      if (tile.retention <= 0) {
+        this.transferTileOwnership(tile, schoolId, "bot_study");
+      }
+    }
+  }
+
+  /**
+   * Helper cho Bot nạp Than củi vào Công trình.
+   */
+  public handleBotContributeFuel(schoolId: string, landmarkId: string, amount: number = 20) {
+    let lm = this.state.landmarks.get(landmarkId);
+    if (!lm) {
+      for (const [_, item] of this.state.landmarks) {
+        if (item.landmarkKey === landmarkId || item.id === landmarkId) {
+          lm = item;
+          break;
+        }
+      }
+    }
+    if (!lm) return;
+    if (!this.hasPathToLandmark(schoolId, lm)) return;
+
+    const cur = (lm.fuelBySchool.get(schoolId) || 0) + amount;
+    lm.fuelBySchool.set(schoolId, cur);
+
+    let leadingSchool = "";
+    let maxF = 0;
+    lm.fuelBySchool.forEach((f, s) => {
+      if (f > maxF) {
+        maxF = f;
+        leadingSchool = s;
+      }
+    });
+
+    lm.currentFuel = maxF;
+
+    if (maxF >= lm.maxFuel && lm.litBySchoolId !== leadingSchool) {
+      const prev = lm.litBySchoolId;
+      lm.litBySchoolId = leadingSchool;
+      lm.ownerId = leadingSchool;
+      lm.buffActive = true;
+
+      this.broadcast("landmark_lit", {
+        landmarkId: lm.id,
+        schoolId: leadingSchool,
+        previousSchoolId: prev,
+        fuel: maxF
+      });
+    }
+  }
+
+  /**
+   * Fortify path: Backward-compatibility bridge routing to handleStudyAction.
+   */
+  private handleFortifyAction(client: Client, data: { x: number; y: number }, op: string = "fortify") {
+    this.handleStudyAction(client, data, op);
+  }
+
 
   private registerMessages() {
     // 1. claim_tile (legacy name kept for old clients) + protocol "claim" frame
@@ -673,7 +1483,57 @@ export class CampusRoom extends Room<GameState> {
       this.handleClaimAction(client, { x: (frame as any).x, y: (frame as any).y }, "claim");
     });
 
-    // 2. fortify_tile (legacy name kept) + protocol "fortify" frame
+    // 1b. studyTile / study_tile / protocol "study"
+    this.onMessage("studyTile", (client, data: ClientStudyTileMessage) => {
+      this.handleStudyAction(client, data || { x: NaN, y: NaN }, "studyTile");
+    });
+    this.onMessage("study_tile", (client, data: ClientStudyTileMessage) => {
+      this.handleStudyAction(client, data || { x: NaN, y: NaN }, "study_tile");
+    });
+    this.onMessage("study", (client, data: any) => {
+      const frame = decodeClientFrame(data) || data;
+      this.handleStudyAction(client, frame, "study");
+    });
+
+    // 1c. contributeFuel / contribute_fuel / burnCharcoal / burn_charcoal
+    this.onMessage("contributeFuel", (client, data: ClientContributeFuelMessage) => {
+      this.handleContributeFuelAction(client, data || { landmarkId: "" });
+    });
+    this.onMessage("contribute_fuel", (client, data: ClientContributeFuelMessage) => {
+      this.handleContributeFuelAction(client, data || { landmarkId: "" });
+    });
+    this.onMessage("burnCharcoal", (client, data: ClientContributeFuelMessage) => {
+      this.handleContributeFuelAction(client, data || { landmarkId: "" });
+    });
+    this.onMessage("burn_charcoal", (client, data: ClientContributeFuelMessage) => {
+      this.handleContributeFuelAction(client, data || { landmarkId: "" });
+    });
+
+    // 1d. rollUniStop / roll_unistop
+    this.onMessage("rollUniStop", (client, data: ClientRollUniStopMessage) => {
+      this.handleRollUniStop(client, data || { stopId: "" });
+    });
+    this.onMessage("roll_unistop", (client, data: ClientRollUniStopMessage) => {
+      this.handleRollUniStop(client, data || { stopId: "" });
+    });
+
+    // 1e. openChest / open_chest
+    this.onMessage("openChest", (client, data: ClientOpenChestMessage) => {
+      this.handleOpenChest(client, data || { chestId: "" });
+    });
+    this.onMessage("open_chest", (client, data: ClientOpenChestMessage) => {
+      this.handleOpenChest(client, data || { chestId: "" });
+    });
+
+    // 1f. updateMapLayout / update_map_layout
+    this.onMessage("updateMapLayout", (client, data: ClientUpdateMapLayoutMessage) => {
+      this.handleUpdateMapLayout(client, data || {});
+    });
+    this.onMessage("update_map_layout", (client, data: ClientUpdateMapLayoutMessage) => {
+      this.handleUpdateMapLayout(client, data || {});
+    });
+
+    // 2. fortify_tile (backward-compatibility bridge) + protocol "fortify" frame
     this.onMessage("fortify_tile", (client, data: ClientFortifyMessage) => {
       this.handleFortifyAction(client, data || { x: NaN, y: NaN }, "fortify_tile");
     });
@@ -682,12 +1542,16 @@ export class CampusRoom extends Room<GameState> {
       this.handleFortifyAction(client, { x: (frame as any).x, y: (frame as any).y }, "fortify");
     });
 
-    // 2b. protocol frames on the land channel (t: claim | fortify)
+    // 2b. protocol frames on the land channel (t: claim | fortify | study | fuel)
     this.onMessage(LAND_FRAME_CHANNEL, (client, data: any) => {
       const frame = decodeClientFrame(data);
       if (!frame) return; // unknown / non-client frame: ignore
       if (frame.t === "claim") {
         this.handleClaimAction(client, frame, "claim");
+      } else if (frame.t === "study") {
+        this.handleStudyAction(client, frame, "study");
+      } else if (frame.t === "fuel") {
+        this.handleContributeFuelAction(client, frame);
       } else if (frame.t === "fortify") {
         this.handleFortifyAction(client, frame, "fortify");
       }
@@ -727,6 +1591,10 @@ export class CampusRoom extends Room<GameState> {
           tile.defenseTier = t.defenseTier ?? 2;
           tile.hp = t.hp ?? 500;
           tile.maxHp = t.hp ?? 500;
+          tile.retention = 100;
+          tile.maxRetention = 100;
+          tile.lastStudiedAt = Date.now();
+          tile.studyCountBySchool.set(schoolId, 10);
 
           this.state.claimedTiles.set(key, tile);
           this.landData.writeTile(t.x, t.y, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
@@ -745,19 +1613,37 @@ export class CampusRoom extends Room<GameState> {
         tile.defenseTier = t.defenseTier;
         tile.hp = t.hp;
         tile.maxHp = t.maxHp;
+        tile.retention = 100;
+        tile.maxRetention = 100;
+        tile.lastStudiedAt = Date.now();
         this.state.claimedTiles.set(key, tile);
         this.landData.writeTile(t.x, t.y, "", tile.hp, tile.maxHp, tile.defenseTier);
         this.clusterEngine.setTile(t.x, t.y, 0, tile.defenseTier, tile.hp);
       }
 
-      // Reset landmark owners
+      // Reset landmark owners & bonfires
       this.state.landmarks.forEach((lm) => {
         lm.ownerId = "";
+        lm.currentFuel = 0;
+        lm.maxFuel = 500;
+        lm.litBySchoolId = "";
+        lm.buffActive = false;
+        lm.fuelBySchool.clear();
+      });
+
+      // Reset UniStop cooldowns & Chest status
+      this.state.unistops.forEach((stop) => {
+        stop.cooldownUntil = 0;
+      });
+      this.state.chests.forEach((chest) => {
+        chest.isOpened = false;
+        chest.openedBySchoolId = "";
       });
 
       // Rebuild dirty is dropped; clients resync from a fresh snap under a new epoch
       this.landData.finishReset();
     });
+
 
     // 6. select_school
     this.onMessage("select_school", (client, data: ClientSelectSchoolMessage) => {
@@ -778,7 +1664,17 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 6b. login_student
-    this.onMessage("login_student", (client, data: { email: string; schoolId: string; points: number; mode?: string }) => {
+    this.onMessage("login_student", (client, data: {
+      email: string;
+      schoolId: string;
+      points: number;
+      mode?: string;
+      hasWeeklyRunningPoints?: boolean;
+      charcoal?: number;
+      silverKeys?: number;
+      goldKeys?: number;
+      platinumKeys?: number;
+    }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
 
@@ -793,9 +1689,16 @@ export class CampusRoom extends Room<GameState> {
         player.mode = data.mode;
         player.isLockedSchool = data.mode === "normal";
       }
+      if (data.hasWeeklyRunningPoints !== undefined) {
+        player.hasWeeklyRunningPoints = Boolean(data.hasWeeklyRunningPoints);
+      }
+      if (typeof data.charcoal === "number") player.charcoal = data.charcoal;
+      if (typeof data.silverKeys === "number") player.silverKeys = data.silverKeys;
+      if (typeof data.goldKeys === "number") player.goldKeys = data.goldKeys;
+      if (typeof data.platinumKeys === "number") player.platinumKeys = data.platinumKeys;
 
       console.log(
-        `[CampusRoom] Player ${client.sessionId} logged in as student: ${player.email} [${player.schoolId.toUpperCase()}] - ${player.personalTroops} pts (Mode: ${player.mode}, Locked: ${player.isLockedSchool})`
+        `[CampusRoom] Player ${client.sessionId} logged in as student: ${player.email} [${player.schoolId.toUpperCase()}] - ${player.personalTroops} pts (WeeklyPoints: ${player.hasWeeklyRunningPoints}, Mode: ${player.mode}, Locked: ${player.isLockedSchool})`
       );
     });
 
@@ -1001,6 +1904,32 @@ export class CampusRoom extends Room<GameState> {
           this.handleClusterUpdate(schoolId, lastX, lastY);
       }
     });
+
+    // 14. dev_add_keys
+    this.onMessage("dev_add_keys", (client, data: { silver?: number; gold?: number; platinum?: number }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) {
+        if (data.silver) player.silverKeys = (player.silverKeys || 0) + data.silver;
+        if (data.gold) player.goldKeys = (player.goldKeys || 0) + data.gold;
+        if (data.platinum) player.platinumKeys = (player.platinumKeys || 0) + data.platinum;
+      }
+    });
+
+    // 15. dev_reset_unistop_cooldown
+    this.onMessage("dev_reset_unistop_cooldown", (client, data: { stopId: string }) => {
+      const stop = this.state.unistops.get(data.stopId);
+      if (stop) {
+        stop.cooldownUntil = 0;
+      }
+    });
+
+    // 16. dev_set_weekly_points
+    this.onMessage("dev_set_weekly_points", (client, data: { hasWeeklyRunningPoints: boolean }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) {
+        player.hasWeeklyRunningPoints = Boolean(data.hasWeeklyRunningPoints);
+      }
+    });
   }
 
   onJoin(client: Client, options: any) {
@@ -1033,6 +1962,21 @@ export class CampusRoom extends Room<GameState> {
     player.currentRole = (options.role && ["assault", "fortify", "support"].includes(options.role))
       ? options.role
       : "assault";
+
+    const hasWeeklyPoints = Boolean(
+      options.hasWeeklyRunningPoints !== undefined
+        ? options.hasWeeklyRunningPoints
+        : (typeof options.weeklyPoints === "number" && options.weeklyPoints > 0) ||
+          (typeof options.weeklyKm === "number" && options.weeklyKm > 0) ||
+          (typeof options.points === "number" && options.points > 0) ||
+          (typeof options.km === "number" && options.km > 0)
+    );
+    player.hasWeeklyRunningPoints = hasWeeklyPoints;
+
+    if (typeof options.charcoal === "number") player.charcoal = options.charcoal;
+    if (typeof options.silverKeys === "number") player.silverKeys = options.silverKeys;
+    if (typeof options.goldKeys === "number") player.goldKeys = options.goldKeys;
+    if (typeof options.platinumKeys === "number") player.platinumKeys = options.platinumKeys;
 
     this.state.players.set(client.sessionId, player);
 

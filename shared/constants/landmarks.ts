@@ -1,10 +1,12 @@
 export interface LandmarkConfig {
   id: string;
   name: string;
-  footprint: { width: number; height: number }; // Đơn vị ô tiles (Scale up to lớn ~12-18 ô)
+  category: 'scenic' | 'iconic';
+  footprint: { width: number; height: number }; // Đơn vị ô tiles (Scale ~14-18 ô)
   requiredTroops: number;
   buffDescription: string;
   gameplayRole: string;
+  troopBonus?: number;
   modelFileName?: string;
   tileHp: number;
   coreHp: number;
@@ -14,93 +16,43 @@ export interface LandmarkConfig {
 }
 
 export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
-  landmark_ho_da: {
-    id: "landmark_ho_da",
-    name: "Cụm Hồ Đá Làng Đại học",
-    footprint: { width: 18, height: 16 },
-    requiredTroops: 1600,
-    tileHp: 500,
-    coreHp: 2000,
-    defenseTier: 2,
-    claimCost: 3,
-    attackCost: 5,
-    buffDescription: "Vật cản chia cắt hiểm trở, giảm 30% hao quân ven hồ, +5 quân/giây",
-    gameplayRole: "chokepoint",
-    modelFileName: "ho_da.glb"
-  },
-  landmark_doc_tinh: {
-    id: "landmark_doc_tinh",
-    name: "Dốc tình Nhân Văn",
-    footprint: { width: 14, height: 8 },
-    requiredTroops: 1000,
-    tileHp: 400,
-    coreHp: 1400,
-    defenseTier: 2,
-    claimCost: 2,
-    attackCost: 4,
-    buffDescription: "Hành lang chiến lược: Tăng 25% tốc độ mở rộng quân, +6 quân/giây",
-    gameplayRole: "speed_corridor",
-    modelFileName: "doc_tinh.glb"
-  },
-  landmark_duong_danh_nhan: {
-    id: "landmark_duong_danh_nhan",
-    name: "Đường Danh nhân",
-    footprint: { width: 16, height: 6 },
-    requiredTroops: 1200,
-    tileHp: 450,
-    coreHp: 1500,
-    defenseTier: 2,
-    claimCost: 2,
-    attackCost: 4,
-    buffDescription: "Đại lộ danh vọng: Tăng 25% uy thế lãnh thổ, +6 quân/giây",
-    gameplayRole: "morale_aura",
-    modelFileName: "duong_danh_nhan.glb"
-  },
-  landmark_nha_dieu_hanh: {
-    id: "landmark_nha_dieu_hanh",
-    name: "Khu Nhà Điều hành ĐHQG",
-    footprint: { width: 16, height: 14 },
-    requiredTroops: 2200,
-    tileHp: 550,
-    coreHp: 2800,
+  // === 5 DANH LAM THẮNG CẢNH (SCENIC) ===
+  fansipan: {
+    id: "fansipan",
+    name: "Đỉnh Fansipan",
+    category: "scenic",
+    footprint: { width: 16, height: 16 },
+    requiredTroops: 2500,
+    tileHp: 600,
+    coreHp: 3000,
     defenseTier: 3,
     claimCost: 4,
     attackCost: 6,
-    buffDescription: "Đại bản doanh tối cao: Giảm 25% chi phí chiếm đất toàn map, +8 quân/giây",
-    gameplayRole: "capitol",
-    modelFileName: "nha_dieu_hanh.glb"
+    troopBonus: 8,
+    buffDescription: "Nóc nhà Đông Dương: Tầm nhìn bao quát, tăng 35% kháng lực phòng thủ, +8 quân/giây",
+    gameplayRole: "highland_fortress",
+    modelFileName: "fansipan.glb"
   },
-  landmark_nvhsv: {
-    id: "landmark_nvhsv",
-    name: "\"Lâu đài trắng\" Nhà Văn hóa Sinh viên",
-    footprint: { width: 16, height: 16 },
-    requiredTroops: 1800,
-    tileHp: 500,
-    coreHp: 2200,
-    defenseTier: 2,
+  halong: {
+    id: "halong",
+    name: "Vịnh Hạ Long",
+    category: "scenic",
+    footprint: { width: 18, height: 16 },
+    requiredTroops: 2000,
+    tileHp: 550,
+    coreHp: 2600,
+    defenseTier: 3,
     claimCost: 3,
     attackCost: 5,
-    buffDescription: "Trung tâm điều phối văn hóa: Tự động sửa chữa hồi phục +5 HP/s cho mọi ô đất",
-    gameplayRole: "recovery_hub",
-    modelFileName: "nvh_sinh_vien.glb"
+    troopBonus: 7,
+    buffDescription: "Vịnh ngàn đảo: Chiến luỹ tự nhiên chia cắt, giảm 30% hao quân ven biển, +7 quân/giây",
+    gameplayRole: "natural_barrier",
+    modelFileName: "halong.glb"
   },
-  landmark_cho_dem: {
-    id: "landmark_cho_dem",
-    name: "Chợ đêm Làng Đại học",
-    footprint: { width: 14, height: 12 },
-    requiredTroops: 1200,
-    tileHp: 400,
-    coreHp: 1600,
-    defenseTier: 2,
-    claimCost: 3,
-    attackCost: 4,
-    buffDescription: "Cứ điểm kinh tế sầm uất: Tự động tiếp tế +12 quân/giây cho phe chiếm giữ",
-    gameplayRole: "gold_mine",
-    modelFileName: "cho_dem.glb"
-  },
-  landmark_ktx_khu_a: {
-    id: "landmark_ktx_khu_a",
-    name: "Ký túc xá Khu A",
+  nguhanhson: {
+    id: "nguhanhson",
+    name: "Núi Ngũ Hành Sơn",
+    category: "scenic",
     footprint: { width: 14, height: 12 },
     requiredTroops: 1400,
     tileHp: 450,
@@ -108,52 +60,126 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     defenseTier: 2,
     claimCost: 3,
     attackCost: 4,
-    buffDescription: "Doanh trại quân sự: Tiếp vận tân binh liên tục +6 quân/giây",
-    gameplayRole: "barracks",
-    modelFileName: "ktx_khu_a.glb"
+    troopBonus: 6,
+    buffDescription: "Ngũ Sơn Linh Khí: Hồi phục sinh lực tự động +6 HP/s cho cứ điểm, +6 quân/giây",
+    gameplayRole: "healing_sanctuary",
+    modelFileName: "nguhanhson.glb"
   },
-  landmark_ktx_khu_b: {
-    id: "landmark_ktx_khu_b",
-    name: "Ký túc xá Khu B",
-    footprint: { width: 18, height: 16 },
-    requiredTroops: 2500,
-    tileHp: 600,
-    coreHp: 3000,
-    defenseTier: 3,
-    claimCost: 4,
-    attackCost: 6,
-    buffDescription: "Đại đô thị pháo đài: Hồi phục +10 HP/s cho các ô cứ điểm, x2 máu phòng thủ",
-    gameplayRole: "mega_fortress",
-    modelFileName: "ktx_khu_b.glb"
-  },
-  landmark_tram_xe_buyt: {
-    id: "landmark_tram_xe_buyt",
-    name: "Đầu mối Bến Xe buýt ĐHQG",
+  phongnha: {
+    id: "phongnha",
+    name: "Động Phong Nha",
+    category: "scenic",
     footprint: { width: 14, height: 10 },
-    requiredTroops: 1000,
+    requiredTroops: 1200,
     tileHp: 400,
-    coreHp: 1400,
+    coreHp: 1600,
     defenseTier: 2,
     claimCost: 2,
     attackCost: 4,
-    buffDescription: "Đầu mối giao thông huyết mạch: Tiếp tế thần tốc +6 quân/giây",
-    gameplayRole: "teleport_gate",
-    modelFileName: "tram_xe_buyt.glb"
+    troopBonus: 6,
+    buffDescription: "Mạng lưới địa đạo: Ẩn mật chuyển quân, giảm 20% chi phí viễn chinh mở rộng, +6 quân/giây",
+    gameplayRole: "hidden_corridor",
+    modelFileName: "phongnha.glb"
   },
-  landmark_cong_chinh: {
-    id: "landmark_cong_chinh",
-    name: "Nút giao Cổng chính ĐHQG",
-    footprint: { width: 18, height: 12 },
+  nuibaden: {
+    id: "nuibaden",
+    name: "Núi Bà Đen",
+    category: "scenic",
+    footprint: { width: 16, height: 14 },
+    requiredTroops: 1800,
+    tileHp: 500,
+    coreHp: 2200,
+    defenseTier: 2,
+    claimCost: 3,
+    attackCost: 5,
+    troopBonus: 6,
+    buffDescription: "Đỉnh cao chiến lược Đông Nam Bộ: Tăng tốc độ cơ động lãnh thổ thêm 25%, +6 quân/giây",
+    gameplayRole: "strategic_overlook",
+    modelFileName: "nuibaden.glb"
+  },
+
+  // === 5 CÔNG TRÌNH BIỂU TƯỢNG (ICONIC) ===
+  thanglong: {
+    id: "thanglong",
+    name: "Hoàng thành Thăng Long",
+    category: "iconic",
+    footprint: { width: 18, height: 16 },
+    requiredTroops: 2600,
+    tileHp: 650,
+    coreHp: 3200,
+    defenseTier: 3,
+    claimCost: 4,
+    attackCost: 6,
+    troopBonus: 10,
+    buffDescription: "Đế đô tối cao: Giảm 25% chi phí chiếm đất toàn bản đồ, +10 quân/giây",
+    gameplayRole: "capitol",
+    modelFileName: "thanglong.glb"
+  },
+  canghaiphong: {
+    id: "canghaiphong",
+    name: "Cảng Hải Phòng",
+    category: "iconic",
+    footprint: { width: 16, height: 12 },
+    requiredTroops: 1600,
+    tileHp: 480,
+    coreHp: 2000,
+    defenseTier: 2,
+    claimCost: 3,
+    attackCost: 5,
+    troopBonus: 8,
+    buffDescription: "Đầu mối logistics biển: Tiếp tế khí tài thần tốc, +8 quân/giây",
+    gameplayRole: "logistics_port",
+    modelFileName: "canghaiphong.glb"
+  },
+  kinhthanhhue: {
+    id: "kinhthanhhue",
+    name: "Kinh Thành Huế",
+    category: "iconic",
+    footprint: { width: 16, height: 16 },
     requiredTroops: 2000,
     tileHp: 550,
     coreHp: 2400,
     defenseTier: 3,
     claimCost: 3,
     attackCost: 5,
-    buffDescription: "Chốt chặn phòng tuyến cửa ngõ: Tăng 35% kháng lực xâm lăng, +7 quân/giây",
-    gameplayRole: "frontier_gate",
-    modelFileName: "cong_chinh.glb"
+    troopBonus: 7,
+    buffDescription: "Thành trì kiên cố: Tăng 30% giáp hộ vệ cho toàn bộ ô phòng tuyến lân cận, +7 quân/giây",
+    gameplayRole: "citadel",
+    modelFileName: "kinhthanhhue.glb"
+  },
+  bitexco: {
+    id: "bitexco",
+    name: "Toà nhà Bitexco",
+    category: "iconic",
+    footprint: { width: 14, height: 14 },
+    requiredTroops: 2200,
+    tileHp: 500,
+    coreHp: 2200,
+    defenseTier: 2,
+    claimCost: 4,
+    attackCost: 6,
+    troopBonus: 12,
+    buffDescription: "Trung tâm tài chính kinh tế: Tạo ngân sách dồi dào, +12 quân/giây cho phe kiểm soát",
+    gameplayRole: "economic_hub",
+    modelFileName: "bitexco.glb"
+  },
+  cairang: {
+    id: "cairang",
+    name: "Chợ nổi Cái Răng",
+    category: "iconic",
+    footprint: { width: 14, height: 12 },
+    requiredTroops: 1400,
+    tileHp: 420,
+    coreHp: 1600,
+    defenseTier: 2,
+    claimCost: 2,
+    attackCost: 4,
+    troopBonus: 8,
+    buffDescription: "Đầu mối giao thương đường thuỷ: Gia tăng lưu lượng chiêu mộ quân, +8 quân/giây",
+    gameplayRole: "trade_market",
+    modelFileName: "cairang.glb"
   }
 };
 
 export const LANDMARK_IDS = Object.keys(LANDMARK_ROSTER);
+

@@ -57,8 +57,8 @@ async function runTests() {
   {
     const { plane, sent } = makePlane();
     const o1 = plane.schoolNum('hcmut');
-    const o2 = plane.schoolNum('hcmus');
-    const o3 = plane.schoolNum('uit');
+    const o2 = plane.schoolNum('hcmcou');
+    const o3 = plane.schoolNum('dtu');
     assert.ok(o1 > 0 && o2 > 0 && o3 > 0, 'schools resolve to numeric ids');
     assert.ok(o1 !== o2 && o2 !== o3, 'distinct schools → distinct ids');
 
@@ -68,10 +68,10 @@ async function runTests() {
       claims.push({ x: 10 + i, y: 20, school: 'hcmut', o: o1 });
     }
     for (let i = 0; i < 5; i++) {
-      claims.push({ x: 30 + i, y: 40, school: 'hcmus', o: o2 });
+      claims.push({ x: 30 + i, y: 40, school: 'hcmcou', o: o2 });
     }
     for (let i = 0; i < 3; i++) {
-      claims.push({ x: 50 + i, y: 60, school: 'uit', o: o3 });
+      claims.push({ x: 50 + i, y: 60, school: 'dtu', o: o3 });
     }
     const nClaims = claims.length; // 12
     assert.strictEqual(nClaims, 12);
@@ -154,7 +154,7 @@ async function runTests() {
     // N claims then one flush → one wire own_batch
     const n = 8;
     for (let i = 0; i < n; i++) {
-      assert.strictEqual(plane.writeTile(200 + i, 300, 'hcmus', 100, 100, 0), true);
+      assert.strictEqual(plane.writeTile(200 + i, 300, 'hcmcou', 100, 100, 0), true);
     }
     const flushed = plane.flush(2000);
     assert.ok(flushed.own);
@@ -165,7 +165,7 @@ async function runTests() {
     assert.strictEqual(applied.applied, true);
     assert.strictEqual(applied.dirtyTiles.length, n, 'all N claims land from one batch');
     for (let i = 0; i < n; i++) {
-      assert.strictEqual(client.getOwner(200 + i, 300), plane.schoolNum('hcmus'));
+      assert.strictEqual(client.getOwner(200 + i, 300), plane.schoolNum('hcmcou'));
     }
 
     // Client owner buffer matches server after snap + live batch
@@ -194,7 +194,7 @@ async function runTests() {
     const batchA = wire(flushA.own as OwnBatchFrame);
     assert.strictEqual(batchA.seq, 1);
 
-    plane.writeTile(2, 2, 'hcmus', 100, 100, 0);
+    plane.writeTile(2, 2, 'hcmcou', 100, 100, 0);
     const flushB = plane.flush(3100);
     assert.ok(flushB.own);
     const batchB = wire(flushB.own as OwnBatchFrame);
@@ -232,14 +232,14 @@ async function runTests() {
     assert.strictEqual(client.shouldDrop(wrongEpoch.seq, client.epoch + 1), true);
 
     // A truly new live batch still applies
-    plane.writeTile(3, 3, 'uit', 100, 100, 0);
+    plane.writeTile(3, 3, 'dtu', 100, 100, 0);
     const flushC = plane.flush(3200);
     assert.ok(flushC.own);
     const batchC = wire(flushC.own as OwnBatchFrame);
     assert.ok(batchC.seq > client.lastSnapSeq);
     const okApply = client.applyOwnBatch(batchC);
     assert.strictEqual(okApply.applied, true, 'newer-seq live batch applies');
-    assert.strictEqual(client.getOwner(3, 3), plane.schoolNum('uit'));
+    assert.strictEqual(client.getOwner(3, 3), plane.schoolNum('dtu'));
 
     // Stale combat frame is dropped the same way
     const staleCombat = wire({ t: 'combat', seq: 0, ts: 1, tiles: [{ i: 42, hp: 1, maxHp: 1, tier: 1 }] } as CombatFrame);
@@ -257,7 +257,7 @@ async function runTests() {
   console.log('\n[Test 4] snapshot packed bytes match plane after coalesced claims');
   {
     const { plane } = makePlane();
-    const owners = ['hcmut', 'hcmus', 'uit'];
+    const owners = ['hcmut', 'hcmcou', 'dtu'];
     let expected = 0;
     for (let i = 0; i < 30; i++) {
       const school = owners[i % owners.length];

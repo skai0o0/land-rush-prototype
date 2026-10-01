@@ -1,46 +1,47 @@
 // client/src/ui/studentActionDock.ts
 import { Icons } from './icons';
 
-export type ActionMode = 'claim' | 'fortify' | 'attack';
+export type ActionMode = 'explore' | 'study' | 'bonfire' | 'claim' | 'fortify' | 'attack';
 
 export interface ModeConfig {
-  id: ActionMode;
+  id: 'explore' | 'study' | 'bonfire';
   title: string;
   cost: number;
   icon: (size: any) => string;
   description: string;
 }
 
-export const ACTION_MODES: Record<ActionMode, ModeConfig> = {
-  claim: {
-    id: 'claim',
-    title: 'Chiếm đất',
+export const ACTION_MODES: Record<'explore' | 'study' | 'bonfire', ModeConfig> = {
+  explore: {
+    id: 'explore',
+    title: 'Khám phá',
     cost: 1,
     icon: Icons.claim,
-    description: 'Mở rộng sang ô trống lân cận'
+    description: 'Mở rộng Vùng tri thức hoang sơ tiếp giáp'
   },
-  fortify: {
-    id: 'fortify',
-    title: 'Gia cố',
+  study: {
+    id: 'study',
+    title: 'Ôn bài',
     cost: 1,
-    icon: Icons.shield,
-    description: 'Tăng phòng thủ ô đất của trường'
+    icon: Icons.book,
+    description: 'Củng cố tri thức ô trường mình hoặc giao lưu tri thức xói mòn ô đối phương tiếp giáp'
   },
-  attack: {
-    id: 'attack',
-    title: 'Tấn công',
-    cost: 2,
-    icon: Icons.sword,
-    description: 'Tranh chấp ô đất của đối thủ'
+  bonfire: {
+    id: 'bonfire',
+    title: 'Thắp lửa',
+    cost: 10,
+    icon: Icons.flame,
+    description: 'Thắp lửa Công trình bằng Than củi quy đổi từ Điểm cá nhân'
   }
 };
 
 export class StudentActionDock {
   private container: HTMLElement;
-  private currentMode: ActionMode = 'claim';
+  private currentMode: 'explore' | 'study' | 'bonfire' = 'explore';
   private smartMode = true;
-  private onModeChangeCallback?: (mode: ActionMode) => void;
+  private onModeChangeCallback?: (mode: 'explore' | 'study' | 'bonfire') => void;
   public onToggleSmart?: (enabled: boolean) => void;
+  public onBonfireAction?: () => void;
 
   constructor(parent?: HTMLElement) {
     this.container = document.createElement('div');
@@ -61,18 +62,24 @@ export class StudentActionDock {
     this.bindEvents();
   }
 
-  public getActiveMode(): ActionMode {
+  public getActiveMode(): 'explore' | 'study' | 'bonfire' {
     return this.currentMode;
   }
 
   public setMode(mode: ActionMode): void {
-    if (this.currentMode === mode) return;
-    this.currentMode = mode;
+    // Normalize legacy modes
+    let normalized: 'explore' | 'study' | 'bonfire' = 'explore';
+    if (mode === 'explore' || mode === 'claim') normalized = 'explore';
+    else if (mode === 'study' || mode === 'fortify' || mode === 'attack') normalized = 'study';
+    else if (mode === 'bonfire') normalized = 'bonfire';
+
+    if (this.currentMode === normalized) return;
+    this.currentMode = normalized;
     this.render();
     this.bindEvents();
   }
 
-  public onModeChange(cb: (mode: ActionMode) => void): void {
+  public onModeChange(cb: (mode: 'explore' | 'study' | 'bonfire') => void): void {
     this.onModeChangeCallback = cb;
   }
 
@@ -93,7 +100,7 @@ export class StudentActionDock {
   public onResetCamera(_cb: () => void): void {}
 
   private render(): void {
-    const modes = Object.values(ACTION_MODES);
+    const modes = [ACTION_MODES.explore, ACTION_MODES.study, ACTION_MODES.bonfire];
 
     this.container.innerHTML = `
       <div class="mode-dock-bar">
@@ -103,21 +110,21 @@ export class StudentActionDock {
             <span class="smart-icon">${Icons.lightning(13)}</span>
             <span class="smart-text">${this.smartMode ? 'Tự Động' : 'Thủ Công'}</span>
           </button>
-          <span class="dock-label-hint">${this.smartMode ? 'Tự đổi Chiếm / Gia cố / Tấn công khi chạm ô' : 'Chọn thao tác tương tác:'}</span>
+          <span class="dock-label-hint">${this.smartMode ? 'Tự đổi Khám phá / Ôn bài khi chạm ô đất' : 'Chọn thao tác tương tác:'}</span>
         </div>
         <div class="mode-buttons-group">
           ${modes.map((mode) => {
             const isActive = this.currentMode === mode.id;
             return `
               <button 
-                class="mode-btn ${isActive ? 'is-active' : ''}" 
+                class="mode-btn ${isActive ? 'is-active' : ''} ${mode.id === 'bonfire' ? 'mode-bonfire-btn' : ''}" 
                 data-mode="${mode.id}"
                 title="${mode.description}"
               >
                 <span class="mode-icon">${mode.icon('sm')}</span>
                 <span class="mode-name">${mode.title}</span>
                 <span class="mode-cost">
-                  ${Icons.star(12)}
+                  ${mode.id === 'bonfire' ? Icons.flame(12) : Icons.star(12)}
                   <strong>${mode.cost}</strong>
                 </span>
               </button>
@@ -142,12 +149,17 @@ export class StudentActionDock {
     buttons.forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const mode = btn.getAttribute('data-mode') as ActionMode;
-        if (mode && mode !== this.currentMode) {
-          this.currentMode = mode;
-          this.render();
-          this.bindEvents();
-          this.onModeChangeCallback?.(this.currentMode);
+        const mode = btn.getAttribute('data-mode') as 'explore' | 'study' | 'bonfire';
+        if (mode) {
+          if (mode === 'bonfire') {
+            this.onBonfireAction?.();
+          }
+          if (mode !== this.currentMode) {
+            this.currentMode = mode;
+            this.render();
+            this.bindEvents();
+            this.onModeChangeCallback?.(this.currentMode);
+          }
         }
       });
     });

@@ -107,25 +107,25 @@ console.log(`✅ clusterEngine synchronization verified: 100% match (${totalChec
 
 // Test 4: Orphaned Frontier Pruning on Tile Loss
 console.log('\n[Test 4] Orphaned Frontier Pruning on Tile Loss');
-// Create an isolated branch: school "uit" owns (100, 100) and (100, 101)
-const uitNumId = mockRoom.getSchoolNumericId('uit');
-const tBranch1 = new TileState(); tBranch1.x = 100; tBranch1.y = 100; tBranch1.ownerId = 'uit';
-const tBranch2 = new TileState(); tBranch2.x = 100; tBranch2.y = 101; tBranch2.ownerId = 'uit';
+// Create an isolated branch: school "dtu" owns (100, 100) and (100, 101)
+const dtuNumId = mockRoom.getSchoolNumericId('dtu');
+const tBranch1 = new TileState(); tBranch1.x = 100; tBranch1.y = 100; tBranch1.ownerId = 'dtu';
+const tBranch2 = new TileState(); tBranch2.x = 100; tBranch2.y = 101; tBranch2.ownerId = 'dtu';
 state.claimedTiles.set('100,100', tBranch1);
 state.claimedTiles.set('100,101', tBranch2);
-botManager.addOwnedTile('uit', 100, 100, state);
-botManager.addOwnedTile('uit', 100, 101, state);
+botManager.addOwnedTile('dtu', 100, 100, state);
+botManager.addOwnedTile('dtu', 100, 101, state);
 
 // (100, 102) is a neighbor of (100, 101) and was added to frontier
-const uitFrontier = (botManager as any).frontiers.get('uit') as Set<string>;
-assert.strictEqual(uitFrontier.has('100,102'), true, '(100, 102) should be in frontier');
+const dtuFrontier = (botManager as any).frontiers.get('dtu') as Set<string>;
+assert.strictEqual(dtuFrontier.has('100,102'), true, '(100, 102) should be in frontier');
 
 // Now simulate losing (100, 101) - remove from state and call removeOwnedTile
 state.claimedTiles.delete('100,101');
-botManager.removeOwnedTile('uit', 100, 101, state);
+botManager.removeOwnedTile('dtu', 100, 101, state);
 
 // (100, 102) has NO other friendly neighbor, so it MUST have been pruned from frontier!
-assert.strictEqual(uitFrontier.has('100,102'), false, '(100, 102) must be pruned from frontier because it has no friendly neighbors');
+assert.strictEqual(dtuFrontier.has('100,102'), false, '(100, 102) must be pruned from frontier because it has no friendly neighbors');
 console.log('✅ Orphaned frontier tile (100, 102) successfully pruned upon tile loss.');
 
 console.log('\n--- All BotManager Tests Passed Successfully! ---');

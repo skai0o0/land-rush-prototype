@@ -171,8 +171,7 @@ const NO_SAMPLE = process.env.NO_SAMPLE === "1";
 const START_AT = process.env.START_AT ? clampInt(process.env.START_AT, 0, 0, Number.MAX_SAFE_INTEGER) : 0;
 
 const SCHOOL_IDS = [
-  "hcmut", "hcmus", "hcmussh", "uit", "uel",
-  "iu", "uhs", "ubb", "uflis", "ulpa",
+  "hcmut", "hcmcou", "dtu", "dhhp", "hsu"
 ];
 
 // ---- metrics ----------------------------------------------------------------

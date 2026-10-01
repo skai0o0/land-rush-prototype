@@ -13,6 +13,8 @@ export class ModelLoader {
   private modelCache: Map<string, THREE.Group> = new Map();
   private spawnedModels: Map<string, THREE.Group> = new Map();
   private rotatingObjects: THREE.Object3D[] = [];
+  private bonfireFlames: Map<string, BonfireFlame> = new Map();
+  private landmarkLitSchools: Map<string, string> = new Map();
 
   constructor() {
     this.group.name = "ModelsGroup";
@@ -195,6 +197,9 @@ export class ModelLoader {
     group.userData = { isLandmark: true, landmarkId, x, y, config, isFallback: true };
     this.group.add(group);
     this.spawnedModels.set(`lm_${landmarkId}`, group);
+    if (this.landmarkLitSchools.has(landmarkId)) {
+      this.setLandmarkBonfire(landmarkId, this.landmarkLitSchools.get(landmarkId)!);
+    }
     return group;
   }
 
@@ -351,6 +356,9 @@ export class ModelLoader {
       model.userData = { isLandmark: true, landmarkId, x, y, config };
       this.group.add(model);
       this.spawnedModels.set(`lm_${landmarkId}`, model);
+      if (this.landmarkLitSchools.has(landmarkId)) {
+        this.setLandmarkBonfire(landmarkId, this.landmarkLitSchools.get(landmarkId)!);
+      }
       console.log(`[ModelLoader] Swapped in GLB for Landmark ${landmarkId} at (${x}, ${y})`);
       return model;
     } catch (e) {
@@ -384,16 +392,272 @@ export class ModelLoader {
     });
   }
 
-  // Animate rotating fallback banners & diamonds
+  // Set or update 3D Bonfire Flame / Beacon for a Landmark
+  public setLandmarkBonfire(landmarkId: string, schoolId: string) {
+    if (!schoolId || schoolId === "") {
+      this.landmarkLitSchools.delete(landmarkId);
+      const existing = this.bonfireFlames.get(landmarkId);
+      if (existing) {
+        this.group.remove(existing.root);
+        existing.dispose();
+        this.bonfireFlames.delete(landmarkId);
+      }
+      return;
+    }
+
+    this.landmarkLitSchools.set(landmarkId, schoolId);
+
+    const model = this.spawnedModels.get(`lm_${landmarkId}`);
+    if (!model) return;
+
+    // Calculate top apex of model using bounding box
+    const box = new THREE.Box3().setFromObject(model);
+    const topY = box.max.y;
+    const centerX = (box.min.x + box.max.x) / 2;
+    const centerZ = (box.min.z + box.max.z) / 2;
+
+    let flame = this.bonfireFlames.get(landmarkId);
+    if (flame) {
+      flame.setColor(schoolId);
+      flame.root.position.set(centerX, topY + 0.2, centerZ);
+    } else {
+      flame = new BonfireFlame(schoolId);
+      flame.root.position.set(centerX, topY + 0.2, centerZ);
+      this.group.add(flame.root);
+      this.bonfireFlames.set(landmarkId, flame);
+    }
+  }
+
+  public getLandmarkBonfire(landmarkId: string): BonfireFlame | undefined {
+    return this.bonfireFlames.get(landmarkId);
+  }
+
+  // Animate rotating fallback banners, diamonds, and glowing Bonfire Flames
   public update(delta: number) {
     for (const obj of this.rotatingObjects) {
       obj.rotation.y += 1.8 * delta;
     }
+
+    for (const flame of this.bonfireFlames.values()) {
+      flame.update(delta);
+    }
   }
 
   public clear() {
+    for (const flame of this.bonfireFlames.values()) {
+      this.group.remove(flame.root);
+      flame.dispose();
+    }
+    this.bonfireFlames.clear();
+    this.landmarkLitSchools.clear();
+
     this.group.clear();
     this.spawnedModels.clear();
     this.rotatingObjects = [];
+  }
+}
+
+/**
+ * 3D Bonfire Flame & Cyber Energy Beacon for Lit Landmarks
+ */
+export class BonfireFlame {
+  public root = new THREE.Group();
+  private coreFlame: THREE.Mesh;
+  private outerFlame: THREE.Mesh;
+  private beaconBeam: THREE.Mesh;
+  private haloRing1: THREE.Mesh;
+  private haloRing2: THREE.Mesh;
+  private light: THREE.PointLight;
+  private particles: { mesh: THREE.Mesh; speed: number; orbitRadius: number; angle: number; y: number }[] = [];
+  private materials: THREE.Material[] = [];
+  private geometries: THREE.BufferGeometry[] = [];
+  private elapsedTime = 0;
+
+  constructor(schoolId: string) {
+    this.root.name = `BonfireFlame_${schoolId}`;
+    const school = SCHOOL_ROSTER[schoolId];
+    const colorHex = school ? school.colorHex : "#00ffe8";
+    const accentHex = school ? school.accentHex : "#ffffff";
+    const primaryColor = new THREE.Color(colorHex);
+    const accentColor = new THREE.Color(accentHex);
+
+    // 1. Beacon Light Beam shooting skyward
+    const beamGeom = new THREE.CylinderGeometry(0.5, 2.6, 32.0, 16, 1, true);
+    this.geometries.push(beamGeom);
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: primaryColor,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    this.materials.push(beamMat);
+    this.beaconBeam = new THREE.Mesh(beamGeom, beamMat);
+    this.beaconBeam.position.y = 16.0;
+    this.root.add(this.beaconBeam);
+
+    // 2. Core flame cone
+    const coreGeom = new THREE.ConeGeometry(1.2, 4.2, 10);
+    this.geometries.push(coreGeom);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: accentColor,
+      transparent: true,
+      opacity: 0.88,
+      blending: THREE.AdditiveBlending
+    });
+    this.materials.push(coreMat);
+    this.coreFlame = new THREE.Mesh(coreGeom, coreMat);
+    this.coreFlame.position.y = 2.1;
+    this.root.add(this.coreFlame);
+
+    // Outer flame mantle
+    const outerGeom = new THREE.ConeGeometry(1.8, 5.0, 10);
+    this.geometries.push(outerGeom);
+    const outerMat = new THREE.MeshBasicMaterial({
+      color: primaryColor,
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    this.materials.push(outerMat);
+    this.outerFlame = new THREE.Mesh(outerGeom, outerMat);
+    this.outerFlame.position.y = 2.5;
+    this.root.add(this.outerFlame);
+
+    // 3. Concentric Halo Energy Rings
+    const ring1Geom = new THREE.RingGeometry(1.6, 2.1, 24);
+    this.geometries.push(ring1Geom);
+    const ring1Mat = new THREE.MeshBasicMaterial({
+      color: primaryColor,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending
+    });
+    this.materials.push(ring1Mat);
+    this.haloRing1 = new THREE.Mesh(ring1Geom, ring1Mat);
+    this.haloRing1.rotation.x = Math.PI / 2;
+    this.haloRing1.position.y = 0.5;
+    this.root.add(this.haloRing1);
+
+    const ring2Geom = new THREE.RingGeometry(2.6, 3.2, 24);
+    this.geometries.push(ring2Geom);
+    const ring2Mat = new THREE.MeshBasicMaterial({
+      color: accentColor,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending
+    });
+    this.materials.push(ring2Mat);
+    this.haloRing2 = new THREE.Mesh(ring2Geom, ring2Mat);
+    this.haloRing2.rotation.x = Math.PI / 2;
+    this.haloRing2.position.y = 1.0;
+    this.root.add(this.haloRing2);
+
+    // 4. Floating Ember Particles (Sparks rising in spiral)
+    const sparkGeom = new THREE.OctahedronGeometry(0.18, 0);
+    this.geometries.push(sparkGeom);
+    const sparkMat = new THREE.MeshBasicMaterial({
+      color: accentColor,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    this.materials.push(sparkMat);
+
+    for (let i = 0; i < 22; i++) {
+      const pMesh = new THREE.Mesh(sparkGeom, sparkMat);
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 0.4 + Math.random() * 1.8;
+      const speed = 1.5 + Math.random() * 2.5;
+      const startY = Math.random() * 12.0;
+      pMesh.position.set(Math.cos(angle) * radius, startY, Math.sin(angle) * radius);
+      this.root.add(pMesh);
+      this.particles.push({
+        mesh: pMesh,
+        speed,
+        orbitRadius: radius,
+        angle,
+        y: startY
+      });
+    }
+
+    // 5. Dynamic Light
+    this.light = new THREE.PointLight(primaryColor, 3.0, 35, 1.2);
+    this.light.position.y = 2.5;
+    this.root.add(this.light);
+  }
+
+  public setColor(schoolId: string) {
+    const school = SCHOOL_ROSTER[schoolId];
+    const colorHex = school ? school.colorHex : "#00ffe8";
+    const accentHex = school ? school.accentHex : "#ffffff";
+    const primaryColor = new THREE.Color(colorHex);
+    const accentColor = new THREE.Color(accentHex);
+
+    (this.beaconBeam.material as THREE.MeshBasicMaterial).color.copy(primaryColor);
+    (this.outerFlame.material as THREE.MeshBasicMaterial).color.copy(primaryColor);
+    (this.coreFlame.material as THREE.MeshBasicMaterial).color.copy(accentColor);
+    (this.haloRing1.material as THREE.MeshBasicMaterial).color.copy(primaryColor);
+    (this.haloRing2.material as THREE.MeshBasicMaterial).color.copy(accentColor);
+    this.light.color.copy(primaryColor);
+  }
+
+  public update(delta: number) {
+    this.elapsedTime += delta;
+    const t = this.elapsedTime;
+
+    // Beacon beam rotation & pulse
+    this.beaconBeam.rotation.y += 0.35 * delta;
+    (this.beaconBeam.material as THREE.MeshBasicMaterial).opacity = 0.32 + 0.14 * Math.sin(t * 3.0);
+
+    // Flame flicker
+    const fScaleY = 1.0 + 0.22 * Math.sin(t * 14.0) + 0.12 * Math.cos(t * 22.0);
+    const fScaleXZ = 1.0 + 0.14 * Math.cos(t * 12.0);
+    this.coreFlame.scale.set(fScaleXZ, fScaleY, fScaleXZ);
+    this.coreFlame.rotation.y += 2.0 * delta;
+
+    this.outerFlame.scale.set(fScaleXZ * 1.05, fScaleY * 1.08, fScaleXZ * 1.05);
+    this.outerFlame.rotation.y -= 1.5 * delta;
+
+    // Halo energy rings rotate & breathe
+    this.haloRing1.rotation.z += 1.2 * delta;
+    const ring1Pulse = 1.0 + 0.12 * Math.sin(t * 4.0);
+    this.haloRing1.scale.set(ring1Pulse, ring1Pulse, 1);
+
+    this.haloRing2.rotation.z -= 0.8 * delta;
+    const ring2Pulse = 1.0 + 0.16 * Math.cos(t * 3.5);
+    this.haloRing2.scale.set(ring2Pulse, ring2Pulse, 1);
+
+    // Flickering PointLight
+    this.light.intensity = 2.4 + 0.8 * Math.sin(t * 15.0) + 0.4 * Math.cos(t * 23.0);
+
+    // Floating Ember Particles
+    for (const p of this.particles) {
+      p.y += p.speed * delta;
+      p.angle += 1.5 * delta;
+      if (p.y > 14.0) {
+        p.y = 0.2 + Math.random() * 0.8;
+        p.angle = Math.random() * Math.PI * 2;
+      }
+      const r = p.orbitRadius * (1.0 + p.y * 0.15);
+      p.mesh.position.set(Math.cos(p.angle) * r, p.y, Math.sin(p.angle) * r);
+
+      const fade = Math.max(0, 1.0 - (p.y / 14.0));
+      p.mesh.scale.setScalar(fade * 0.9 + 0.1);
+    }
+  }
+
+  public dispose() {
+    for (const mat of this.materials) {
+      mat.dispose();
+    }
+    for (const geom of this.geometries) {
+      geom.dispose();
+    }
+    this.root.clear();
   }
 }
