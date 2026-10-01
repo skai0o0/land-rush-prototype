@@ -1,0 +1,89 @@
+{
+  "generatedAt": "2026-09-28T05:05:02.035Z",
+  "mode": "multi-process x5",
+  "config": {
+    "url": "ws://localhost:2567",
+    "room": "campus_room",
+    "protocol": "land",
+    "totalBots": 500,
+    "workers": 5,
+    "durationSec": 60,
+    "actionsPerSecTarget": 10
+  },
+  "results": {
+    "joinsOk": 709,
+    "joinsFail": 459,
+    "maxConcurrentAchieved": 709,
+    "disconnects": 569,
+    "roomErrors": 569,
+    "messagesSent": 61775,
+    "actionsPerSecActual": 1003.56,
+    "acksOk": 44910,
+    "acksErr": 16606,
+    "errorMessages": 16606,
+    "ownBatchFrames": 56202,
+    "combatFrames": 73865,
+    "snapFrames": 639,
+    "sendErrors": 0,
+    "cpu": null,
+    "ramMB": null,
+    "steadySec": 62.6,
+    "rampMs": 209214
+  },
+  "workers": [
+    {
+      "workerId": 0,
+      "joinsOk": 120,
+      "joinsFail": 96,
+      "messagesSent": 10394,
+      "acksOk": 7634,
+      "acksErr": 2673,
+      "disconnects": 96,
+      "actionsPerSecActual": 172.86
+    },
+    {
+      "workerId": 1,
+      "joinsOk": 140,
+      "joinsFail": 89,
+      "messagesSent": 8551,
+      "acksOk": 6369,
+      "acksErr": 2076,
+      "disconnects": 110,
+      "actionsPerSecActual": 136.53
+    },
+    {
+      "workerId": 2,
+      "joinsOk": 135,
+      "joinsFail": 85,
+      "messagesSent": 5880,
+      "acksOk": 4237,
+      "acksErr": 1643,
+      "disconnects": 125,
+      "actionsPerSecActual": 97.31
+    },
+    {
+      "workerId": 3,
+      "joinsOk": 171,
+      "joinsFail": 96,
+      "messagesSent": 29839,
+      "acksOk": 21421,
+      "acksErr": 8418,
+      "disconnects": 118,
+      "actionsPerSecActual": 479.9
+    },
+    {
+      "workerId": 4,
+      "joinsOk": 143,
+      "joinsFail": 93,
+      "messagesSent": 7111,
+      "acksOk": 5249,
+      "acksErr": 1796,
+      "disconnects": 120,
+      "actionsPerSecActual": 116.96
+    }
+  ],
+  "notes": [
+    "Multi-process load gen: colyseus.js schema decode of a large shared GameState cannot hold 500 sockets on one Node event loop.",
+    "CPU/RAM sampled by worker 0 against the server PID (port 2567)."
+  ]
+}

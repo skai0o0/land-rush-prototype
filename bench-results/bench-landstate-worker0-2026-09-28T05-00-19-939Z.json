@@ -1,0 +1,136 @@
+{
+  "generatedAt": "2026-09-28T05:03:44.571Z",
+  "config": {
+    "url": "ws://localhost:2567",
+    "room": "campus_room",
+    "protocol": "land",
+    "totalBots": 100,
+    "workerId": 0,
+    "schools": [
+      "hcmut",
+      "hcmus",
+      "hcmussh",
+      "uit",
+      "uel",
+      "iu",
+      "uhs",
+      "ubb",
+      "uflis",
+      "ulpa"
+    ],
+    "durationSec": 60,
+    "actionsPerSecTarget": 10,
+    "rampBatch": 25,
+    "rampDelayMs": 200,
+    "joinPoints": 10000000
+  },
+  "results": {
+    "serverPid": 29424,
+    "rampMs": 133980,
+    "steadyMs": 60131,
+    "steadySec": 60.1,
+    "joinsOk": 120,
+    "joinsFail": 96,
+    "joinErrors": {
+      "socket hang up": 88,
+      "read ECONNRESET": 8
+    },
+    "maxConcurrentAchieved": 120,
+    "disconnects": 96,
+    "roomErrors": 96,
+    "roomErrorCodes": {
+      "undef:": 96
+    },
+    "leaveOk": 100,
+    "messagesSent": 10394,
+    "sentByOp": {
+      "claim": 7301,
+      "fortify": 3093
+    },
+    "actionsPerSecActual": 172.86,
+    "actionsPerSecPerBot": 1.44,
+    "acksOk": 7634,
+    "acksErr": 2673,
+    "ackErrReasons": {
+      "not_adjacent": 523,
+      "max_tier": 2126,
+      "not_owned": 24
+    },
+    "errorMessages": 2673,
+    "ownBatchFrames": 8336,
+    "combatFrames": 9380,
+    "snapFrames": 112,
+    "landOtherFrames": 0,
+    "sendErrors": 0,
+    "cpu": {
+      "cores": 16,
+      "avgPct": 8.37,
+      "maxPct": 100,
+      "p95Pct": 100,
+      "overallPct": 3.91,
+      "cpuSecUsed": 37.375,
+      "wallSec": 59.69,
+      "baselineCpuSec": 70.328125,
+      "finalCpuSec": 107.703125
+    },
+    "ramMB": {
+      "wsStart": 114.8,
+      "wsAvg": 327.4,
+      "wsMax": 336.1,
+      "wsEnd": 335.6,
+      "privStart": 124.5,
+      "privAvg": 341.5,
+      "privMax": 352.6,
+      "privEnd": 349.6
+    },
+    "sampleCount": 13
+  },
+  "hqs": {
+    "hcmut": {
+      "x": 460,
+      "y": 244
+    },
+    "hcmus": {
+      "x": 292,
+      "y": 870
+    },
+    "hcmussh": {
+      "x": 682,
+      "y": 191
+    },
+    "uit": {
+      "x": 383,
+      "y": 639
+    },
+    "uel": {
+      "x": 270,
+      "y": 170
+    },
+    "iu": {
+      "x": 807,
+      "y": 744
+    },
+    "uhs": {
+      "x": 807,
+      "y": 560
+    },
+    "ubb": {
+      "x": 471,
+      "y": 437
+    },
+    "uflis": {
+      "x": 584,
+      "y": 778
+    },
+    "ulpa": {
+      "x": 283,
+      "y": 354
+    }
+  },
+  "notes": [
+    "Actions sent on Colyseus channel 'land' with frames {t:'claim'|'fortify',x,y} (shared/land/protocol.ts).",
+    "Acks arrive on 'land' as {t:'ack',...}; own_batch/combat also counted.",
+    "Each bot claimed/fortified tiles within ±30 of its school HQ.",
+    "Personal troops granted on join: 10000000 so claim costs do not starve the load."
+  ]
+}

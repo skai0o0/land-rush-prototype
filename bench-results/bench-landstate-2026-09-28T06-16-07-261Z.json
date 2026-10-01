@@ -1,0 +1,232 @@
+{
+  "generatedAt": "2026-09-28T06:16:26.968Z",
+  "config": {
+    "url": "ws://localhost:2567",
+    "room": "campus_room",
+    "protocol": "land",
+    "totalBots": 10,
+    "workerId": null,
+    "schools": [
+      "hcmut",
+      "hcmus",
+      "hcmussh",
+      "uit",
+      "uel",
+      "iu",
+      "uhs",
+      "ubb",
+      "uflis",
+      "ulpa"
+    ],
+    "durationSec": 5,
+    "actionsPerSecTarget": 5,
+    "rampBatch": 5,
+    "rampDelayMs": 100,
+    "joinPoints": 10000000
+  },
+  "results": {
+    "serverPid": 29424,
+    "rampMs": 3782,
+    "steadyMs": 5026,
+    "steadySec": 5,
+    "joinsOk": 10,
+    "joinsFail": 0,
+    "joinErrors": {},
+    "maxConcurrentAchieved": 10,
+    "disconnects": 0,
+    "roomErrors": 0,
+    "roomErrorCodes": {},
+    "leaveOk": 10,
+    "messagesSent": 230,
+    "sentByOp": {
+      "claim": 167,
+      "fortify": 63
+    },
+    "actionsPerSecActual": 45.76,
+    "actionsPerSecPerBot": 4.576,
+    "acksOk": 87,
+    "acksErr": 143,
+    "ackErrReasons": {
+      "not_owned": 15,
+      "not_adjacent": 128
+    },
+    "errorMessages": 143,
+    "ownBatchFrames": 170,
+    "combatFrames": 230,
+    "snapFrames": 10,
+    "landOtherFrames": 0,
+    "sendErrors": 0,
+    "cpu": {
+      "cores": 16,
+      "avgPct": 2.13,
+      "maxPct": 4.25,
+      "p95Pct": 4.25,
+      "overallPct": 1.46,
+      "cpuSecUsed": 0.703,
+      "wallSec": 3.01,
+      "baselineCpuSec": 158.921875,
+      "finalCpuSec": 159.625
+    },
+    "ramMB": {
+      "wsStart": 87.2,
+      "wsAvg": 272.6,
+      "wsMax": 272.7,
+      "wsEnd": 272.8,
+      "privStart": 114,
+      "privAvg": 307.8,
+      "privMax": 307.8,
+      "privEnd": 307.8
+    },
+    "sampleCount": 2,
+    "bandwidth": {
+      "measurementNotes": [
+        "Client WS bytes: instrumented WebSocketTransport.send / onmessage on every bot socket (true Colyseus wire payload including binary schema patches; excludes TCP/IP headers).",
+        "Colyseus uses ws://localhost — traffic is loopback and does NOT appear on physical NIC counters (verified: NIC Bytes Sent/Recv ≈ idle).",
+        "Server process IO (Win32_PerfRawData_PerfProc_Process IORead/IOWrite/IOData) is cumulative process IO — includes disk and any other IO, not just sockets. Use as upper bound / cross-check.",
+        "TCPv4 Segments Sent/Received are system-wide (all processes), not scoped to the server PID.",
+        "App payload estimates are JSON.stringify sizes + ~10B channel envelope; actual wire is msgpack+schema and is larger for state frames."
+      ],
+      "clientWebSocket": {
+        "socketsWrapped": 11,
+        "lifetime": {
+          "sentBytes": 5831,
+          "recvBytes": 16986290,
+          "sentMsgs": 252,
+          "recvMsgs": 1127,
+          "sentMB": 0.01,
+          "recvMB": 16.2
+        },
+        "steady": {
+          "windowSec": 5.03,
+          "clientToServerBytes": 5809,
+          "serverToClientBytes": 3158735,
+          "clientToServerMB": 0.01,
+          "serverToClientMB": 3.01,
+          "clientToServerMsgs": 230,
+          "serverToClientMsgs": 1057,
+          "avgMBpsClientToServer": 0.001,
+          "avgMBpsServerToClient": 0.599,
+          "peakMBpsClientToServer": 0.004,
+          "peakMBpsServerToClient": 2.951
+        }
+      },
+      "serverProcessIO": {
+        "caveat": "includes non-network process IO (disk); treat as upper bound on socket bytes",
+        "start": {
+          "t": 1790576178850,
+          "IORead": 3044749,
+          "IOWrite": 5285153,
+          "IOOther": 714018,
+          "IOData": 8329902
+        },
+        "end": {
+          "t": 1790576186968,
+          "IORead": 3044749,
+          "IOWrite": 5298579,
+          "IOOther": 714388,
+          "IOData": 8343328
+        },
+        "fullRunDelta": {
+          "ioReadBytes": 0,
+          "ioWriteBytes": 13426,
+          "ioOtherBytes": 370,
+          "ioDataBytes": 13426,
+          "ioReadMB": 0,
+          "ioWriteMB": 0.01,
+          "ioDataMB": 0.01
+        },
+        "steadyWindowSum": {
+          "ioReadBytes": 0,
+          "ioWriteBytes": 11797,
+          "ioDataBytes": 11797,
+          "ioReadMB": 0,
+          "ioWriteMB": 0.01,
+          "ioDataMB": 0.01,
+          "avgMBpsRead": 0,
+          "avgMBpsWrite": 0.002,
+          "avgMBpsData": 0.002,
+          "peakMBpsRead": 0,
+          "peakMBpsWrite": 0.008,
+          "peakMBpsData": 0.008
+        }
+      },
+      "appPayloadEstimate": {
+        "note": "JSON payload sizes (bytes) seen at room.onMessage / room.send — not full wire size",
+        "actionBytesTotal": 9096,
+        "actionAvgBytes": 40,
+        "ackBytesTotal": 17456,
+        "ackAvgBytes": 76,
+        "ownBatchBytesTotal": 19360,
+        "ownBatchAvgBytes": 114,
+        "combatBytesTotal": 49700,
+        "combatAvgBytes": 216,
+        "snapBytesTotal": 15702030,
+        "snapAvgBytes": 1570203,
+        "errorBytesTotal": 11071,
+        "otherBytesTotal": 378460
+      },
+      "osCounters": {
+        "note": "localhost WS traffic does not appear on physical NIC counters; TCPv4 Segments are system-wide (all processes)",
+        "lastTcpSegSentPerSec": null,
+        "lastTcpSegRecvPerSec": null,
+        "lastNicSentBps": 153.0663108106859,
+        "lastNicRecvBps": 270.350886626666
+      },
+      "bytesPerAction": {
+        "actionsProcessed": 230,
+        "serverEgressPerAction": 13734,
+        "serverIngressPerAction": 25,
+        "totalBytesPerAction": 13759
+      }
+    }
+  },
+  "hqs": {
+    "hcmut": {
+      "x": 460,
+      "y": 244
+    },
+    "hcmus": {
+      "x": 292,
+      "y": 870
+    },
+    "hcmussh": {
+      "x": 682,
+      "y": 191
+    },
+    "uit": {
+      "x": 383,
+      "y": 639
+    },
+    "uel": {
+      "x": 270,
+      "y": 170
+    },
+    "iu": {
+      "x": 807,
+      "y": 744
+    },
+    "uhs": {
+      "x": 807,
+      "y": 560
+    },
+    "ubb": {
+      "x": 471,
+      "y": 437
+    },
+    "uflis": {
+      "x": 584,
+      "y": 778
+    },
+    "ulpa": {
+      "x": 283,
+      "y": 354
+    }
+  },
+  "notes": [
+    "Actions sent on Colyseus channel 'land' with frames {t:'claim'|'fortify',x,y} (shared/land/protocol.ts).",
+    "Acks arrive on 'land' as {t:'ack',...}; own_batch/combat also counted.",
+    "Each bot claimed/fortified tiles within ±30 of its school HQ.",
+    "Personal troops granted on join: 10000000 so claim costs do not starve the load.",
+    "Bandwidth: client WS bytes via WebSocketTransport instrumentation; server IO via process counters (includes disk)."
+  ]
+}
