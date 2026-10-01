@@ -34,8 +34,10 @@ export class LandmarkState extends Schema {
 }
 
 export class GameState extends Schema {
-  // Chỉ lưu các ô đã có chủ hoặc đang tranh chấp (Sparse Optimization cho 1 triệu ô)
-  @type({ map: TileState }) claimedTiles = new MapSchema<TileState>();
+  // Internal server-side tile bookkeeping (BotManager / game rules).
+  // NOT networked: ownership/combat paint state lives in LandState (data plane)
+  // and is synced via snap/own_batch/combat frames. No @type on purpose.
+  claimedTiles = new MapSchema<TileState>();
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   @type({ map: "number" }) schoolTroops = new MapSchema<number>();
   @type({ map: HQState }) hqs = new MapSchema<HQState>();

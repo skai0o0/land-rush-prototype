@@ -1,6 +1,6 @@
 // client/src/ui/miniMap.ts
 import { Icons } from './icons';
-import { getSchoolColor } from "../../../shared/constants/schools";
+import { getSchoolColor, SCHOOL_IDS } from "../../../shared/constants/schools";
 
 export class MiniMap {
   public element: HTMLElement;
@@ -12,6 +12,8 @@ export class MiniMap {
   private hqList: { schoolId: string; x: number; y: number }[] = [];
   private landmarkList: { x: number; y: number }[] = [];
   private claimedTilesRef: Map<string, any> = new Map();
+  /** Dense owner bytes (1000x1000) from LandState sync — no 1e6 tile objects. */
+  private landOwnerBytes: Uint8Array | null = null;
   private playerHQ: { schoolId: string; x: number; y: number } | null = null;
   private isDrawPending = false;
 
@@ -236,6 +238,12 @@ export class MiniMap {
     this.requestRedraw();
   }
 
+  /** Wire dense LandState owner bytes (preferred over schema claimedTiles). */
+  public setLandOwnerBytes(owner: Uint8Array | null): void {
+    this.landOwnerBytes = owner;
+    this.requestRedraw();
+  }
+
   public draw(): void {
     const ctx = this.ctx;
     const s = this.size;
@@ -264,8 +272,22 @@ export class MiniMap {
     ctx.arc(500 * scale, 500 * scale, 280 * scale, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Claimed Tiles
-    if (this.claimedTilesRef && this.claimedTilesRef.size > 0) {
+    // Claimed Tiles — prefer dense LandState owner bytes (S2.4), fall back to schema map
+    if (this.landOwnerBytes && this.landOwnerBytes.length === 1000 * 1000) {
+      const owner = this.landOwnerBytes;
+      for (let y = 0; y < 1000; y++) {
+        const row = y * 1000;
+        for (let x = 0; x < 1000; x++) {
+          const o = owner[row + x];
+          if (o === 0) continue;
+          const schoolId = SCHOOL_IDS[o - 1];
+          ctx.fillStyle = getSchoolColor(schoolId || "");
+          const px = Math.floor(x * scale);
+          const py = Math.floor(y * scale);
+          ctx.fillRect(px, py, 2, 2);
+        }
+      }
+    } else if (this.claimedTilesRef && this.claimedTilesRef.size > 0) {
       this.claimedTilesRef.forEach((tile: any) => {
         ctx.fillStyle = getSchoolColor(tile.ownerId);
         const px = Math.floor(tile.x * scale);
