@@ -10,6 +10,7 @@ import {
   getFootprintFoundationHeight,
   isInsideLeveledZone
 } from "../engine/terrainNoise";
+import { expandRect, getHQRect, getLandmarkRect } from "../../../shared/constants/footprint";
 import { ClientLandSync, DirtyTileChange } from "../../../shared/land/clientSync";
 import { MAP_WIDTH, CombatTile } from "../../../shared/land/landState";
 import {
@@ -45,7 +46,8 @@ export interface NetworkCallbacks {
   /** Fired after snap/own_batch/combat so UI can refresh owner/combat overlays. */
   onLandSync?: (info: { kind: "snap" | "own_batch" | "combat"; dirtyTiles?: DirtyTileChange[] }) => void;
   onLandAck?: (ack: AckFrame) => void;
-  onLandmarkLit?: (data: { landmarkId: string; schoolId: string; previousSchoolId?: string; fuel: number }) => void;
+  onLandmarkLit?: (data: { landmarkId: string; schoolId: string; previousSchoolId?: string; fuel?: number; crystals?: number }) => void;
+  onBeaconLit?: (data: { landmarkId: string; schoolId: string; previousSchoolId?: string; fuel?: number; crystals?: number }) => void;
   onLandmarkChange?: (lm: any) => void;
   onTileStudied?: (data: { x: number; y: number; schoolId: string; retention: number; lastStudiedAt: number }) => void;
   onUniStopRolled?: (data: any) => void;
@@ -57,6 +59,11 @@ export interface NetworkCallbacks {
   onUniStopChange?: (stop: any) => void;
   onChestAdded?: (chest: any) => void;
   onChestChange?: (chest: any) => void;
+  onCrystalContributed?: (data: any) => void;
+  onLandmarkGuessed?: (data: { landmarkId: string; landmarkName: string; schoolId: string; studentEmail?: string; bonusCrystals: number }) => void;
+  onLandmarkGuessResult?: (data: any) => void;
+  onTreasureMapReveal?: (data: { chestId: string; x: number; z: number; tier: string }) => void;
+  onPlayerStateChange?: (player: any) => void;
 }
 
 export class ColyseusClient {
@@ -177,13 +184,10 @@ export class ColyseusClient {
         }
 
         // HQ leveling: diameter ~20 tiles (radius 10) + 2 tiles apron
-        const hqMinX = hq.x - 12;
-        const hqMaxX = hq.x + 12;
-        const hqMinY = hq.y - 12;
-        const hqMaxY = hq.y + 12;
-        const foundationHeight = getFootprintFoundationHeight(hqMinX, hqMaxX, hqMinY, hqMaxY);
-        registerLeveledZone(`hq_${hq.schoolId}`, hqMinX, hqMaxX, hqMinY, hqMaxY, foundationHeight);
-        this.chunkGridManager.flattenArea(hqMinX, hqMaxX, hqMinY, hqMaxY, foundationHeight);
+        const bounds = expandRect(getHQRect(hq.x, hq.y));
+        const foundationHeight = getFootprintFoundationHeight(bounds.minX, bounds.maxX, bounds.minY, bounds.maxY);
+        registerLeveledZone(`hq_${hq.schoolId}`, bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, foundationHeight);
+        this.chunkGridManager.flattenArea(bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, foundationHeight);
 
         this.modelLoader.spawnHQ(hq.schoolId, hq.x, hq.y);
 
@@ -198,35 +202,32 @@ export class ColyseusClient {
     // Listen to Landmark additions
     if (room.state.landmarks && typeof room.state.landmarks.onAdd === "function") {
       room.state.landmarks.onAdd((lm: any, key: string) => {
-        const lmKey = key || lm.landmarkKey;
-        const config = LANDMARK_ROSTER[lm.landmarkKey];
-        const w = config?.footprint.width || 14;
-        const h = config?.footprint.height || 12;
+        const lmKey = lm.landmarkKey || key || lm.id;
+        const config = LANDMARK_ROSTER[lmKey] || LANDMARK_ROSTER[lmKey?.replace(/^landmark_/, "")];
+        const w = config?.footprint?.width || 14;
+        const h = config?.footprint?.height || 12;
 
         if (!processedLMs.has(lmKey)) {
           processedLMs.add(lmKey);
           collectedLMs.push({ x: lm.x, y: lm.y, width: w, height: h });
         }
 
-        // Landmark leveling: footprint + 1 tile apron margin
-        const lmMinX = lm.x - 1;
-        const lmMaxX = lm.x + w;
-        const lmMinY = lm.y - 1;
-        const lmMaxY = lm.y + h;
-        const foundationHeight = getFootprintFoundationHeight(lmMinX, lmMaxX, lmMinY, lmMaxY);
-        registerLeveledZone(`lm_${lm.landmarkKey}`, lmMinX, lmMaxX, lmMinY, lmMaxY, foundationHeight);
-        this.chunkGridManager.flattenArea(lmMinX, lmMaxX, lmMinY, lmMaxY, foundationHeight);
+        // Landmark leveling: footprint + 2 tile apron margin
+        const bounds = expandRect(getLandmarkRect(lm.x, lm.y, w, h));
+        const foundationHeight = getFootprintFoundationHeight(bounds.minX, bounds.maxX, bounds.minY, bounds.maxY);
+        registerLeveledZone(`lm_${lmKey}`, bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, foundationHeight);
+        this.chunkGridManager.flattenArea(bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, foundationHeight);
 
-        this.modelLoader.spawnLandmark(lm.landmarkKey, lm.x, lm.y, lm.ownerId);
+        this.modelLoader.spawnLandmark(lmKey, lm.x, lm.y, lm.ownerId);
 
         if (this.callbacks.onLandmarkAdded) {
-          this.callbacks.onLandmarkAdded({ landmarkKey: lm.landmarkKey, x: lm.x, y: lm.y, ownerId: lm.ownerId });
+          this.callbacks.onLandmarkAdded({ landmarkKey: lmKey, x: lm.x, y: lm.y, ownerId: lm.ownerId });
         }
 
         triggerExclusionUpdate();
 
         if (lm.litBySchoolId) {
-          this.modelLoader.setLandmarkBonfire(lm.landmarkKey, lm.litBySchoolId);
+          this.modelLoader.setLandmarkBonfire(lmKey, lm.litBySchoolId);
         }
 
         // Listen for ownership & bonfire changes on this landmark
@@ -370,14 +371,24 @@ export class ColyseusClient {
       }
     });
 
-    // Listen to Landmark Lit & Bonfire events
-    room.onMessage("landmark_lit", (data: { landmarkId: string; schoolId: string; previousSchoolId?: string; fuel: number }) => {
+    // Listen to Landmark Lit & Beacon Lit events
+    const handleLit = (data: { landmarkId: string; schoolId: string; previousSchoolId?: string; fuel?: number; crystals?: number }) => {
       this.modelLoader.setLandmarkBonfire(data.landmarkId, data.schoolId);
       this.modelLoader.updateLandmarkOwner(data.landmarkId, data.schoolId);
       if (this.callbacks.onLandmarkLit) {
-        this.callbacks.onLandmarkLit(data);
+        this.callbacks.onLandmarkLit(data as any);
       }
-    });
+      if (this.callbacks.onBeaconLit) {
+        this.callbacks.onBeaconLit(data);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('landmark_lit', { detail: data }));
+        window.dispatchEvent(new CustomEvent('beacon_lit', { detail: data }));
+      }
+    };
+
+    room.onMessage("landmark_lit", handleLit);
+    room.onMessage("beacon_lit", handleLit);
 
     // Listen to Tile Studied events
     room.onMessage("tile_studied", (data: { x: number; y: number; schoolId: string; retention: number; lastStudiedAt: number }) => {
@@ -420,6 +431,55 @@ export class ColyseusClient {
         this.callbacks.onMapLayoutUpdated(data);
       }
     });
+
+    // Listen to Crystal Contributed events
+    room.onMessage("crystal_contributed", (data: any) => {
+      if (this.callbacks.onCrystalContributed) {
+        this.callbacks.onCrystalContributed(data);
+      }
+    });
+
+    // Listen to Landmark Guessed broadcast
+    room.onMessage("landmark_guessed", (data: any) => {
+      if (this.callbacks.onLandmarkGuessed) {
+        this.callbacks.onLandmarkGuessed(data);
+      }
+    });
+
+    // Listen to Landmark Guess Result
+    room.onMessage("landmark_guess_result", (data: any) => {
+      if (this.callbacks.onLandmarkGuessResult) {
+        this.callbacks.onLandmarkGuessResult(data);
+      }
+    });
+    room.onMessage("guess_result", (data: any) => {
+      if (this.callbacks.onLandmarkGuessResult) {
+        this.callbacks.onLandmarkGuessResult(data);
+      }
+    });
+
+    // Listen to Treasure Map Reveal
+    room.onMessage("treasure_map_reveal", (data: any) => {
+      if (this.callbacks.onTreasureMapReveal) {
+        this.callbacks.onTreasureMapReveal(data);
+      }
+    });
+
+    // Listen to Player state updates (crystals, keys, troops)
+    if (room.state.players && typeof room.state.players.onAdd === "function") {
+      room.state.players.onAdd((player: any, key: string) => {
+        if (key === room.sessionId && this.callbacks.onPlayerStateChange) {
+          this.callbacks.onPlayerStateChange(player);
+        }
+        if (typeof player.onChange === "function") {
+          player.onChange(() => {
+            if (key === room.sessionId && this.callbacks.onPlayerStateChange) {
+              this.callbacks.onPlayerStateChange(player);
+            }
+          });
+        }
+      });
+    }
 
     // Listen to room disconnect
     room.onLeave((code) => {
@@ -688,5 +748,25 @@ export class ColyseusClient {
 
   public updateMapLayout(layout: any) {
     this.room?.send("updateMapLayout", layout);
+  }
+
+  public guessLandmark(landmarkId: string, guess: string) {
+    this.room?.send("guessLandmark", { landmarkId, guess });
+  }
+
+  public contributeCrystal(landmarkId: string, amount: number) {
+    this.room?.send("contributeCrystal", { landmarkId, amount, crystals: amount });
+  }
+
+  public resetCooldowns() {
+    this.room?.send("dev_reset_cooldowns");
+  }
+
+  public addCrystals(amount = 100) {
+    this.room?.send("dev_add_crystals", { amount });
+  }
+
+  public addKeys(aspire = 5, nitro = 5, predator = 5) {
+    this.room?.send("dev_add_keys", { aspire, nitro, predator });
   }
 }

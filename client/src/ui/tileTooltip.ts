@@ -26,6 +26,8 @@ export interface TileData {
   isLandmark?: boolean;
   litBySchoolName?: string | null;
   litBySchoolColor?: string;
+  currentCrystals?: number;
+  maxCrystals?: number;
   currentFuel?: number;
   maxFuel?: number;
   isLit?: boolean;
@@ -51,11 +53,11 @@ export class TileTooltip {
     let left = clientX + offset;
     let top = clientY + offset;
 
-    if (left + 310 > window.innerWidth) {
-      left = clientX - 320;
+    if (left + 320 > window.innerWidth) {
+      left = clientX - 330;
     }
-    if (top + 230 > window.innerHeight) {
-      top = clientY - 240;
+    if (top + 250 > window.innerHeight) {
+      top = clientY - 260;
     }
 
     this.element.style.left = `${left}px`;
@@ -80,11 +82,11 @@ export class TileTooltip {
             <span>SƯƠNG MÙ CHE PHỦ - CẦN MỞ ĐƯỜNG ĐỂ KHÁM PHÁ</span>
           </div>
           <div class="tooltip-row" style="color: #94a3b8; font-size: 11px; line-height: 1.45; margin-bottom: 6px;">
-            <span>Khu vực bị che phủ bởi sương mù. Mở rộng các ô tri thức tiếp giáp từ Trụ sở HQ hoặc Công trình thắp lửa để xua tan sương mù.</span>
+            <span>Khu vực bị che phủ bởi sương mù. Khai phá các ô tri thức tiếp giáp từ Trụ sở HQ hoặc Công trình Đèn hiệu tri thức để xua tan sương mù.</span>
           </div>
           <div class="tooltip-row" style="border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 6px;">
-            <span class="row-label">${Icons.point('sm')} Chi phí khai phá:</span>
-            <span class="row-value"><strong style="color: #00ffe8;">${tile.cost}</strong> Điểm (Points)</span>
+            <span class="row-label">${Icons.point('sm')} Chi phí Khai phá Vùng Tri Thức:</span>
+            <span class="row-value"><strong style="color: #00ffe8;">${tile.cost}</strong> Điểm Tri Thức (Points)</span>
           </div>
         </div>
       `;
@@ -92,7 +94,8 @@ export class TileTooltip {
     }
 
     const isLandmark = !!tile.landmarkName || !!tile.isLandmark;
-    const ownerName = tile.ownerSchoolName || 'Vùng tri thức hoang sơ (Chưa có chủ)';
+    const isUnclaimed = !tile.ownerSchoolName || tile.ownerSchoolName.includes('hoang sơ') || tile.ownerSchoolName.includes('Chưa có chủ');
+    const ownerName = isUnclaimed ? 'Vùng tri thức hoang sơ (Chưa khai phá)' : tile.ownerSchoolName;
     const ownerColor = tile.ownerColor || '#94a3b8';
 
     const coreBadge = tile.isCore
@@ -105,35 +108,44 @@ export class TileTooltip {
         </span>`
       : '';
 
-    // Retention value
+    // Knowledge Retention value (thay cho Máu / HP)
     const retention = tile.retention !== undefined ? tile.retention : (tile.hp !== undefined ? tile.hp : 100);
     const maxRetention = tile.maxRetention !== undefined ? tile.maxRetention : (tile.maxHp !== undefined ? tile.maxHp : 100);
 
+    // Cột Mốc Tri Thức (thay cho Cấp phòng thủ)
+    let knowledgeTierLabel = '';
+    if (tile.defenseTier !== undefined && tile.defenseTier > 0) {
+      knowledgeTierLabel = `(Cột Mốc Tri Thức Cấp ${tile.defenseTier})`;
+    }
+
     const retentionRow = `
       <div class="tooltip-row">
-        <span class="row-label">${Icons.shield('sm')} Độ bền tri thức (Retention):</span>
+        <span class="row-label">${Icons.shield('sm')} Độ bền Tri Thức (Retention):</span>
         <span class="row-value" style="font-weight: 700; color: ${retention < maxRetention * 0.4 ? '#f87171' : '#00ffe8'};">
-          ${retention} / ${maxRetention} ${tile.defenseTier ? `(Cấp T${tile.defenseTier})` : ''}
+          ${retention} / ${maxRetention} ${knowledgeTierLabel ? `<small style="font-size: 10px; color: #38bdf8;">${knowledgeTierLabel}</small>` : ''}
         </span>
       </div>
     `;
 
-    // Landmark Bonfire info
-    let landmarkBonfireSection = '';
-    if (isLandmark && tile.maxFuel !== undefined) {
+    // Landmark Beacon info (thay cho Bonfire / Than củi)
+    let landmarkBeaconSection = '';
+    const maxCrystals = tile.maxCrystals !== undefined ? tile.maxCrystals : (tile.maxFuel !== undefined ? tile.maxFuel : 100);
+    const currentCrystals = tile.currentCrystals !== undefined ? tile.currentCrystals : (tile.currentFuel || 0);
+
+    if (isLandmark && maxCrystals !== undefined) {
       const isLit = !!tile.isLit;
       const litSchoolText = isLit
-        ? `<strong style="color: ${tile.litBySchoolColor || '#10b981'};">Đang thắp lửa bởi: ${tile.litBySchoolName || 'Một trường học'}</strong>`
-        : `<strong style="color: #f59e0b;">Chưa thắp lửa</strong>`;
+        ? `<strong style="color: ${tile.litBySchoolColor || '#10b981'};">Đang thắp Đèn hiệu bởi: ${tile.litBySchoolName || 'Một trường học'}</strong>`
+        : `<strong style="color: #00ffe8;">Chưa thắp Đèn hiệu</strong>`;
 
-      landmarkBonfireSection = `
-        <div class="tooltip-row" style="background: rgba(0, 255, 232, 0.05); padding: 4px 6px; border-radius: 4px; border: 1px solid rgba(0, 255, 232, 0.2); margin-bottom: 4px;">
-          <span class="row-label" style="display: flex; align-items: center; gap: 4px;">${Icons.flame(14)} Ngọn lửa:</span>
+      landmarkBeaconSection = `
+        <div class="tooltip-row" style="background: rgba(0, 255, 232, 0.08); padding: 5px 8px; border-radius: 4px; border: 1px solid rgba(0, 255, 232, 0.3); margin-bottom: 5px;">
+          <span class="row-label" style="display: flex; align-items: center; gap: 4px; color: #00ffe8;">${Icons.beacon(14)} Đèn hiệu Tri Thức:</span>
           <span class="row-value">${litSchoolText}</span>
         </div>
-        <div class="tooltip-row" style="margin-bottom: 4px;">
-          <span class="row-label">${Icons.flame(12)} Tiến độ Than củi:</span>
-          <span class="row-value"><strong style="color: #00ffe8;">${tile.currentFuel || 0} / ${tile.maxFuel} Than củi</strong></span>
+        <div class="tooltip-row" style="margin-bottom: 5px;">
+          <span class="row-label" style="display: flex; align-items: center; gap: 4px;">${Icons.crystal(12)} Tiến độ Tinh thể:</span>
+          <span class="row-value"><strong style="color: #00ffe8;">${currentCrystals} / ${maxCrystals} Tinh thể</strong></span>
         </div>
       `;
     }
@@ -145,6 +157,14 @@ export class TileTooltip {
         </div>
       `
       : '';
+
+    // Action Cost Label
+    let costLabel = 'Chi phí Khai phá Vùng Tri Thức:';
+    if (tile.isOwnedByMe) {
+      costLabel = 'Chi phí Ôn Bài / Củng cố:';
+    } else if (tile.isEnemyControlled) {
+      costLabel = 'Chi phí Giao lưu Tri Thức:';
+    }
 
     this.element.innerHTML = `
       <div class="tooltip-header" style="border-left-color: ${ownerColor};">
@@ -160,15 +180,15 @@ export class TileTooltip {
       </div>
 
       <div class="tooltip-body">
-        ${landmarkBonfireSection}
+        ${landmarkBeaconSection}
         <div class="tooltip-row">
-          <span class="row-label">${Icons.school('sm')} Đại diện trường:</span>
+          <span class="row-label">${Icons.school('sm')} Học viện sở hữu:</span>
           <span class="row-value" style="color: ${ownerColor}; font-weight: 600;">${ownerName}</span>
         </div>
         ${retentionRow}
         <div class="tooltip-row">
-          <span class="row-label">${Icons.point('sm')} Chi phí tương tác:</span>
-          <span class="row-value"><strong style="color: #00ffe8;">${tile.cost}</strong> Điểm (Points)</span>
+          <span class="row-label">${Icons.point('sm')} ${costLabel}</span>
+          <span class="row-value"><strong style="color: #00ffe8;">${tile.cost}</strong> Điểm Tri Thức (Points)</span>
         </div>
         ${buffRow}
       </div>

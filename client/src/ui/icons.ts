@@ -199,7 +199,21 @@ export const Icons = {
     <path d="M19 17v4"/>
     <path d="M3 5h4"/>
     <path d="M17 19h4"/>
-  `, size, 'icon-sparkles')
+  `, size, 'icon-sparkles'),
+
+  // Tinh thể Tri thức (Crystal / Diamond)
+  crystal: (size: IconSize = 'md') => createSvg(`
+    <polygon points="6 3 18 3 22 9 12 22 2 9" fill="currentColor" fill-opacity="0.25"/>
+    <polyline points="2 9 12 12 22 9"/>
+    <line x1="12" y1="22" x2="12" y2="12"/>
+    <polyline points="6 3 12 12 18 3"/>
+  `, size, 'icon-crystal'),
+
+  // Đèn hiệu Công trình (Beacon Light / Light Pillar)
+  beacon: (size: IconSize = 'md') => createSvg(`
+    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+    <polygon points="12 7 15 12 12 17 9 12" fill="currentColor" fill-opacity="0.6"/>
+  `, size, 'icon-beacon')
 };
 
 // Legacy alias compatibility

@@ -1,10 +1,7 @@
 import * as THREE from "three";
+import { expandRect, getHQRect, getLandmarkRect } from "../../../shared/constants/footprint";
 
 export const FOW_MAP_SIZE = 1000;
-export const FOW_CANVAS_SIZE = 512;
-export const HQ_REVEAL_RADIUS = 18;
-export const LANDMARK_REVEAL_RADIUS = 14;
-export const CLAIMED_BORDER_RADIUS = 2;
 
 export interface ExplorationStats {
   revealedCount: number;
@@ -27,20 +24,38 @@ interface BeaconPulse {
 }
 
 export class FogOfWarManager {
+  public static instance: FogOfWarManager | null = null;
   public group: THREE.Group = new THREE.Group();
 
-  // Dense binary vision state: 1 = revealed, 0 = unexplored
+  // Dense binary vision state: 255 = revealed, 0 = unexplored
   private revealedState: Uint8Array = new Uint8Array(FOW_MAP_SIZE * FOW_MAP_SIZE);
   private revealedCount: number = 0;
 
-  // Dynamic 2D canvas mask for 3D shader and MiniMap overlay
+  // Reveal time state (seconds) for GPU vein melt animation
+  private revealTimeState: Float32Array = new Float32Array(FOW_MAP_SIZE * FOW_MAP_SIZE);
+  public revealTimeTexture: THREE.DataTexture;
+  private revealTimeNeedsUpdate: boolean = false;
+
+  // GPU Data Texture
+  public fogDataTexture: THREE.DataTexture;
+
+  // MiniMap Canvas
   public fogCanvas: HTMLCanvasElement;
   private fogCtx: CanvasRenderingContext2D;
-  public fogCanvasTexture: THREE.CanvasTexture;
+  private lastMiniMapUpdateTime: number = 0;
 
   // 3D Cyber Mist Mesh & Shader
   private fogPlane: THREE.Mesh;
   private fogShaderMaterial: THREE.ShaderMaterial;
+
+  // World-space Fog of War Shader Uniforms
+  public fogColorUniform = { value: new THREE.Color("#cfd8e3") };
+  public maxAlphaUniform = { value: 0.6 };
+  public timeUniform = { value: 0 };
+  public edgeSoftnessUniform = { value: 1.5 }; // Default 1.5 tiles, max 2.0 tiles
+  public meltDurationUniform = { value: 1.0 }; // Default 1.0 second
+  private isFogVisible: boolean = true;
+  private currentAlpha: number = 0.6;
 
   // Dirty flags & throttle for GPU texture upload
   private textureNeedsUpdate: boolean = false;
@@ -55,27 +70,37 @@ export class FogOfWarManager {
   public onTilesRevealed?: (tiles: { x: number; y: number }[]) => void;
 
   constructor() {
+    FogOfWarManager.instance = this;
     this.group.name = "FogOfWarManagerGroup";
 
-    // 1. Initialize Offscreen 2D Fog Canvas
+    // 1. Setup Data Texture for 3D Shader
+    this.fogDataTexture = new THREE.DataTexture(this.revealedState as any, FOW_MAP_SIZE, FOW_MAP_SIZE, THREE.RedFormat, THREE.UnsignedByteType);
+    this.fogDataTexture.minFilter = THREE.LinearFilter;
+    this.fogDataTexture.magFilter = THREE.LinearFilter;
+    this.fogDataTexture.flipY = false;
+
+    // 1b. Setup Float Data Texture for GPU Vein Melt (Reveal Time in seconds)
+    this.revealTimeTexture = new THREE.DataTexture(
+      this.revealTimeState as any,
+      FOW_MAP_SIZE,
+      FOW_MAP_SIZE,
+      THREE.RedFormat,
+      THREE.FloatType
+    );
+    this.revealTimeTexture.minFilter = THREE.NearestFilter;
+    this.revealTimeTexture.magFilter = THREE.NearestFilter;
+    this.revealTimeTexture.generateMipmaps = false;
+    this.revealTimeTexture.flipY = false;
+
+    // 2. Setup Canvas for MiniMap
     this.fogCanvas = document.createElement("canvas");
-    this.fogCanvas.width = FOW_CANVAS_SIZE;
-    this.fogCanvas.height = FOW_CANVAS_SIZE;
+    this.fogCanvas.width = 256;
+    this.fogCanvas.height = 256;
     this.fogCtx = this.fogCanvas.getContext("2d", { willReadFrequently: false })!;
+    this.fogCtx.fillStyle = "#d1d5db";
+    this.fogCtx.fillRect(0, 0, 256, 256);
 
-    // Initial state: Completely covered in dense dark cyber mist (#070b14)
-    this.fogCtx.fillStyle = "#070b14";
-    this.fogCtx.fillRect(0, 0, FOW_CANVAS_SIZE, FOW_CANVAS_SIZE);
-
-    // 2. Create Canvas Texture for 3D Shader
-    this.fogCanvasTexture = new THREE.CanvasTexture(this.fogCanvas);
-    this.fogCanvasTexture.minFilter = THREE.LinearFilter;
-    this.fogCanvasTexture.magFilter = THREE.LinearFilter;
-    this.fogCanvasTexture.generateMipmaps = false;
-    // Align texture coordinate 1:1 with world XZ plane (0..1000)
-    this.fogCanvasTexture.flipY = false;
-
-    // 3. Create Predator Cyber Mist Custom Shader Material
+    // 3. Create Custom Shader Material
     const vertexShader = `
       varying vec2 vUv;
       varying vec3 vWorldPosition;
@@ -84,7 +109,6 @@ export class FogOfWarManager {
       void main() {
         vUv = uv;
         vec4 worldPos = modelMatrix * vec4(position, 1.0);
-        // Subtle organic undulating height motion (y = 1.2 +/- 0.15)
         worldPos.y += sin(worldPos.x * 0.04 + uTime * 0.7) * cos(worldPos.z * 0.04 + uTime * 0.5) * 0.15;
         vWorldPosition = worldPos.xyz;
         gl_Position = projectionMatrix * viewMatrix * worldPos;
@@ -94,45 +118,36 @@ export class FogOfWarManager {
     const fragmentShader = `
       uniform sampler2D uFogMask;
       uniform float uTime;
-      uniform vec3 uFogBaseColor;
-      uniform vec3 uFogDeepColor;
-      uniform vec3 uEdgeGlowColor;
-      uniform float uOpacity;
+      uniform vec3 uFogColor;
+      uniform float uMaxAlpha;
       varying vec2 vUv;
       varying vec3 vWorldPosition;
 
       void main() {
-        // Sample Fog Canvas alpha / luminance
-        // On our canvas:
-        // Fully unexplored areas have alpha = 1.0 (#070b14)
-        // Fully revealed areas have alpha = 0.0 (carved out via destination-out)
-        vec4 maskSample = texture2D(uFogMask, vUv);
-        float maskAlpha = maskSample.a;
+        // Red channel contains the revealed state: 0.0 = fog, 1.0 = revealed
+        float revealed = texture2D(uFogMask, vUv).r;
+        
+        // maskAlpha is inverse of revealed
+        float maskAlpha = 1.0 - revealed;
 
-        // Discard fragments in fully revealed areas to save GPU fillrate
-        if (maskAlpha <= 0.015) {
+        if (maskAlpha <= 0.10) {
           discard;
         }
 
-        // Predator Cyber Mist 2-tier scrolling UV coordinates
-        vec2 mistUV1 = vUv * 42.0 + vec2(uTime * 0.012, uTime * 0.009);
-        vec2 mistUV2 = vUv * 75.0 - vec2(uTime * 0.016, uTime * 0.011);
+        vec2 mistUV1 = vUv * 36.0 + vec2(uTime * 0.008, uTime * 0.006);
+        vec2 mistUV2 = vUv * 64.0 - vec2(uTime * 0.010, uTime * 0.007);
 
-        // Procedural continuous mist clouds using coupled sine waves
         float wave1 = sin(mistUV1.x + sin(mistUV1.y * 1.3));
         float wave2 = cos(mistUV2.x * 1.25 - cos(mistUV2.y * 0.9));
-        float cloudNoise = (wave1 + wave2) * 0.25 + 0.5; // Normalized to [0.0, 1.0]
+        float mistNoise = (wave1 + wave2) * 0.25 + 0.5;
 
-        // Base metallic carbon cyber mist color
-        vec3 mistColor = mix(uFogDeepColor, uFogBaseColor, cloudNoise);
+        // Simplify colors based on uniform uFogColor
+        vec3 mistColor = mix(uFogColor * 0.8, uFogColor, mistNoise);
 
-        // Edge Glow: High-tech Predator Neon Cyan border along the vision frontier
-        // Frontier is where maskAlpha transitions between 0.03 and 0.55
         float edgeFrontier = smoothstep(0.02, 0.35, maskAlpha) * (1.0 - smoothstep(0.35, 0.85, maskAlpha));
-        mistColor += uEdgeGlowColor * edgeFrontier * 0.8;
+        mistColor += vec3(1.0) * edgeFrontier * 0.3;
 
-        // Alpha calculation with soft cloud density
-        float finalAlpha = maskAlpha * uOpacity * (0.82 + 0.18 * cloudNoise);
+        float finalAlpha = maskAlpha * uMaxAlpha;
 
         gl_FragColor = vec4(mistColor, finalAlpha);
       }
@@ -142,33 +157,29 @@ export class FogOfWarManager {
       vertexShader,
       fragmentShader,
       uniforms: {
-        uFogMask: { value: this.fogCanvasTexture },
-        uTime: { value: 0 },
-        uFogBaseColor: { value: new THREE.Color("#0b1220") }, // Predator Deep Cyber Metallic
-        uFogDeepColor: { value: new THREE.Color("#050811") }, // Dark Carbon Mist
-        uEdgeGlowColor: { value: new THREE.Color("#00ffe8") }, // Predator Neon Cyan Glow
-        uOpacity: { value: 0.92 }
+        uFogMask: { value: this.fogDataTexture },
+        uTime: this.timeUniform,
+        uFogColor: this.fogColorUniform,
+        uMaxAlpha: this.maxAlphaUniform
       },
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide
     });
 
-    // 4. Create 3D Mesh Plane hovering at altitude y = 1.2
-    // Plane is 1000x1000, centered at (500, 1.2, 500)
     const planeGeo = new THREE.PlaneGeometry(FOW_MAP_SIZE, FOW_MAP_SIZE, 32, 32);
     this.fogPlane = new THREE.Mesh(planeGeo, this.fogShaderMaterial);
-    this.fogPlane.position.set(500, 1.2, 500);
+    this.fogPlane.position.set(500, 9.5, 500);
     this.fogPlane.rotation.x = -Math.PI / 2;
-    this.fogPlane.name = "PredatorCyberMistPlane";
+    this.fogPlane.name = "SeaOfCloudsPlane";
+    this.fogPlane.visible = false; // Hide legacy fog plane to remove parallax error
     this.group.add(this.fogPlane);
 
-    // 5. Initialize Beacon Light Pulse Pool
     this.initPulsePool();
   }
 
   // ============================================================
-  // BEACON LIGHT PULSE EFFECT (Xua tan sương mù)
+  // BEACON LIGHT PULSE EFFECT
   // ============================================================
 
   private initPulsePool(): void {
@@ -183,7 +194,7 @@ export class FogOfWarManager {
       pulseGroup.visible = false;
 
       const ringMat = new THREE.MeshBasicMaterial({
-        color: 0x00ffe8,
+        color: 0xfef08a,
         transparent: true,
         opacity: 0,
         side: THREE.DoubleSide,
@@ -194,7 +205,7 @@ export class FogOfWarManager {
       pulseGroup.add(ringMesh);
 
       const beamMat = new THREE.MeshBasicMaterial({
-        color: 0x00e5ff,
+        color: 0xfffbe8,
         transparent: true,
         opacity: 0,
         depthWrite: false,
@@ -221,10 +232,9 @@ export class FogOfWarManager {
     }
   }
 
-  public spawnBeaconPulse(x: number, z: number, colorHex: number | string = 0x00ffe8): void {
+  public spawnBeaconPulse(x: number, z: number, colorHex: number | string = 0xfef08a): void {
     let pulse = this.pulsePool.find((p) => !p.active);
     if (!pulse) {
-      // Re-use oldest pulse if pool exhausted
       pulse = this.pulsePool[0];
     }
 
@@ -254,7 +264,7 @@ export class FogOfWarManager {
     if (x < 0 || x >= FOW_MAP_SIZE || z < 0 || z >= FOW_MAP_SIZE) {
       return false;
     }
-    return this.revealedState[z * FOW_MAP_SIZE + x] === 1;
+    return this.revealedState[z * FOW_MAP_SIZE + x] === 255;
   }
 
   public getExplorationStats(): ExplorationStats {
@@ -267,144 +277,97 @@ export class FogOfWarManager {
     };
   }
 
-  /**
-   * Reveal a circular zone on the map (Euclidean distance)
-   */
-  public revealCircle(
-    centerX: number,
-    centerY: number,
-    radius: number,
-    triggerPulse: boolean = false
-  ): { x: number; y: number }[] {
+  public revealRect(minX: number, minY: number, maxX: number, maxY: number, triggerPulse: boolean = false, isLive: boolean = false): { x: number; y: number }[] {
     const newlyRevealed: { x: number; y: number }[] = [];
-    const minX = Math.max(0, Math.floor(centerX - radius));
-    const maxX = Math.min(FOW_MAP_SIZE - 1, Math.ceil(centerX + radius));
-    const minY = Math.max(0, Math.floor(centerY - radius));
-    const maxY = Math.min(FOW_MAP_SIZE - 1, Math.ceil(centerY + radius));
-    const rSq = radius * radius;
+    minX = Math.max(0, Math.floor(minX));
+    maxX = Math.min(FOW_MAP_SIZE - 1, Math.ceil(maxX));
+    minY = Math.max(0, Math.floor(minY));
+    maxY = Math.min(FOW_MAP_SIZE - 1, Math.ceil(maxY));
+    const nowSec = isLive ? performance.now() * 0.001 : 0;
 
     for (let y = minY; y <= maxY; y++) {
-      const dy = y - centerY;
       const rowOffset = y * FOW_MAP_SIZE;
       for (let x = minX; x <= maxX; x++) {
-        const dx = x - centerX;
-        if (dx * dx + dy * dy <= rSq) {
-          const idx = rowOffset + x;
-          if (this.revealedState[idx] === 0) {
-            this.revealedState[idx] = 1;
-            this.revealedCount++;
-            newlyRevealed.push({ x, y });
+        const idx = rowOffset + x;
+        if (this.revealedState[idx] === 0) {
+          this.revealedState[idx] = 255;
+          if (isLive) {
+            this.revealTimeState[idx] = nowSec;
+            this.revealTimeNeedsUpdate = true;
           }
+          this.revealedCount++;
+          newlyRevealed.push({ x, y });
         }
       }
     }
 
     if (newlyRevealed.length > 0) {
-      this.carveHoleOnCanvas(centerX, centerY, radius);
       this.textureNeedsUpdate = true;
-
-      if (triggerPulse) {
-        this.spawnBeaconPulse(centerX, centerY);
-      }
-
       this.onExplorationChanged?.(this.getExplorationStats());
       this.onTilesRevealed?.(newlyRevealed);
+    }
+
+    if (triggerPulse) {
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      this.spawnBeaconPulse(cx, cy);
     }
 
     return newlyRevealed;
   }
 
-  /**
-   * Carve vision hole onto offscreen 2D canvas with soft radial gradient
-   */
-  private carveHoleOnCanvas(centerX: number, centerY: number, radius: number): void {
-    const scale = FOW_CANVAS_SIZE / FOW_MAP_SIZE;
-    const cx = centerX * scale;
-    const cy = centerY * scale;
-    const r = radius * scale;
-
-    this.fogCtx.save();
-    this.fogCtx.globalCompositeOperation = "destination-out";
-
-    // Radial gradient: complete cutout in center, smooth mist feathering at edge
-    const grad = this.fogCtx.createRadialGradient(cx, cy, Math.max(0, r * 0.5), cx, cy, r);
-    grad.addColorStop(0, "rgba(0, 0, 0, 1.0)");
-    grad.addColorStop(0.72, "rgba(0, 0, 0, 0.85)");
-    grad.addColorStop(1, "rgba(0, 0, 0, 0.0)");
-
-    this.fogCtx.fillStyle = grad;
-    this.fogCtx.beginPath();
-    this.fogCtx.arc(cx, cy, r, 0, Math.PI * 2);
-    this.fogCtx.fill();
-    this.fogCtx.restore();
-  }
-
-  /**
-   * Reveal 5 Headquarters (Radius ~18 tiles)
-   */
   public revealHQs(hqs: { schoolId?: string; x: number; y: number }[]): void {
     for (const hq of hqs) {
-      this.revealCircle(hq.x, hq.y, HQ_REVEAL_RADIUS, false);
+      const bounds = expandRect(getHQRect(hq.x, hq.y));
+      this.revealRect(bounds.minX, bounds.minY, bounds.maxX, bounds.maxY, false);
     }
   }
 
-  /**
-   * Reveal 10 Landmarks (Radius ~14 tiles from center/footprint)
-   */
   public revealLandmarks(
     landmarks: { x: number; y: number; width?: number; height?: number }[]
   ): void {
     for (const lm of landmarks) {
       const w = lm.width || 14;
       const h = lm.height || 12;
-      const cx = lm.x + Math.floor(w / 2);
-      const cy = lm.y + Math.floor(h / 2);
-      const radius = LANDMARK_REVEAL_RADIUS + Math.max(w, h) / 2;
-      this.revealCircle(cx, cy, radius, false);
+      const bounds = expandRect(getLandmarkRect(lm.x, lm.y, w, h));
+      this.revealRect(bounds.minX, bounds.minY, bounds.maxX, bounds.maxY, false);
     }
   }
 
-  /**
-   * Reveal a claimed Knowledge Zone tile (+2 tiles border vision)
-   */
   public revealClaimedTile(x: number, y: number, triggerPulse: boolean = true): { x: number; y: number }[] {
-    const newly = this.revealCircle(x, y, CLAIMED_BORDER_RADIUS + 0.6, triggerPulse);
-    return newly;
+    return this.revealRect(x - 2, y - 2, x + 2, y + 2, triggerPulse, true);
   }
 
-  /**
-   * Full dense snapshot sync from LandState owner bytes
-   */
+  public revealCircle(cx: number, cy: number, radius: number = 7): { x: number; y: number }[] {
+    return this.revealRect(cx - radius, cy - radius, cx + radius, cy + radius, true, true);
+  }
+
   public syncAllClaimedTiles(ownerBytes: Uint8Array): { x: number; y: number }[] {
     if (!ownerBytes || ownerBytes.length !== FOW_MAP_SIZE * FOW_MAP_SIZE) return [];
 
     const newlyRevealed: { x: number; y: number }[] = [];
-    const r = CLAIMED_BORDER_RADIUS;
 
     for (let y = 0; y < FOW_MAP_SIZE; y++) {
       const rowOffset = y * FOW_MAP_SIZE;
       for (let x = 0; x < FOW_MAP_SIZE; x++) {
         if (ownerBytes[rowOffset + x] > 0) {
-          // Claimed tile: reveal radius 2
-          const minX = Math.max(0, x - r);
-          const maxX = Math.min(FOW_MAP_SIZE - 1, x + r);
-          const minY = Math.max(0, y - r);
-          const maxY = Math.min(FOW_MAP_SIZE - 1, y + r);
+          // Set kernel 5x5 directly
+          const minX = Math.max(0, x - 2);
+          const maxX = Math.min(FOW_MAP_SIZE - 1, x + 2);
+          const minY = Math.max(0, y - 2);
+          const maxY = Math.min(FOW_MAP_SIZE - 1, y + 2);
 
           for (let cy = minY; cy <= maxY; cy++) {
             const crow = cy * FOW_MAP_SIZE;
             for (let cx = minX; cx <= maxX; cx++) {
               const idx = crow + cx;
               if (this.revealedState[idx] === 0) {
-                this.revealedState[idx] = 1;
+                this.revealedState[idx] = 255;
                 this.revealedCount++;
                 newlyRevealed.push({ x: cx, y: cy });
               }
             }
           }
-
-          // Carve on canvas
-          this.carveHoleOnCanvas(x, y, r + 0.5);
         }
       }
     }
@@ -416,6 +379,33 @@ export class FogOfWarManager {
     }
 
     return newlyRevealed;
+  }
+
+  private updateMiniMapCanvas(): void {
+    const scale = FOW_MAP_SIZE / 256;
+    const imgData = this.fogCtx.createImageData(256, 256);
+    
+    for (let cy = 0; cy < 256; cy++) {
+      for (let cx = 0; cx < 256; cx++) {
+        const mx = Math.floor(cx * scale);
+        const my = Math.floor(cy * scale);
+        const isRevealed = this.revealedState[my * FOW_MAP_SIZE + mx] === 255;
+        
+        const i = (cy * 256 + cx) * 4;
+        if (isRevealed) {
+          imgData.data[i] = 255;
+          imgData.data[i+1] = 255;
+          imgData.data[i+2] = 255;
+          imgData.data[i+3] = 0; // Transparent
+        } else {
+          imgData.data[i] = 209; // #d1d5db light grey
+          imgData.data[i+1] = 213;
+          imgData.data[i+2] = 219;
+          imgData.data[i+3] = 255; // Solid fog
+        }
+      }
+    }
+    this.fogCtx.putImageData(imgData, 0, 0);
   }
 
   // ============================================================
@@ -423,17 +413,25 @@ export class FogOfWarManager {
   // ============================================================
 
   public update(delta: number, now: number): void {
-    // 1. Update Cyber Mist Shader Time uniform for dynamic rolling waves
+    this.timeUniform.value = now * 0.001;
     this.fogShaderMaterial.uniforms.uTime.value += delta;
 
-    // 2. Throttle GPU CanvasTexture upload to keep stable 60 FPS
     if (this.textureNeedsUpdate && now - this.lastTextureUpdateTime > 40) {
-      this.fogCanvasTexture.needsUpdate = true;
+      this.fogDataTexture.needsUpdate = true;
       this.textureNeedsUpdate = false;
       this.lastTextureUpdateTime = now;
     }
 
-    // 3. Animate Beacon Light Pulses
+    if (this.revealTimeNeedsUpdate) {
+      this.revealTimeTexture.needsUpdate = true;
+      this.revealTimeNeedsUpdate = false;
+    }
+
+    if (now - this.lastMiniMapUpdateTime > 250) {
+      this.updateMiniMapCanvas();
+      this.lastMiniMapUpdateTime = now;
+    }
+
     for (let i = 0; i < this.pulsePool.length; i++) {
       const pulse = this.pulsePool[i];
       if (!pulse.active) continue;
@@ -447,7 +445,6 @@ export class FogOfWarManager {
         continue;
       }
 
-      // Ease out cubic
       const ease = 1 - Math.pow(1 - progress, 3);
       const currentRadius = 0.3 + pulse.maxRadius * ease;
 
@@ -461,7 +458,28 @@ export class FogOfWarManager {
     }
   }
 
+  public setEdgeSoftness(softness: number): void {
+    this.edgeSoftnessUniform.value = Math.max(0, Math.min(2.0, softness));
+  }
+
+  public setMeltDuration(duration: number): void {
+    this.meltDurationUniform.value = Math.max(0, duration);
+  }
+
+  public setFogAlpha(alpha: number): void {
+    this.currentAlpha = alpha;
+    if (this.isFogVisible) {
+      this.maxAlphaUniform.value = alpha;
+    }
+  }
+
+  public setFogColor(colorHex: string): void {
+    this.fogColorUniform.value.set(colorHex);
+  }
+
   public setMistVisible(visible: boolean): void {
-    this.fogPlane.visible = visible;
+    this.isFogVisible = visible;
+    this.maxAlphaUniform.value = visible ? this.currentAlpha : 0;
+    this.fogPlane.visible = false;
   }
 }

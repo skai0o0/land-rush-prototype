@@ -268,19 +268,19 @@ export class MiniMap {
     const s = this.size;
     const scale = s / 1000;
 
-    // Background - dark tactical terrain
-    ctx.fillStyle = "#0b1320";
+    // Background - Minecraft grass terrain
+    ctx.fillStyle = "#4d7c2a";
     ctx.fillRect(0, 0, s, s);
 
-    // Lake Ho Da
-    ctx.fillStyle = "#0e7490";
+    // Lake Ho Da - Minecraft Water
+    ctx.fillStyle = "#3f76e4";
     ctx.beginPath();
     ctx.arc(500 * scale, 500 * scale, 65 * scale, 0, Math.PI * 2);
     ctx.fill();
 
-    // Main Roads
-    ctx.strokeStyle = "#334155";
-    ctx.lineWidth = 1.2;
+    // Main Roads - Minecraft Dirt Path
+    ctx.strokeStyle = "#9c875d";
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
     // Crossroads
     ctx.moveTo(500 * scale, 0);

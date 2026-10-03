@@ -28,7 +28,9 @@ import {
   ClientClaimMessage,
   ClientFortifyMessage,
   ClientStudyTileMessage,
+  ClientContributeCrystalMessage,
   ClientContributeFuelMessage,
+  ClientGuessLandmarkMessage,
   ClientSetSpeedMessage,
   ClientBulkDispatchMessage,
   ClientSelectSchoolMessage,
@@ -40,7 +42,7 @@ import {
 } from "../../../shared/types";
 import { TerritoryClusterEngine } from "../../../shared/engine/territoryClusterEngine";
 import { LandDataPlane, LAND_FRAME_CHANNEL, DEFAULT_FLUSH_MS } from "../land/landDataPlane";
-import { decodeClientFrame, ClaimFrame, FortifyFrame, StudyFrame, FuelFrame } from "../../../shared/land/protocol";
+import { decodeClientFrame, ClaimFrame, FortifyFrame, StudyFrame, CrystalFrame, FuelFrame } from "../../../shared/land/protocol";
 
 
 export class CampusRoom extends Room<GameState> {
@@ -73,7 +75,10 @@ export class CampusRoom extends Room<GameState> {
     this.landData.writeTile(x, y, ownerId, hp, maxHp, defenseTier);
   }
 
+  private roomOptions: any = {};
+
   onCreate(options: any) {
+    this.roomOptions = options || {};
     this.autoDispose = false;
     this.setState(new GameState());
 
@@ -219,10 +224,12 @@ export class CampusRoom extends Room<GameState> {
       lmState.x = x;
       lmState.y = y;
       lmState.ownerId = "";
-      lmState.currentFuel = 0;
-      lmState.maxFuel = 500;
+      lmState.currentCrystals = 0;
+      lmState.maxCrystals = 100;
       lmState.litBySchoolId = "";
       lmState.buffActive = false;
+      lmState.nameGuessed = false;
+      lmState.guessedBySchoolId = "";
       this.state.landmarks.set(lmKey, lmState);
 
       lmMapForBot.set(lmKey, { x, y, landmarkKey: lmKey });
@@ -347,11 +354,11 @@ export class CampusRoom extends Room<GameState> {
     const margin = 90;
     const maxBound = 910;
 
-    // 15 Chests: 8 Silver, 5 Gold, 2 Platinum
+    // 15 Chests: 8 Aspire, 5 Nitro, 2 Predator
     const tiers: ChestTier[] = [
-      'silver', 'silver', 'silver', 'silver', 'silver', 'silver', 'silver', 'silver',
-      'gold', 'gold', 'gold', 'gold', 'gold',
-      'platinum', 'platinum'
+      'aspire', 'aspire', 'aspire', 'aspire', 'aspire', 'aspire', 'aspire', 'aspire',
+      'nitro', 'nitro', 'nitro', 'nitro', 'nitro',
+      'predator', 'predator'
     ];
 
     for (let i = 0; i < tiers.length; i++) {
@@ -533,8 +540,8 @@ export class CampusRoom extends Room<GameState> {
    */
   public hasPathToLandmark(schoolId: string, lm: LandmarkState): boolean {
     const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
-    const fw = config?.footprint.width || 14;
-    const fh = config?.footprint.height || 14;
+    const fw = config?.footprint.width || 50;
+    const fh = config?.footprint.height || 50;
 
     for (let dx = -1; dx <= fw; dx++) {
       for (let dy = -1; dy <= fh; dy++) {
@@ -596,9 +603,9 @@ export class CampusRoom extends Room<GameState> {
     const lmInfo = this.landmarkTileMap.get(key);
     if (lmInfo) {
       client.send("error", {
-        message: "Công trình được thắp lửa bằng Than củi! Hãy dùng tính năng 'Thắp lửa Công trình' để tiếp tế Than củi."
+        message: "Công trình được thắp sáng bằng Tinh thể! Hãy dùng tính năng 'Thắp sáng Đèn hiệu' để tiếp tế Tinh thể."
       });
-      this.sendLandAck(client, op, x, y, false, "use_contribute_fuel");
+      this.sendLandAck(client, op, x, y, false, "use_contribute_crystal");
       return;
     }
 
@@ -808,14 +815,14 @@ export class CampusRoom extends Room<GameState> {
   }
 
   /**
-   * Hành động Than củi & Thắp lửa Công trình (contributeFuel):
-   * - Sinh viên đã mở đường tới Công trình dùng Điểm quy đổi thành Than củi (1 Điểm = 1 Than củi).
-   * - Đạt maxFuel (500) sẽ thắp lửa và kích hoạt buff cho trường.
-   * - Trường khác có thể nạp than củi vượt mốc để thắp lửa đè lên.
+   * Hành động Tinh thể & Thắp sáng Đèn hiệu Công trình (contributeCrystal):
+   * - Sinh viên dùng Tinh thể (hoặc quy đổi từ Điểm/personalTroops nếu không đủ Tinh thể).
+   * - Đạt maxCrystals (100) sẽ thắp sáng Đèn hiệu và kích hoạt buff cho trường.
+   * - Overtake rule: Trường khác muốn cướp Đèn hiệu phải đạt crystals >= ownerCrystals + 20 (delta >= 20).
    */
-  public handleContributeFuelAction(
+  public handleContributeCrystalAction(
     client: Client,
-    data: { landmarkId: string; points?: number; amount?: number }
+    data: { landmarkId: string; crystals?: number; amount?: number; points?: number }
   ) {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
@@ -844,91 +851,290 @@ export class CampusRoom extends Room<GameState> {
       return;
     }
 
-    const amount = Math.max(1, Math.floor(data.points || data.amount || 1));
-    const schoolTroops = this.state.schoolTroops.get(player.schoolId) || 0;
+    const amount = Math.max(1, Math.floor(data.crystals || data.amount || data.points || 1));
+    const availableCrystals = player.crystals || 0;
 
-    if (player.email && player.personalTroops < amount) {
+    if (availableCrystals >= amount) {
+      player.crystals -= amount;
+    } else {
+      const neededPoints = amount - availableCrystals;
+      const schoolTroops = this.state.schoolTroops.get(player.schoolId) || 0;
+
+      if (player.email && player.personalTroops < neededPoints) {
+        client.send("error", {
+          message: `Không đủ Tinh thể hoặc Điểm! Bạn có ${availableCrystals} Tinh thể, cần thêm ${neededPoints} Điểm để nạp đủ ${amount} Tinh thể.`
+        });
+        return;
+      }
+
+      if (schoolTroops < neededPoints) {
+        client.send("error", { message: "Không đủ quân lực để nạp Tinh thể!" });
+        return;
+      }
+
+      player.crystals = 0;
+      if (player.email) {
+        player.personalTroops -= neededPoints;
+      }
+      this.state.schoolTroops.set(player.schoolId, schoolTroops - neededPoints);
+    }
+
+    const curSchoolCrystals = (lm.crystalsBySchool.get(player.schoolId) || 0) + amount;
+    lm.crystalsBySchool.set(player.schoolId, curSchoolCrystals);
+
+    let litChanged = false;
+    const prevSchool = lm.litBySchoolId;
+
+    if (!lm.litBySchoolId || !lm.buffActive) {
+      // First school to reach maxCrystals (100) lights the beacon
+      if (curSchoolCrystals >= lm.maxCrystals) {
+        lm.litBySchoolId = player.schoolId;
+        lm.ownerId = player.schoolId;
+        lm.buffActive = true;
+        litChanged = true;
+      }
+    } else if (lm.litBySchoolId !== player.schoolId) {
+      // Overtake competition rule: delta >= 20 crystals over current owner!
+      const ownerCrystals = lm.crystalsBySchool.get(lm.litBySchoolId) || lm.maxCrystals;
+      if (curSchoolCrystals >= ownerCrystals + 20) {
+        lm.litBySchoolId = player.schoolId;
+        lm.ownerId = player.schoolId;
+        lm.buffActive = true;
+        litChanged = true;
+      }
+    }
+
+    if (lm.litBySchoolId) {
+      lm.currentCrystals = lm.crystalsBySchool.get(lm.litBySchoolId) || 0;
+    } else {
+      let maxC = 0;
+      lm.crystalsBySchool.forEach((c) => {
+        if (c > maxC) maxC = c;
+      });
+      lm.currentCrystals = maxC;
+    }
+
+    if (litChanged) {
+      const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
+      if (config) {
+        for (let dx = 0; dx < config.footprint.width; dx++) {
+          for (let dy = 0; dy < config.footprint.height; dy++) {
+            const tx = lm.x + dx;
+            const ty = lm.y + dy;
+            const t = this.state.claimedTiles.get(`${tx},${ty}`);
+            if (t) {
+              t.ownerId = player.schoolId;
+              this.landData.writeTile(tx, ty, player.schoolId, t.hp, t.maxHp, t.defenseTier);
+            }
+          }
+        }
+      }
+
+      this.broadcast("beacon_lit", {
+        landmarkId: lm.id,
+        schoolId: player.schoolId,
+        previousSchoolId: prevSchool,
+        crystals: curSchoolCrystals,
+        fuel: curSchoolCrystals
+      });
+
+      this.broadcast("landmark_lit", {
+        landmarkId: lm.id,
+        schoolId: player.schoolId,
+        previousSchoolId: prevSchool,
+        crystals: curSchoolCrystals,
+        fuel: curSchoolCrystals
+      });
+
+      console.log(
+        `[CampusRoom] Landmark ${lm.landmarkKey || lm.id} BEACON LIT by ${player.schoolId} (${curSchoolCrystals}/${lm.maxCrystals} crystals)!`
+      );
+    }
+
+    const payload = {
+      landmarkId: lm.id,
+      schoolId: player.schoolId,
+      schoolCrystals: curSchoolCrystals,
+      currentCrystals: lm.currentCrystals,
+      maxCrystals: lm.maxCrystals,
+      litBySchoolId: lm.litBySchoolId,
+      buffActive: lm.buffActive,
+      // Backward compatibility aliases
+      schoolFuel: curSchoolCrystals,
+      currentFuel: lm.currentCrystals,
+      maxFuel: lm.maxCrystals
+    };
+
+    client.send("crystal_contributed", payload);
+    client.send("fuel_contributed", payload);
+  }
+
+  /** Backward-compatible alias for contributeFuel */
+  public handleContributeFuelAction(
+    client: Client,
+    data: { landmarkId: string; points?: number; amount?: number; crystals?: number }
+  ) {
+    return this.handleContributeCrystalAction(client, data);
+  }
+
+  /**
+   * Hành động Giải đố Tên Công trình (guessLandmark):
+   * - Cooldown 10 phút (600,000 ms) mỗi lần đoán sai.
+   * - So sánh lowercase trim với tên chính thức trong LANDMARK_ROSTER.
+   * - Nếu đúng: thưởng +10 Tinh thể cho trường, đánh dấu nameGuessed = true, broadcast landmark_guessed.
+   * - Nếu sai: kích hoạt cooldown 10 phút cho người chơi.
+   */
+  public handleGuessLandmark(
+    client: Client,
+    data: { landmarkId: string; guess: string }
+  ) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    if (!data || !data.landmarkId) {
+      client.send("error", { message: "Mã Công trình không hợp lệ!" });
+      return;
+    }
+
+    const lmKey = data.landmarkId;
+    let lm = this.state.landmarks.get(lmKey);
+    if (!lm) {
+      for (const [_, item] of this.state.landmarks) {
+        if (item.landmarkKey === lmKey || item.id === lmKey) {
+          lm = item;
+          break;
+        }
+      }
+    }
+
+    if (!lm) {
+      client.send("error", { message: "Không tìm thấy Công trình!" });
+      return;
+    }
+
+    if (lm.nameGuessed) {
       client.send("error", {
-        message: `Không đủ Điểm! Cần ${amount} Điểm để đổi thành Than củi nạp vào Công trình.`
+        message: `Tên Công trình này đã được giải đố bởi trường ${lm.guessedBySchoolId.toUpperCase()}!`
       });
       return;
     }
 
-    if (schoolTroops < amount) {
-      client.send("error", { message: "Không đủ quân lực để nạp Than củi!" });
+    const now = Date.now();
+    const cd = player.guessCooldowns.get(lm.id) || 0;
+    if (now < cd) {
+      const remainingSec = Math.ceil((cd - now) / 1000);
+      client.send("error", {
+        message: `Bạn đang trong thời gian chờ đoán lại tên công trình này! Còn ${remainingSec}s.`
+      });
       return;
     }
 
-    // Deduct points
-    if (player.email) {
-      player.personalTroops -= amount;
+    const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
+    if (!config) {
+      client.send("error", { message: "Không tìm thấy thông tin cấu hình Công trình!" });
+      return;
     }
-    this.state.schoolTroops.set(player.schoolId, schoolTroops - amount);
 
-    // 1 Điểm = 1 Than củi
-    const curSchoolFuel = (lm.fuelBySchool.get(player.schoolId) || 0) + amount;
-    lm.fuelBySchool.set(player.schoolId, curSchoolFuel);
+    const normGuess = (data.guess || "").toLowerCase().trim();
+    const normTarget = config.name.toLowerCase().trim();
 
-    // Determine leading school with highest fuel
-    let leadingSchoolId = "";
-    let maxFuel = 0;
-    lm.fuelBySchool.forEach((fuel, sId) => {
-      if (fuel > maxFuel) {
-        maxFuel = fuel;
-        leadingSchoolId = sId;
+    if (normGuess === normTarget) {
+      lm.nameGuessed = true;
+      lm.guessedBySchoolId = player.schoolId;
+
+      // School gets +10 crystals (10% progress)
+      const curSchoolCrystals = (lm.crystalsBySchool.get(player.schoolId) || 0) + 10;
+      lm.crystalsBySchool.set(player.schoolId, curSchoolCrystals);
+
+      let litChanged = false;
+      const prevSchool = lm.litBySchoolId;
+      if (!lm.litBySchoolId || !lm.buffActive) {
+        if (curSchoolCrystals >= lm.maxCrystals) {
+          lm.litBySchoolId = player.schoolId;
+          lm.ownerId = player.schoolId;
+          lm.buffActive = true;
+          litChanged = true;
+        }
+      } else if (lm.litBySchoolId !== player.schoolId) {
+        const ownerCrystals = lm.crystalsBySchool.get(lm.litBySchoolId) || lm.maxCrystals;
+        if (curSchoolCrystals >= ownerCrystals + 20) {
+          lm.litBySchoolId = player.schoolId;
+          lm.ownerId = player.schoolId;
+          lm.buffActive = true;
+          litChanged = true;
+        }
       }
-    });
 
-    lm.currentFuel = maxFuel;
+      if (lm.litBySchoolId) {
+        lm.currentCrystals = lm.crystalsBySchool.get(lm.litBySchoolId) || 0;
+      } else {
+        let maxC = 0;
+        lm.crystalsBySchool.forEach((c) => {
+          if (c > maxC) maxC = c;
+        });
+        lm.currentCrystals = maxC;
+      }
 
-    // Bonfire lighting check:
-    // When a school reaches maxFuel (500), it lights the bonfire.
-    // Another school can overtake by exceeding the current lit school's fuel!
-    if (maxFuel >= lm.maxFuel) {
-      if (lm.litBySchoolId !== leadingSchoolId) {
-        const prevSchool = lm.litBySchoolId;
-        lm.litBySchoolId = leadingSchoolId;
-        lm.ownerId = leadingSchoolId;
-        lm.buffActive = true;
-
-        // Color landmark footprint tiles to match the lit school
-        const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
-        if (config) {
-          for (let dx = 0; dx < config.footprint.width; dx++) {
-            for (let dy = 0; dy < config.footprint.height; dy++) {
-              const tx = lm.x + dx;
-              const ty = lm.y + dy;
-              const t = this.state.claimedTiles.get(`${tx},${ty}`);
-              if (t) {
-                t.ownerId = leadingSchoolId;
-                this.landData.writeTile(tx, ty, leadingSchoolId, t.hp, t.maxHp, t.defenseTier);
-              }
+      if (litChanged) {
+        for (let dx = 0; dx < config.footprint.width; dx++) {
+          for (let dy = 0; dy < config.footprint.height; dy++) {
+            const tx = lm.x + dx;
+            const ty = lm.y + dy;
+            const t = this.state.claimedTiles.get(`${tx},${ty}`);
+            if (t) {
+              t.ownerId = player.schoolId;
+              this.landData.writeTile(tx, ty, player.schoolId, t.hp, t.maxHp, t.defenseTier);
             }
           }
         }
 
-        this.broadcast("landmark_lit", {
+        this.broadcast("beacon_lit", {
           landmarkId: lm.id,
-          schoolId: leadingSchoolId,
+          schoolId: player.schoolId,
           previousSchoolId: prevSchool,
-          fuel: maxFuel
+          crystals: curSchoolCrystals,
+          fuel: curSchoolCrystals
         });
 
-        console.log(
-          `[CampusRoom] Landmark ${lm.landmarkKey || lm.id} LIT by ${leadingSchoolId} (${maxFuel}/${lm.maxFuel} fuel)!`
-        );
+        this.broadcast("landmark_lit", {
+          landmarkId: lm.id,
+          schoolId: player.schoolId,
+          previousSchoolId: prevSchool,
+          crystals: curSchoolCrystals,
+          fuel: curSchoolCrystals
+        });
       }
-    }
 
-    client.send("fuel_contributed", {
-      landmarkId: lm.id,
-      schoolId: player.schoolId,
-      schoolFuel: curSchoolFuel,
-      currentFuel: lm.currentFuel,
-      maxFuel: lm.maxFuel,
-      litBySchoolId: lm.litBySchoolId,
-      buffActive: lm.buffActive
-    });
+      this.broadcast("landmark_guessed", {
+        landmarkId: lm.id,
+        landmarkName: config.name,
+        schoolId: player.schoolId,
+        studentEmail: player.email,
+        bonusCrystals: 10
+      });
+
+      client.send("landmark_guess_result", {
+        success: true,
+        landmarkId: lm.id,
+        landmarkName: config.name,
+        crystalsAwarded: 10,
+        currentCrystals: curSchoolCrystals
+      });
+    } else {
+      const cooldownEnd = Date.now() + 600000;
+      player.guessCooldowns.set(lm.id, cooldownEnd);
+
+      client.send("error", {
+        message: "Câu trả lời chưa chính xác! Thời gian chờ đoán lại là 10 phút.",
+        cooldownSeconds: 600
+      });
+
+      client.send("landmark_guess_result", {
+        success: false,
+        landmarkId: lm.id,
+        cooldownUntil: cooldownEnd
+      });
+    }
   }
 
   /**
@@ -984,17 +1190,32 @@ export class CampusRoom extends Room<GameState> {
 
     // Cộng phần thưởng cho người chơi
     if (winningItem.type === "points") {
-      const pts = winningItem.amount || 20;
+      const pts = winningItem.amount || 1;
       player.personalTroops += pts;
       const curTroops = this.state.schoolTroops.get(player.schoolId) || 0;
       this.state.schoolTroops.set(player.schoolId, curTroops + pts);
-    } else if (winningItem.type === "charcoal") {
-      const charcoal = winningItem.amount || 15;
-      player.charcoal = (player.charcoal || 0) + charcoal;
+    } else if (winningItem.type === "crystal" || winningItem.type === ("charcoal" as any)) {
+      const cry = winningItem.amount || 1;
+      player.crystals = (player.crystals || 0) + cry;
     } else if (winningItem.type === "key") {
-      if (winningItem.keyTier === "silver") player.silverKeys = (player.silverKeys || 0) + 1;
-      else if (winningItem.keyTier === "gold") player.goldKeys = (player.goldKeys || 0) + 1;
-      else if (winningItem.keyTier === "platinum") player.platinumKeys = (player.platinumKeys || 0) + 1;
+      if (winningItem.keyTier === "aspire" || (winningItem.keyTier as any) === "silver") {
+        player.aspireKeys = (player.aspireKeys || 0) + 1;
+      } else if (winningItem.keyTier === "nitro" || (winningItem.keyTier as any) === "gold") {
+        player.nitroKeys = (player.nitroKeys || 0) + 1;
+      } else if (winningItem.keyTier === "predator" || (winningItem.keyTier as any) === "platinum") {
+        player.predatorKeys = (player.predatorKeys || 0) + 1;
+      }
+    } else if (winningItem.type === "treasure_map") {
+      const unopenedChests = Array.from(this.state.chests.values()).filter((c) => !c.isOpened);
+      if (unopenedChests.length > 0) {
+        const targetChest = unopenedChests[Math.floor(Math.random() * unopenedChests.length)];
+        client.send("treasure_map_reveal", {
+          chestId: targetChest.id,
+          x: targetChest.x,
+          z: targetChest.z,
+          tier: targetChest.tier
+        });
+      }
     }
 
     if (winningItem.isRealGift) {
@@ -1020,16 +1241,20 @@ export class CampusRoom extends Room<GameState> {
       winningIndex: 24,
       cooldownUntil: stop.cooldownUntil,
       playerPoints: player.personalTroops,
-      playerCharcoal: player.charcoal,
-      silverKeys: player.silverKeys,
-      goldKeys: player.goldKeys,
-      platinumKeys: player.platinumKeys
+      playerCrystals: player.crystals,
+      playerCharcoal: player.crystals,
+      aspireKeys: player.aspireKeys,
+      nitroKeys: player.nitroKeys,
+      predatorKeys: player.predatorKeys,
+      silverKeys: player.aspireKeys,
+      goldKeys: player.nitroKeys,
+      platinumKeys: player.predatorKeys
     });
   }
 
   /**
    * Hành động mở Rương (openChest):
-   * - Kiểm tra sinh viên có chìa khóa tương ứng (Silver / Gold / Platinum)
+   * - Kiểm tra sinh viên có chìa khóa tương ứng (Aspire / Nitro / Predator)
    * - Kiểm tra khoảng cách
    * - Mở rương và trả về kết quả Carousel
    */
@@ -1069,45 +1294,60 @@ export class CampusRoom extends Room<GameState> {
 
     // Kiểm tra chìa khóa tương ứng
     const tier = chest.tier as ChestTier;
-    if (tier === "silver") {
-      if ((player.silverKeys || 0) < 1) {
-        client.send("error", { message: "Bạn cần có Chìa khoá Bạc (Key - Silver) để mở rương này!" });
+    if (tier === "aspire" || (tier as any) === "silver") {
+      if ((player.aspireKeys || 0) < 1) {
+        client.send("error", { message: "Bạn cần có Chìa khoá Aspire (Key - Aspire) để mở rương này!" });
         return;
       }
-      player.silverKeys -= 1;
-    } else if (tier === "gold") {
-      if ((player.goldKeys || 0) < 1) {
-        client.send("error", { message: "Bạn cần có Chìa khoá Vàng (Key - Gold) để mở rương này!" });
+      player.aspireKeys -= 1;
+    } else if (tier === "nitro" || (tier as any) === "gold") {
+      if ((player.nitroKeys || 0) < 1) {
+        client.send("error", { message: "Bạn cần có Chìa khoá Nitro (Key - Nitro) để mở rương này!" });
         return;
       }
-      player.goldKeys -= 1;
-    } else if (tier === "platinum") {
-      if ((player.platinumKeys || 0) < 1) {
-        client.send("error", { message: "Bạn cần có Chìa khoá Bạch Kim (Key - Platinum) để mở rương này!" });
+      player.nitroKeys -= 1;
+    } else if (tier === "predator" || (tier as any) === "platinum") {
+      if ((player.predatorKeys || 0) < 1) {
+        client.send("error", { message: "Bạn cần có Chìa khoá Predator (Key - Predator) để mở rương này!" });
         return;
       }
-      player.platinumKeys -= 1;
+      player.predatorKeys -= 1;
     }
 
     chest.isOpened = true;
     chest.openedBySchoolId = player.schoolId;
 
-    const lootTable = CHEST_LOOT_TABLES[tier] || CHEST_LOOT_TABLES.silver;
+    const lootTable = CHEST_LOOT_TABLES[tier] || CHEST_LOOT_TABLES.aspire;
     const winningItem = rollLoot(lootTable, player.hasWeeklyRunningPoints);
 
     // Cộng phần thưởng
     if (winningItem.type === "points") {
-      const pts = winningItem.amount || 50;
+      const pts = winningItem.amount || 1;
       player.personalTroops += pts;
       const curTroops = this.state.schoolTroops.get(player.schoolId) || 0;
       this.state.schoolTroops.set(player.schoolId, curTroops + pts);
-    } else if (winningItem.type === "charcoal") {
-      const charcoal = winningItem.amount || 30;
-      player.charcoal = (player.charcoal || 0) + charcoal;
+    } else if (winningItem.type === "crystal" || winningItem.type === ("charcoal" as any)) {
+      const cry = winningItem.amount || 1;
+      player.crystals = (player.crystals || 0) + cry;
     } else if (winningItem.type === "key") {
-      if (winningItem.keyTier === "silver") player.silverKeys = (player.silverKeys || 0) + 1;
-      else if (winningItem.keyTier === "gold") player.goldKeys = (player.goldKeys || 0) + 1;
-      else if (winningItem.keyTier === "platinum") player.platinumKeys = (player.platinumKeys || 0) + 1;
+      if (winningItem.keyTier === "aspire" || (winningItem.keyTier as any) === "silver") {
+        player.aspireKeys = (player.aspireKeys || 0) + 1;
+      } else if (winningItem.keyTier === "nitro" || (winningItem.keyTier as any) === "gold") {
+        player.nitroKeys = (player.nitroKeys || 0) + 1;
+      } else if (winningItem.keyTier === "predator" || (winningItem.keyTier as any) === "platinum") {
+        player.predatorKeys = (player.predatorKeys || 0) + 1;
+      }
+    } else if (winningItem.type === "treasure_map") {
+      const unopenedChests = Array.from(this.state.chests.values()).filter((c) => !c.isOpened && c.id !== chest.id);
+      if (unopenedChests.length > 0) {
+        const targetChest = unopenedChests[Math.floor(Math.random() * unopenedChests.length)];
+        client.send("treasure_map_reveal", {
+          chestId: targetChest.id,
+          x: targetChest.x,
+          z: targetChest.z,
+          tier: targetChest.tier
+        });
+      }
     }
 
     if (winningItem.isRealGift) {
@@ -1133,10 +1373,14 @@ export class CampusRoom extends Room<GameState> {
       winningIndex: 24,
       schoolId: player.schoolId,
       playerPoints: player.personalTroops,
-      playerCharcoal: player.charcoal,
-      silverKeys: player.silverKeys,
-      goldKeys: player.goldKeys,
-      platinumKeys: player.platinumKeys
+      playerCrystals: player.crystals,
+      playerCharcoal: player.crystals,
+      aspireKeys: player.aspireKeys,
+      nitroKeys: player.nitroKeys,
+      predatorKeys: player.predatorKeys,
+      silverKeys: player.aspireKeys,
+      goldKeys: player.nitroKeys,
+      platinumKeys: player.predatorKeys
     });
 
     this.broadcast("chest_claimed", {
@@ -1188,14 +1432,16 @@ export class CampusRoom extends Room<GameState> {
         if (lm) {
           lm.x = lmData.x;
           lm.y = targetY;
-          if (lmData.maxFuel) lm.maxFuel = lmData.maxFuel;
+          if (lmData.maxCrystals) lm.maxCrystals = lmData.maxCrystals;
+          else if (lmData.maxFuel) lm.maxCrystals = lmData.maxFuel;
         } else {
           lm = new LandmarkState();
           lm.id = key;
           lm.landmarkKey = lmData.landmarkKey || key;
           lm.x = lmData.x;
           lm.y = targetY;
-          if (lmData.maxFuel) lm.maxFuel = lmData.maxFuel;
+          if (lmData.maxCrystals) lm.maxCrystals = lmData.maxCrystals;
+          else if (lmData.maxFuel) lm.maxCrystals = lmData.maxFuel;
           this.state.landmarks.set(key, lm);
         }
         landmarksUpdated++;
@@ -1242,7 +1488,7 @@ export class CampusRoom extends Room<GameState> {
         } else {
           chest = new ChestState();
           chest.id = cData.id;
-          chest.tier = cData.tier || 'silver';
+          chest.tier = cData.tier || 'aspire';
           chest.x = cData.x;
           chest.z = targetZ;
           chest.isOpened = cData.isOpened || false;
@@ -1275,7 +1521,16 @@ export class CampusRoom extends Room<GameState> {
    */
   public processKnowledgeDecay() {
     const now = Date.now();
-    const DECAY_NEGLECT_THRESHOLD_MS = 30000; // 30s không ôn bài thì coi như bỏ bê
+    let isDev = this.roomOptions?.mode === "dev" || this.roomOptions?.isDev === true;
+    if (!isDev) {
+      for (const [_, p] of this.state.players) {
+        if (p.mode === "dev") {
+          isDev = true;
+          break;
+        }
+      }
+    }
+    const DECAY_NEGLECT_THRESHOLD_MS = isDev ? 30 * 1000 : 12 * 3600 * 1000;
     const DECAY_RETENTION_RATE = 10; // Giảm 10 retention mỗi chu kỳ heartbeat
 
     for (const [_, tile] of this.state.claimedTiles) {
@@ -1421,9 +1676,9 @@ export class CampusRoom extends Room<GameState> {
   }
 
   /**
-   * Helper cho Bot nạp Than củi vào Công trình.
+   * Helper cho Bot nạp Tinh thể vào Công trình.
    */
-  public handleBotContributeFuel(schoolId: string, landmarkId: string, amount: number = 20) {
+  public handleBotContributeCrystal(schoolId: string, landmarkId: string, amount: number = 20) {
     let lm = this.state.landmarks.get(landmarkId);
     if (!lm) {
       for (const [_, item] of this.state.landmarks) {
@@ -1436,40 +1691,84 @@ export class CampusRoom extends Room<GameState> {
     if (!lm) return;
     if (!this.hasPathToLandmark(schoolId, lm)) return;
 
-    const cur = (lm.fuelBySchool.get(schoolId) || 0) + amount;
-    lm.fuelBySchool.set(schoolId, cur);
+    const cur = (lm.crystalsBySchool.get(schoolId) || 0) + amount;
+    lm.crystalsBySchool.set(schoolId, cur);
 
-    let leadingSchool = "";
-    let maxF = 0;
-    lm.fuelBySchool.forEach((f, s) => {
-      if (f > maxF) {
-        maxF = f;
-        leadingSchool = s;
+    let litChanged = false;
+    const prev = lm.litBySchoolId;
+
+    if (!lm.litBySchoolId || !lm.buffActive) {
+      if (cur >= lm.maxCrystals) {
+        lm.litBySchoolId = schoolId;
+        lm.ownerId = schoolId;
+        lm.buffActive = true;
+        litChanged = true;
       }
-    });
+    } else if (lm.litBySchoolId !== schoolId) {
+      const ownerCrystals = lm.crystalsBySchool.get(lm.litBySchoolId) || lm.maxCrystals;
+      if (cur >= ownerCrystals + 20) {
+        lm.litBySchoolId = schoolId;
+        lm.ownerId = schoolId;
+        lm.buffActive = true;
+        litChanged = true;
+      }
+    }
 
-    lm.currentFuel = maxF;
+    if (lm.litBySchoolId) {
+      lm.currentCrystals = lm.crystalsBySchool.get(lm.litBySchoolId) || 0;
+    } else {
+      let maxC = 0;
+      lm.crystalsBySchool.forEach((c) => {
+        if (c > maxC) maxC = c;
+      });
+      lm.currentCrystals = maxC;
+    }
 
-    if (maxF >= lm.maxFuel && lm.litBySchoolId !== leadingSchool) {
-      const prev = lm.litBySchoolId;
-      lm.litBySchoolId = leadingSchool;
-      lm.ownerId = leadingSchool;
-      lm.buffActive = true;
+    if (litChanged) {
+      const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
+      if (config) {
+        for (let dx = 0; dx < config.footprint.width; dx++) {
+          for (let dy = 0; dy < config.footprint.height; dy++) {
+            const tx = lm.x + dx;
+            const ty = lm.y + dy;
+            const t = this.state.claimedTiles.get(`${tx},${ty}`);
+            if (t) {
+              t.ownerId = schoolId;
+              this.landData.writeTile(tx, ty, schoolId, t.hp, t.maxHp, t.defenseTier);
+            }
+          }
+        }
+      }
+
+      this.broadcast("beacon_lit", {
+        landmarkId: lm.id,
+        schoolId: schoolId,
+        previousSchoolId: prev,
+        crystals: cur,
+        fuel: cur
+      });
 
       this.broadcast("landmark_lit", {
         landmarkId: lm.id,
-        schoolId: leadingSchool,
+        schoolId: schoolId,
         previousSchoolId: prev,
-        fuel: maxF
+        crystals: cur,
+        fuel: cur
       });
     }
   }
 
+  public handleBotContributeFuel(schoolId: string, landmarkId: string, amount: number = 20) {
+    return this.handleBotContributeCrystal(schoolId, landmarkId, amount);
+  }
+
   /**
-   * Fortify path: Backward-compatibility bridge routing to handleStudyAction.
+   * Fortify path: Vô hiệu hoá cơ chế gia cố cũ, thông báo thay thế bằng cơ chế Giao lưu tri thức & Ôn bài.
    */
-  private handleFortifyAction(client: Client, data: { x: number; y: number }, op: string = "fortify") {
-    this.handleStudyAction(client, data, op);
+  private handleFortifyAction(client: Client, _data?: any, _op: string = "fortify") {
+    client.send("error", {
+      message: "Cơ chế gia cố đã được thay thế bằng cơ chế Giao lưu tri thức & Ôn bài!"
+    });
   }
 
 
@@ -1495,18 +1794,36 @@ export class CampusRoom extends Room<GameState> {
       this.handleStudyAction(client, frame, "study");
     });
 
-    // 1c. contributeFuel / contribute_fuel / burnCharcoal / burn_charcoal
+    // 1c. contributeCrystal / contribute_crystal / contributeFuel / contribute_fuel / burnCharcoal / burn_charcoal
+    this.onMessage("contributeCrystal", (client, data: ClientContributeCrystalMessage) => {
+      this.handleContributeCrystalAction(client, data || { landmarkId: "" });
+    });
+    this.onMessage("contribute_crystal", (client, data: ClientContributeCrystalMessage) => {
+      this.handleContributeCrystalAction(client, data || { landmarkId: "" });
+    });
     this.onMessage("contributeFuel", (client, data: ClientContributeFuelMessage) => {
-      this.handleContributeFuelAction(client, data || { landmarkId: "" });
+      console.warn("[CampusRoom] 'contributeFuel' message is deprecated. Use 'contributeCrystal' instead.");
+      this.handleContributeCrystalAction(client, data || { landmarkId: "" });
     });
     this.onMessage("contribute_fuel", (client, data: ClientContributeFuelMessage) => {
-      this.handleContributeFuelAction(client, data || { landmarkId: "" });
+      console.warn("[CampusRoom] 'contribute_fuel' message is deprecated. Use 'contribute_crystal' instead.");
+      this.handleContributeCrystalAction(client, data || { landmarkId: "" });
     });
     this.onMessage("burnCharcoal", (client, data: ClientContributeFuelMessage) => {
-      this.handleContributeFuelAction(client, data || { landmarkId: "" });
+      console.warn("[CampusRoom] 'burnCharcoal' message is deprecated. Use 'contributeCrystal' instead.");
+      this.handleContributeCrystalAction(client, data || { landmarkId: "" });
     });
     this.onMessage("burn_charcoal", (client, data: ClientContributeFuelMessage) => {
-      this.handleContributeFuelAction(client, data || { landmarkId: "" });
+      console.warn("[CampusRoom] 'burn_charcoal' message is deprecated. Use 'contribute_crystal' instead.");
+      this.handleContributeCrystalAction(client, data || { landmarkId: "" });
+    });
+
+    // 1c2. guessLandmark / guess_landmark
+    this.onMessage("guessLandmark", (client, data: ClientGuessLandmarkMessage) => {
+      this.handleGuessLandmark(client, data || { landmarkId: "", guess: "" });
+    });
+    this.onMessage("guess_landmark", (client, data: ClientGuessLandmarkMessage) => {
+      this.handleGuessLandmark(client, data || { landmarkId: "", guess: "" });
     });
 
     // 1d. rollUniStop / roll_unistop
@@ -1542,7 +1859,7 @@ export class CampusRoom extends Room<GameState> {
       this.handleFortifyAction(client, { x: (frame as any).x, y: (frame as any).y }, "fortify");
     });
 
-    // 2b. protocol frames on the land channel (t: claim | fortify | study | fuel)
+    // 2b. protocol frames on the land channel (t: claim | fortify | study | crystal | fuel)
     this.onMessage(LAND_FRAME_CHANNEL, (client, data: any) => {
       const frame = decodeClientFrame(data);
       if (!frame) return; // unknown / non-client frame: ignore
@@ -1550,8 +1867,8 @@ export class CampusRoom extends Room<GameState> {
         this.handleClaimAction(client, frame, "claim");
       } else if (frame.t === "study") {
         this.handleStudyAction(client, frame, "study");
-      } else if (frame.t === "fuel") {
-        this.handleContributeFuelAction(client, frame);
+      } else if (frame.t === "crystal" || frame.t === "fuel") {
+        this.handleContributeCrystalAction(client, frame);
       } else if (frame.t === "fortify") {
         this.handleFortifyAction(client, frame, "fortify");
       }
@@ -1621,14 +1938,16 @@ export class CampusRoom extends Room<GameState> {
         this.clusterEngine.setTile(t.x, t.y, 0, tile.defenseTier, tile.hp);
       }
 
-      // Reset landmark owners & bonfires
+      // Reset landmark owners & beacons
       this.state.landmarks.forEach((lm) => {
         lm.ownerId = "";
-        lm.currentFuel = 0;
-        lm.maxFuel = 500;
+        lm.currentCrystals = 0;
+        lm.maxCrystals = 100;
         lm.litBySchoolId = "";
         lm.buffActive = false;
-        lm.fuelBySchool.clear();
+        lm.nameGuessed = false;
+        lm.guessedBySchoolId = "";
+        lm.crystalsBySchool.clear();
       });
 
       // Reset UniStop cooldowns & Chest status
@@ -1638,6 +1957,10 @@ export class CampusRoom extends Room<GameState> {
       this.state.chests.forEach((chest) => {
         chest.isOpened = false;
         chest.openedBySchoolId = "";
+      });
+
+      this.state.players.forEach((p) => {
+        p.guessCooldowns.clear();
       });
 
       // Rebuild dirty is dropped; clients resync from a fresh snap under a new epoch
@@ -1670,7 +1993,11 @@ export class CampusRoom extends Room<GameState> {
       points: number;
       mode?: string;
       hasWeeklyRunningPoints?: boolean;
+      crystals?: number;
       charcoal?: number;
+      aspireKeys?: number;
+      nitroKeys?: number;
+      predatorKeys?: number;
       silverKeys?: number;
       goldKeys?: number;
       platinumKeys?: number;
@@ -1692,10 +2019,14 @@ export class CampusRoom extends Room<GameState> {
       if (data.hasWeeklyRunningPoints !== undefined) {
         player.hasWeeklyRunningPoints = Boolean(data.hasWeeklyRunningPoints);
       }
-      if (typeof data.charcoal === "number") player.charcoal = data.charcoal;
-      if (typeof data.silverKeys === "number") player.silverKeys = data.silverKeys;
-      if (typeof data.goldKeys === "number") player.goldKeys = data.goldKeys;
-      if (typeof data.platinumKeys === "number") player.platinumKeys = data.platinumKeys;
+      if (typeof data.crystals === "number") player.crystals = data.crystals;
+      else if (typeof data.charcoal === "number") player.crystals = data.charcoal;
+      if (typeof data.aspireKeys === "number") player.aspireKeys = data.aspireKeys;
+      else if (typeof data.silverKeys === "number") player.aspireKeys = data.silverKeys;
+      if (typeof data.nitroKeys === "number") player.nitroKeys = data.nitroKeys;
+      else if (typeof data.goldKeys === "number") player.nitroKeys = data.goldKeys;
+      if (typeof data.predatorKeys === "number") player.predatorKeys = data.predatorKeys;
+      else if (typeof data.platinumKeys === "number") player.predatorKeys = data.platinumKeys;
 
       console.log(
         `[CampusRoom] Player ${client.sessionId} logged in as student: ${player.email} [${player.schoolId.toUpperCase()}] - ${player.personalTroops} pts (WeeklyPoints: ${player.hasWeeklyRunningPoints}, Mode: ${player.mode}, Locked: ${player.isLockedSchool})`
@@ -1906,12 +2237,26 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 14. dev_add_keys
-    this.onMessage("dev_add_keys", (client, data: { silver?: number; gold?: number; platinum?: number }) => {
+    this.onMessage("dev_add_keys", (client, data: {
+      aspire?: number; nitro?: number; predator?: number;
+      silver?: number; gold?: number; platinum?: number;
+    }) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
-        if (data.silver) player.silverKeys = (player.silverKeys || 0) + data.silver;
-        if (data.gold) player.goldKeys = (player.goldKeys || 0) + data.gold;
-        if (data.platinum) player.platinumKeys = (player.platinumKeys || 0) + data.platinum;
+        if (data.aspire) player.aspireKeys = (player.aspireKeys || 0) + data.aspire;
+        if (data.nitro) player.nitroKeys = (player.nitroKeys || 0) + data.nitro;
+        if (data.predator) player.predatorKeys = (player.predatorKeys || 0) + data.predator;
+        if (data.silver) player.aspireKeys = (player.aspireKeys || 0) + data.silver;
+        if (data.gold) player.nitroKeys = (player.nitroKeys || 0) + data.gold;
+        if (data.platinum) player.predatorKeys = (player.predatorKeys || 0) + data.platinum;
+      }
+    });
+
+    // 14b. dev_add_crystals
+    this.onMessage("dev_add_crystals", (client, data: { amount?: number }) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) {
+        player.crystals = (player.crystals || 0) + (data.amount || 10);
       }
     });
 
@@ -1921,6 +2266,18 @@ export class CampusRoom extends Room<GameState> {
       if (stop) {
         stop.cooldownUntil = 0;
       }
+    });
+
+    // 15b. dev_reset_cooldowns (clears player guessCooldowns and all unistop cooldowns)
+    this.onMessage("dev_reset_cooldowns", (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) {
+        player.guessCooldowns.clear();
+      }
+      this.state.unistops.forEach((stop) => {
+        stop.cooldownUntil = 0;
+      });
+      client.send("dev_reset_cooldowns_ack", { success: true });
     });
 
     // 16. dev_set_weekly_points
@@ -1973,10 +2330,14 @@ export class CampusRoom extends Room<GameState> {
     );
     player.hasWeeklyRunningPoints = hasWeeklyPoints;
 
-    if (typeof options.charcoal === "number") player.charcoal = options.charcoal;
-    if (typeof options.silverKeys === "number") player.silverKeys = options.silverKeys;
-    if (typeof options.goldKeys === "number") player.goldKeys = options.goldKeys;
-    if (typeof options.platinumKeys === "number") player.platinumKeys = options.platinumKeys;
+    if (typeof options.crystals === "number") player.crystals = options.crystals;
+    else if (typeof options.charcoal === "number") player.crystals = options.charcoal;
+    if (typeof options.aspireKeys === "number") player.aspireKeys = options.aspireKeys;
+    else if (typeof options.silverKeys === "number") player.aspireKeys = options.silverKeys;
+    if (typeof options.nitroKeys === "number") player.nitroKeys = options.nitroKeys;
+    else if (typeof options.goldKeys === "number") player.nitroKeys = options.goldKeys;
+    if (typeof options.predatorKeys === "number") player.predatorKeys = options.predatorKeys;
+    else if (typeof options.platinumKeys === "number") player.predatorKeys = options.platinumKeys;
 
     this.state.players.set(client.sessionId, player);
 

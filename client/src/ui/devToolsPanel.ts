@@ -2,6 +2,7 @@
 import { Icons } from './icons';
 import { MOCK_STUDENT_ACCOUNTS } from '../../../shared/constants/schools';
 import { RunningDatabase } from '../services/runningDatabase';
+import { FogOfWarManager } from '../engine/fogOfWarManager';
 
 export interface DevPanelCallbacks {
   onToggleBot: (isRunning: boolean) => void;
@@ -19,6 +20,13 @@ export interface DevPanelCallbacks {
   onDevSpawnMegaEmblem?: () => void;
   onDevBreachCluster?: () => void;
   onDevMaxFortifyAll?: () => void;
+  onSetFogAlpha?: (alpha: number) => void;
+  onSetFogColor?: (colorHex: string) => void;
+  onSetEdgeSoftness?: (softness: number) => void;
+  onSetMeltDuration?: (duration: number) => void;
+  onDevResetCooldowns?: () => void;
+  onDevAddCrystals?: (amount?: number) => void;
+  onDevAddKeys?: (aspire?: number, nitro?: number, predator?: number) => void;
 }
 
 export class DevToolsPanel {
@@ -30,6 +38,10 @@ export class DevToolsPanel {
   private currentMode: "normal" | "dev" = "dev";
   private currentTier: 'performance' | 'balanced' | 'high' = 'balanced';
   private selectedMockEmail: string = MOCK_STUDENT_ACCOUNTS[0].email;
+  private currentFogAlpha = 0.6;
+  private currentFogColor = "#cfd8e3";
+  private currentEdgeSoftness: number = 1.5;
+  private currentMeltDuration: number = 1.0;
   private callbacks: DevPanelCallbacks;
 
   constructor(callbacks: DevPanelCallbacks, parent?: HTMLElement, initialMode: "normal" | "dev" = "dev", initialEmail?: string) {
@@ -192,7 +204,37 @@ export class DevToolsPanel {
           </div>
         </div>
 
-        <!-- 7. GIẢ LẬP VÙNG TRI THỨC & CỦNG CỐ -->
+        <!-- 7. ĐIỀU CHỈNH SƯƠNG MÙ -->
+        <div class="dev-menu-section">
+          <div class="section-title">ĐIỀU CHỈNH SƯƠNG MÙ</div>
+          <div class="dev-row" style="margin-bottom: 4px;">
+            <span>Độ mờ sương:</span>
+            <span id="fow-alpha-val" style="font-weight: 700; color: #00ffe8;">${Math.round(this.currentFogAlpha * 100)}%</span>
+          </div>
+          <input type="range" id="fow-alpha-slider" min="0" max="1" step="0.05" value="${this.currentFogAlpha}" style="width: 100%; accent-color: #00ffe8; cursor: pointer;">
+          
+          <div class="dev-row" style="margin-top: 6px; margin-bottom: 4px;">
+            <span>Độ mềm mép:</span>
+            <span id="fow-edge-val" style="font-weight: 700; color: #00ffe8;">${this.currentEdgeSoftness.toFixed(1)} ô</span>
+          </div>
+          <input type="range" id="fow-edge-slider" min="0" max="2" step="0.1" value="${this.currentEdgeSoftness}" style="width: 100%; accent-color: #00ffe8; cursor: pointer;">
+
+          <div class="dev-row" style="margin-top: 6px; margin-bottom: 4px;">
+            <span>Thời gian tan sương:</span>
+            <span id="fow-melt-val" style="font-weight: 700; color: #00ffe8;">${this.currentMeltDuration.toFixed(1)}s</span>
+          </div>
+          <input type="range" id="fow-melt-slider" min="0" max="3" step="0.1" value="${this.currentMeltDuration}" style="width: 100%; accent-color: #00ffe8; cursor: pointer;">
+
+          <div class="dev-row" style="margin-top: 6px;">
+            <span>Màu sắc sương:</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <input type="color" id="fow-color-picker" value="${this.currentFogColor}" style="border: 1px solid rgba(0, 255, 232, 0.3); border-radius: 4px; background: none; width: 28px; height: 24px; cursor: pointer; padding: 0;">
+              <span id="fow-color-val" style="font-size: 11px; color: var(--text-secondary); font-family: monospace;">${this.currentFogColor}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 8. GIẢ LẬP VÙNG TRI THỨC & CỦNG CỐ -->
         <div class="dev-menu-section">
           <div class="section-title" style="color: #00ffe8; display: flex; align-items: center; gap: 6px;">
             ⚡ GIẢ LẬP VÙNG TRI THỨC & CỦNG CỐ
@@ -209,6 +251,24 @@ export class DevToolsPanel {
             </button>
             <button class="btn-dev-action" id="btn-max-fortify" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); justify-content: flex-start; text-align: left;" title="Nâng toàn bộ Vùng tri thức đang sở hữu lên Cấp 3">
               <span style="font-size: 16px; margin-right: 8px;">🛡️</span> Max Củng Cố Toàn Bộ Vùng Tri Thức
+            </button>
+          </div>
+        </div>
+
+        <!-- 9. TIẾP TẾ & VẬT PHẨM (TESTING) -->
+        <div class="dev-menu-section">
+          <div class="section-title" style="color: #00ffe8; display: flex; align-items: center; gap: 6px;">
+            🎁 TIẾP TẾ & VẬT PHẨM (TESTING)
+          </div>
+          <div class="dev-btn-group" style="grid-template-columns: 1fr;">
+            <button class="btn-dev-action" id="btn-dev-reset-cds" style="background: rgba(0, 255, 232, 0.08); border-color: rgba(0, 255, 232, 0.3); justify-content: flex-start; text-align: left;" title="Xóa bỏ thời gian hồi chiêu tất cả trạm UniStop và thử đoán lại địa danh">
+              <span style="font-size: 15px; margin-right: 8px;">⏱️</span> Reset Cooldowns UniStop
+            </button>
+            <button class="btn-dev-action" id="btn-dev-add-crystals" style="background: rgba(0, 180, 216, 0.12); border-color: rgba(0, 180, 216, 0.35); justify-content: flex-start; text-align: left;" title="Cộng ngay +100 Tinh thể để thắp sáng Đèn hiệu">
+              <span style="font-size: 15px; margin-right: 8px;">💎</span> +100 Tinh thể
+            </button>
+            <button class="btn-dev-action" id="btn-dev-add-keys" style="background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35); justify-content: flex-start; text-align: left;" title="Nhận Chìa khóa: Aspire, Nitro, Predator">
+              <span style="font-size: 15px; margin-right: 8px;">🔑</span> +Chìa khóa (Aspire/Nitro/Predator)
             </button>
           </div>
         </div>
@@ -342,6 +402,59 @@ export class DevToolsPanel {
       }
     });
 
+    // Điều chỉnh sương mù: slider độ mờ, độ mềm mép, thời gian tan & color picker
+    const alphaSlider = this.container.querySelector('#fow-alpha-slider') as HTMLInputElement;
+    const alphaVal = this.container.querySelector('#fow-alpha-val');
+    alphaSlider?.addEventListener('input', (e) => {
+      e.stopPropagation();
+      const val = parseFloat(alphaSlider.value);
+      this.currentFogAlpha = val;
+      if (alphaVal) {
+        alphaVal.textContent = `${Math.round(val * 100)}%`;
+      }
+      this.callbacks.onSetFogAlpha?.(val);
+      ((window as any).fogOfWarManager || FogOfWarManager.instance)?.setFogAlpha(val);
+    });
+
+    const edgeSlider = this.container.querySelector('#fow-edge-slider') as HTMLInputElement;
+    const edgeVal = this.container.querySelector('#fow-edge-val');
+    edgeSlider?.addEventListener('input', (e) => {
+      e.stopPropagation();
+      const val = parseFloat(edgeSlider.value);
+      this.currentEdgeSoftness = val;
+      if (edgeVal) {
+        edgeVal.textContent = `${val.toFixed(1)} ô`;
+      }
+      this.callbacks.onSetEdgeSoftness?.(val);
+      ((window as any).fogOfWarManager || FogOfWarManager.instance)?.setEdgeSoftness(val);
+    });
+
+    const meltSlider = this.container.querySelector('#fow-melt-slider') as HTMLInputElement;
+    const meltVal = this.container.querySelector('#fow-melt-val');
+    meltSlider?.addEventListener('input', (e) => {
+      e.stopPropagation();
+      const val = parseFloat(meltSlider.value);
+      this.currentMeltDuration = val;
+      if (meltVal) {
+        meltVal.textContent = `${val.toFixed(1)}s`;
+      }
+      this.callbacks.onSetMeltDuration?.(val);
+      ((window as any).fogOfWarManager || FogOfWarManager.instance)?.setMeltDuration(val);
+    });
+
+    const colorPicker = this.container.querySelector('#fow-color-picker') as HTMLInputElement;
+    const colorVal = this.container.querySelector('#fow-color-val');
+    colorPicker?.addEventListener('input', (e) => {
+      e.stopPropagation();
+      const val = colorPicker.value;
+      this.currentFogColor = val;
+      if (colorVal) {
+        colorVal.textContent = val;
+      }
+      this.callbacks.onSetFogColor?.(val);
+      ((window as any).fogOfWarManager || FogOfWarManager.instance)?.setFogColor(val);
+    });
+
     // Giả lập Lãnh thổ & Gia cố
     this.container.querySelector('#btn-spawn-bastion')?.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -359,5 +472,49 @@ export class DevToolsPanel {
       e.stopPropagation();
       this.callbacks.onDevMaxFortifyAll?.();
     });
+    this.container.querySelector('#btn-dev-reset-cds')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onDevResetCooldowns?.();
+    });
+    this.container.querySelector('#btn-dev-add-crystals')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onDevAddCrystals?.(100);
+    });
+    this.container.querySelector('#btn-dev-add-keys')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onDevAddKeys?.(5, 5, 5);
+    });
+  }
+
+  public setFogAlpha(alpha: number): void {
+    this.currentFogAlpha = alpha;
+    const slider = this.container.querySelector('#fow-alpha-slider') as HTMLInputElement;
+    const label = this.container.querySelector('#fow-alpha-val');
+    if (slider) slider.value = alpha.toString();
+    if (label) label.textContent = `${Math.round(alpha * 100)}%`;
+  }
+
+  public setFogColor(color: string): void {
+    this.currentFogColor = color;
+    const picker = this.container.querySelector('#fow-color-picker') as HTMLInputElement;
+    const label = this.container.querySelector('#fow-color-val');
+    if (picker) picker.value = color;
+    if (label) label.textContent = color;
+  }
+
+  public setEdgeSoftness(softness: number): void {
+    this.currentEdgeSoftness = softness;
+    const slider = this.container.querySelector('#fow-edge-slider') as HTMLInputElement;
+    const label = this.container.querySelector('#fow-edge-val');
+    if (slider) slider.value = softness.toString();
+    if (label) label.textContent = `${softness.toFixed(1)} ô`;
+  }
+
+  public setMeltDuration(duration: number): void {
+    this.currentMeltDuration = duration;
+    const slider = this.container.querySelector('#fow-melt-slider') as HTMLInputElement;
+    const label = this.container.querySelector('#fow-melt-val');
+    if (slider) slider.value = duration.toString();
+    if (label) label.textContent = `${duration.toFixed(1)}s`;
   }
 }

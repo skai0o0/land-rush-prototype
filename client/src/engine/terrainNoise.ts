@@ -197,13 +197,13 @@ export function getTerrainType(x: number, y: number): TerrainType {
   return "grass";
 }
 
-// Terrain color palette
+// Terrain color palette: Minecraft Nature (Grass, Water, Dirt Path, Dirt, Stone)
 export const TERRAIN_COLORS: Record<TerrainType, number> = {
-  water: 0x1ca3a3, // Emerald jade water
-  hill: 0x8c5b3e,  // Basalt red soil / rock
-  grass: 0x5b8c5a, // Lush campus grass
-  dirt: 0x7d6853,  // Earth dirt
-  road: 0x4a525a   // Dark grey tarmac
+  grass: 0x5b8c32, // Minecraft Grass Block (Cỏ xanh chuẩn Minecraft)
+  water: 0x3f76e4, // Minecraft Water blue (Nước xanh hồ tự nhiên)
+  road: 0x9c875d,  // Minecraft Dirt Path (Đường đất mòn)
+  dirt: 0x866043,  // Minecraft Dirt (Đất màu nâu đất)
+  hill: 0x737373   // Minecraft Stone rock (Khối đá xám)
 };
 
 export function getTerrainColor(x: number, y: number): number {

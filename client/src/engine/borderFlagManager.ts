@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { getSchoolColor } from '../../../shared/constants/schools';
 import { getTerrainHeight } from './terrainNoise';
+import { applyFogOfWar } from './fogOfWarShader';
+import type { FogOfWarManager } from './fogOfWarManager';
 
 export interface BorderTileData {
   index: number;
@@ -19,6 +21,8 @@ interface FlagInstance {
 export class BorderFlagManager {
   public group = new THREE.Group();
   private instancedMesh?: THREE.InstancedMesh;
+  private flagMaterial?: THREE.MeshStandardMaterial;
+  private fogOfWar: FogOfWarManager | null = null;
   private maxFlags = 20000;
   private activeFlags: FlagInstance[] = [];
   
@@ -27,6 +31,14 @@ export class BorderFlagManager {
   constructor() {
     this.group.name = 'BorderFlagsGroup';
     this.initMesh();
+  }
+
+  public setFogOfWar(fog: FogOfWarManager): void {
+    this.fogOfWar = fog;
+    if (this.flagMaterial) {
+      applyFogOfWar(this.flagMaterial, fog);
+      this.flagMaterial.needsUpdate = true;
+    }
   }
 
   private initMesh() {
@@ -97,6 +109,10 @@ export class BorderFlagManager {
       metalness: 0.35,
       side: THREE.DoubleSide
     });
+    this.flagMaterial = material;
+    if (this.fogOfWar) {
+      applyFogOfWar(material, this.fogOfWar);
+    }
 
     this.instancedMesh = new THREE.InstancedMesh(mergedGeo, material, this.maxFlags);
     this.instancedMesh.count = 0;

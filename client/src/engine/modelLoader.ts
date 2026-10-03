@@ -4,6 +4,8 @@ import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { LANDMARK_ROSTER } from "../../../shared/constants/landmarks";
 import { SCHOOL_ROSTER } from "../../../shared/constants/schools";
 import { getTerrainHeight } from "./terrainNoise";
+import { applyFogOfWar } from "./fogOfWarShader";
+import type { FogOfWarManager } from "./fogOfWarManager";
 
 export class ModelLoader {
   private loader = new GLTFLoader();
@@ -13,8 +15,24 @@ export class ModelLoader {
   private modelCache: Map<string, THREE.Group> = new Map();
   private spawnedModels: Map<string, THREE.Group> = new Map();
   private rotatingObjects: THREE.Object3D[] = [];
-  private bonfireFlames: Map<string, BonfireFlame> = new Map();
+  private beaconLights: Map<string, BeaconLight> = new Map();
+  private get bonfireFlames(): Map<string, BeaconLight> { return this.beaconLights; }
   private landmarkLitSchools: Map<string, string> = new Map();
+  private fogOfWar: FogOfWarManager | null = null;
+
+  public setFogOfWar(fog: FogOfWarManager): void {
+    this.fogOfWar = fog;
+    this.group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const m = (child as THREE.Mesh).material;
+        if (m) {
+          applyFogOfWar(m, fog);
+          if (Array.isArray(m)) m.forEach((mat) => (mat.needsUpdate = true));
+          else m.needsUpdate = true;
+        }
+      }
+    });
+  }
 
   constructor() {
     this.group.name = "ModelsGroup";
@@ -43,6 +61,21 @@ export class ModelLoader {
       return this.modelCache.get(url)!.clone();
     }
 
+    try {
+      const response = await fetch(url, { method: "HEAD" });
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("text/html")) {
+          throw new Error(`Model not found, fallback to HTML`);
+        }
+      } else {
+        throw new Error(`Model not found (HTTP ${response.status})`);
+      }
+    } catch (e) {
+      // Cleanly reject before GLTFLoader attempts to parse HTML
+      throw e;
+    }
+
     return new Promise((resolve, reject) => {
       this.loader.load(
         url,
@@ -52,15 +85,12 @@ export class ModelLoader {
           resolve(scene.clone());
         },
         undefined,
-        (err) => {
-          console.warn(`[ModelLoader] Failed to load ${url}:`, err);
-          reject(err);
-        }
+        (err) => reject(err) // Silently reject, handled by caller
       );
     });
   }
 
-  // Fallback: Procedural Voxel Plinth with Floating Rotating Banner
+  // Fallback: Procedural Voxel Plinth with Minecraft Oak & Cobblestone
   public createFallbackHQ(schoolId: string, x: number, y: number): THREE.Group {
     const school = SCHOOL_ROSTER[schoolId];
     const group = new THREE.Group();
@@ -71,72 +101,88 @@ export class ModelLoader {
     const primaryColor = school ? new THREE.Color(school.colorHex) : new THREE.Color(0x0055a5);
     const accentColor = school ? new THREE.Color(school.accentHex) : new THREE.Color(0xffffff);
 
-    // 1. Base Stepped Stone Plinth (~20 tiles hexagonal footprint)
-    const baseMat = new THREE.MeshLambertMaterial({ color: 0x3d4852 });
-    const baseGeom = new THREE.CylinderGeometry(9.6, 9.6, 0.6, 6);
-    const baseMesh = new THREE.Mesh(baseGeom, baseMat);
+    // 1. Base Stepped Cobblestone Platform (~20 tiles footprint)
+    const cobbleMat = new THREE.MeshLambertMaterial({
+      color: 0x737373, // Minecraft Cobblestone
+      emissive: 0x000000
+    });
+    const baseGeom = new THREE.CylinderGeometry(9.6, 9.6, 0.6, 8);
+    const baseMesh = new THREE.Mesh(baseGeom, cobbleMat);
     baseMesh.position.y = 0.3;
     baseMesh.castShadow = true;
     baseMesh.receiveShadow = true;
     group.add(baseMesh);
 
-    // 2. Second Tier Plinth
-    const tier2Geom = new THREE.CylinderGeometry(8.2, 8.2, 0.5, 6);
-    const tier2Mesh = new THREE.Mesh(tier2Geom, baseMat);
+    // 2. Second Tier Platform (Oak Wood Planks & School Colors)
+    const oakPlankMat = new THREE.MeshLambertMaterial({
+      color: 0x6d4e33, // Minecraft Oak Wood
+      emissive: 0x000000
+    });
+    const tier2Geom = new THREE.CylinderGeometry(8.2, 8.2, 0.5, 8);
+    const tier2Mesh = new THREE.Mesh(tier2Geom, oakPlankMat);
     tier2Mesh.position.y = 0.85;
     tier2Mesh.castShadow = true;
     tier2Mesh.receiveShadow = true;
     group.add(tier2Mesh);
 
-    // 3. Main School Monolith Column
-    const columnMat = new THREE.MeshLambertMaterial({ color: primaryColor });
-    const columnGeom = new THREE.BoxGeometry(3.6, 6.0, 3.6);
-    const columnMesh = new THREE.Mesh(columnGeom, columnMat);
-    columnMesh.position.y = 4.0;
-    columnMesh.castShadow = true;
-    columnMesh.receiveShadow = true;
-    group.add(columnMesh);
-
-    // 4. Accent trim ring
-    const trimMat = new THREE.MeshLambertMaterial({ color: accentColor });
-    const trimGeom = new THREE.BoxGeometry(4.2, 0.6, 4.2);
-    const trimMesh = new THREE.Mesh(trimGeom, trimMat);
-    trimMesh.position.y = 7.2;
-    trimMesh.castShadow = true;
-    group.add(trimMesh);
-
-    // 5. Floating Rotating School Banner / Crest Diamond
-    const bannerGroup = new THREE.Group();
-    bannerGroup.position.y = 9.5;
-
-    const diamondGeom = new THREE.OctahedronGeometry(1.6, 0);
-    const diamondMat = new THREE.MeshLambertMaterial({
-      color: primaryColor,
-      emissive: primaryColor,
-      emissiveIntensity: 0.4
+    // 3. Central Oak Pillar / Flagpole Base
+    const pillarMat = new THREE.MeshLambertMaterial({
+      color: 0x543d2b, // Dark Oak Trunk
+      emissive: 0x000000
     });
-    const diamondMesh = new THREE.Mesh(diamondGeom, diamondMat);
-    diamondMesh.scale.set(0.8, 1.3, 0.8);
-    diamondMesh.castShadow = true;
-    bannerGroup.add(diamondMesh);
+    const pillarGeom = new THREE.BoxGeometry(1.6, 7.5, 1.6);
+    const pillarMesh = new THREE.Mesh(pillarGeom, pillarMat);
+    pillarMesh.position.y = 4.6;
+    pillarMesh.castShadow = true;
+    pillarMesh.receiveShadow = true;
+    group.add(pillarMesh);
 
-    // Side fluttering flag ribbons
-    const flagMat = new THREE.MeshLambertMaterial({ color: accentColor });
-    const flagGeom = new THREE.BoxGeometry(2.4, 0.8, 0.12);
-    const flagMesh = new THREE.Mesh(flagGeom, flagMat);
-    flagMesh.position.set(1.2, 0, 0);
-    bannerGroup.add(flagMesh);
+    // 4. Stone Brick Base Collar
+    const stoneCollarGeom = new THREE.BoxGeometry(2.8, 1.2, 2.8);
+    const stoneCollarMesh = new THREE.Mesh(stoneCollarGeom, cobbleMat);
+    stoneCollarMesh.position.y = 1.7;
+    stoneCollarMesh.castShadow = true;
+    group.add(stoneCollarMesh);
+
+    // 5. School Banner (Minecraft Wool Banner)
+    const bannerGroup = new THREE.Group();
+    bannerGroup.position.y = 7.5;
+
+    // Main Wool Banner
+    const bannerMat = new THREE.MeshLambertMaterial({
+      color: primaryColor
+    });
+    const bannerGeom = new THREE.BoxGeometry(2.2, 3.4, 0.16);
+    const bannerMesh = new THREE.Mesh(bannerGeom, bannerMat);
+    bannerMesh.position.set(1.2, -0.6, 0);
+    bannerMesh.castShadow = true;
+    bannerGroup.add(bannerMesh);
+
+    // Banner Top Rod & Trim
+    const trimMat = new THREE.MeshLambertMaterial({ color: accentColor });
+    const rodGeom = new THREE.BoxGeometry(2.6, 0.2, 0.25);
+    const rodMesh = new THREE.Mesh(rodGeom, trimMat);
+    rodMesh.position.set(1.2, 1.1, 0);
+    bannerGroup.add(rodMesh);
 
     group.add(bannerGroup);
     this.rotatingObjects.push(bannerGroup);
 
     group.userData = { isHQ: true, schoolId, x, y, isFallback: true };
+    if (this.fogOfWar) {
+      group.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const m = (child as THREE.Mesh).material;
+          if (m) applyFogOfWar(m, this.fogOfWar!);
+        }
+      });
+    }
     this.group.add(group);
     this.spawnedModels.set(`hq_${schoolId}`, group);
     return group;
   }
 
-  // Fallback: Procedural Landmark Monolith scaled to enlarged footprint
+  // Fallback: Procedural Landmark Monolith (Minecraft Cobblestone & Oak Wood)
   public createFallbackLandmark(landmarkId: string, x: number, y: number): THREE.Group {
     const config = LANDMARK_ROSTER[landmarkId];
     const group = new THREE.Group();
@@ -148,8 +194,8 @@ export class ModelLoader {
     const h = getTerrainHeight(cx, cy);
     group.position.set(cx, h + 0.11, cy);
 
-    // Tiered Grand Monument scaled to footprint
-    const stoneMat = new THREE.MeshLambertMaterial({ color: 0x5a6570 });
+    // Tiered Grand Monument (Minecraft Cobblestone & Stone Rock)
+    const stoneMat = new THREE.MeshLambertMaterial({ color: 0x737373, emissive: 0x000000 });
     const baseGeom = new THREE.BoxGeometry(fw * 0.85, 0.8, fh * 0.85);
     const baseMesh = new THREE.Mesh(baseGeom, stoneMat);
     baseMesh.position.y = 0.4;
@@ -157,8 +203,8 @@ export class ModelLoader {
     baseMesh.receiveShadow = true;
     group.add(baseMesh);
 
-    // 4 Corner Pillars
-    const pillarMat = new THREE.MeshLambertMaterial({ color: 0x8a9ba8 });
+    // 4 Corner Oak Wood Log Pillars
+    const oakWoodMat = new THREE.MeshLambertMaterial({ color: 0x6d4e33, emissive: 0x000000 });
     const pGeom = new THREE.BoxGeometry(1.2, 4.5, 1.2);
     const ox = fw * 0.35;
     const oz = fh * 0.35;
@@ -167,34 +213,42 @@ export class ModelLoader {
       [-ox, oz], [ox, oz]
     ];
     for (const [px, pz] of offsets) {
-      const p = new THREE.Mesh(pGeom, pillarMat);
+      const p = new THREE.Mesh(pGeom, oakWoodMat);
       p.position.set(px, 2.6, pz);
       p.castShadow = true;
       p.receiveShadow = true;
       group.add(p);
     }
 
-    // Top Roof Slab
+    // Top Roof Slab (Cobblestone / Stone Roof)
     const roofGeom = new THREE.BoxGeometry(fw * 0.75, 0.8, fh * 0.75);
     const roofMesh = new THREE.Mesh(roofGeom, stoneMat);
     roofMesh.position.y = 5.2;
     roofMesh.castShadow = true;
     group.add(roofMesh);
 
-    // Golden Floating Orb / Beacon
-    const goldMat = new THREE.MeshLambertMaterial({
-      color: 0xffd166,
-      emissive: 0xffb703,
-      emissiveIntensity: 0.6
+    // Minecraft Lantern / Fire Torch Beacon (Voxel Lantern)
+    const lanternMat = new THREE.MeshLambertMaterial({
+      color: 0xf59e0b,
+      emissive: 0xd97706,
+      emissiveIntensity: 0.5
     });
-    const orbGeom = new THREE.IcosahedronGeometry(2.0, 0);
-    const orb = new THREE.Mesh(orbGeom, goldMat);
-    orb.position.y = 7.2;
-    orb.castShadow = true;
-    group.add(orb);
-    this.rotatingObjects.push(orb);
+    const lanternGeom = new THREE.BoxGeometry(1.4, 1.8, 1.4);
+    const lantern = new THREE.Mesh(lanternGeom, lanternMat);
+    lantern.position.y = 6.6;
+    lantern.castShadow = true;
+    group.add(lantern);
+    this.rotatingObjects.push(lantern);
 
     group.userData = { isLandmark: true, landmarkId, x, y, config, isFallback: true };
+    if (this.fogOfWar) {
+      group.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const m = (child as THREE.Mesh).material;
+          if (m) applyFogOfWar(m, this.fogOfWar!);
+        }
+      });
+    }
     this.group.add(group);
     this.spawnedModels.set(`lm_${landmarkId}`, group);
     if (this.landmarkLitSchools.has(landmarkId)) {
@@ -252,12 +306,18 @@ export class ModelLoader {
               if (shouldTintAccent(m.name) && "color" in m) {
                 (m as any).color.copy(factionColor);
               }
+              if (this.fogOfWar) {
+                applyFogOfWar(m, this.fogOfWar);
+              }
               return m;
             });
           } else if (mesh.material) {
             const m = mesh.material.clone();
             if (shouldTintAccent(m.name) && "color" in m) {
               (m as any).color.copy(factionColor);
+            }
+            if (this.fogOfWar) {
+              applyFogOfWar(m, this.fogOfWar);
             }
             mesh.material = m;
           }
@@ -337,12 +397,18 @@ export class ModelLoader {
               if (shouldTintAccent(m.name) && "color" in m) {
                 (m as any).color.copy(factionColor);
               }
+              if (this.fogOfWar) {
+                applyFogOfWar(m, this.fogOfWar);
+              }
               return m;
             });
           } else if (mesh.material) {
             const m = mesh.material.clone();
             if (shouldTintAccent(m.name) && "color" in m) {
               (m as any).color.copy(factionColor);
+            }
+            if (this.fogOfWar) {
+              applyFogOfWar(m, this.fogOfWar);
             }
             mesh.material = m;
           }
@@ -392,15 +458,15 @@ export class ModelLoader {
     });
   }
 
-  // Set or update 3D Bonfire Flame / Beacon for a Landmark
-  public setLandmarkBonfire(landmarkId: string, schoolId: string) {
+  // Set or update 3D Beacon Light for a Landmark
+  public setLandmarkBeacon(landmarkId: string, schoolId: string) {
     if (!schoolId || schoolId === "") {
       this.landmarkLitSchools.delete(landmarkId);
-      const existing = this.bonfireFlames.get(landmarkId);
+      const existing = this.beaconLights.get(landmarkId);
       if (existing) {
         this.group.remove(existing.root);
         existing.dispose();
-        this.bonfireFlames.delete(landmarkId);
+        this.beaconLights.delete(landmarkId);
       }
       return;
     }
@@ -416,39 +482,47 @@ export class ModelLoader {
     const centerX = (box.min.x + box.max.x) / 2;
     const centerZ = (box.min.z + box.max.z) / 2;
 
-    let flame = this.bonfireFlames.get(landmarkId);
-    if (flame) {
-      flame.setColor(schoolId);
-      flame.root.position.set(centerX, topY + 0.2, centerZ);
+    let beacon = this.beaconLights.get(landmarkId);
+    if (beacon) {
+      beacon.setColor(schoolId);
+      beacon.root.position.set(centerX, topY + 0.2, centerZ);
     } else {
-      flame = new BonfireFlame(schoolId);
-      flame.root.position.set(centerX, topY + 0.2, centerZ);
-      this.group.add(flame.root);
-      this.bonfireFlames.set(landmarkId, flame);
+      beacon = new BeaconLight(schoolId);
+      beacon.root.position.set(centerX, topY + 0.2, centerZ);
+      this.group.add(beacon.root);
+      this.beaconLights.set(landmarkId, beacon);
     }
   }
 
-  public getLandmarkBonfire(landmarkId: string): BonfireFlame | undefined {
-    return this.bonfireFlames.get(landmarkId);
+  public setLandmarkBonfire(landmarkId: string, schoolId: string) {
+    return this.setLandmarkBeacon(landmarkId, schoolId);
   }
 
-  // Animate rotating fallback banners, diamonds, and glowing Bonfire Flames
+  public getLandmarkBeacon(landmarkId: string): BeaconLight | undefined {
+    return this.beaconLights.get(landmarkId);
+  }
+
+  public getLandmarkBonfire(landmarkId: string): BeaconLight | undefined {
+    return this.getLandmarkBeacon(landmarkId);
+  }
+
+  // Animate rotating fallback banners, diamonds, and glowing Beacon Lights
   public update(delta: number) {
     for (const obj of this.rotatingObjects) {
       obj.rotation.y += 1.8 * delta;
     }
 
-    for (const flame of this.bonfireFlames.values()) {
-      flame.update(delta);
+    for (const beacon of this.beaconLights.values()) {
+      beacon.update(delta);
     }
   }
 
   public clear() {
-    for (const flame of this.bonfireFlames.values()) {
-      this.group.remove(flame.root);
-      flame.dispose();
+    for (const beacon of this.beaconLights.values()) {
+      this.group.remove(beacon.root);
+      beacon.dispose();
     }
-    this.bonfireFlames.clear();
+    this.beaconLights.clear();
     this.landmarkLitSchools.clear();
 
     this.group.clear();
@@ -458,13 +532,14 @@ export class ModelLoader {
 }
 
 /**
- * 3D Bonfire Flame & Cyber Energy Beacon for Lit Landmarks
+ * 3D Beacon Light & Cyber Crystal Energy Beacon for Lit Landmarks
  */
-export class BonfireFlame {
+export class BeaconLight {
   public root = new THREE.Group();
-  private coreFlame: THREE.Mesh;
-  private outerFlame: THREE.Mesh;
+  private crystalCore: THREE.Mesh;
+  private crystalInnerCore: THREE.Mesh;
   private beaconBeam: THREE.Mesh;
+  private innerBeam: THREE.Mesh;
   private haloRing1: THREE.Mesh;
   private haloRing2: THREE.Mesh;
   private light: THREE.PointLight;
@@ -474,106 +549,122 @@ export class BonfireFlame {
   private elapsedTime = 0;
 
   constructor(schoolId: string) {
-    this.root.name = `BonfireFlame_${schoolId}`;
+    this.root.name = `BeaconLight_${schoolId}`;
     const school = SCHOOL_ROSTER[schoolId];
     const colorHex = school ? school.colorHex : "#00ffe8";
     const accentHex = school ? school.accentHex : "#ffffff";
     const primaryColor = new THREE.Color(colorHex);
     const accentColor = new THREE.Color(accentHex);
 
-    // 1. Beacon Light Beam shooting skyward
-    const beamGeom = new THREE.CylinderGeometry(0.5, 2.6, 32.0, 16, 1, true);
+    // 1. Vertical Cyber Laser Pillar (Outer & Inner Skyward Beam)
+    const beamGeom = new THREE.CylinderGeometry(0.6, 2.8, 48.0, 16, 1, true);
     this.geometries.push(beamGeom);
     const beamMat = new THREE.MeshBasicMaterial({
       color: primaryColor,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.38,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
     this.materials.push(beamMat);
     this.beaconBeam = new THREE.Mesh(beamGeom, beamMat);
-    this.beaconBeam.position.y = 16.0;
+    this.beaconBeam.position.y = 24.0;
     this.root.add(this.beaconBeam);
 
-    // 2. Core flame cone
-    const coreGeom = new THREE.ConeGeometry(1.2, 4.2, 10);
-    this.geometries.push(coreGeom);
-    const coreMat = new THREE.MeshBasicMaterial({
+    const innerBeamGeom = new THREE.CylinderGeometry(0.18, 0.35, 52.0, 12, 1, true);
+    this.geometries.push(innerBeamGeom);
+    const innerBeamMat = new THREE.MeshBasicMaterial({
       color: accentColor,
       transparent: true,
-      opacity: 0.88,
-      blending: THREE.AdditiveBlending
-    });
-    this.materials.push(coreMat);
-    this.coreFlame = new THREE.Mesh(coreGeom, coreMat);
-    this.coreFlame.position.y = 2.1;
-    this.root.add(this.coreFlame);
-
-    // Outer flame mantle
-    const outerGeom = new THREE.ConeGeometry(1.8, 5.0, 10);
-    this.geometries.push(outerGeom);
-    const outerMat = new THREE.MeshBasicMaterial({
-      color: primaryColor,
-      transparent: true,
-      opacity: 0.55,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
-    this.materials.push(outerMat);
-    this.outerFlame = new THREE.Mesh(outerGeom, outerMat);
-    this.outerFlame.position.y = 2.5;
-    this.root.add(this.outerFlame);
+    this.materials.push(innerBeamMat);
+    this.innerBeam = new THREE.Mesh(innerBeamGeom, innerBeamMat);
+    this.innerBeam.position.y = 26.0;
+    this.root.add(this.innerBeam);
 
-    // 3. Concentric Halo Energy Rings
-    const ring1Geom = new THREE.RingGeometry(1.6, 2.1, 24);
+    // 2. Floating Octahedron Crystal Core on top
+    const crystalGeom = new THREE.OctahedronGeometry(1.35, 0);
+    this.geometries.push(crystalGeom);
+    const crystalMat = new THREE.MeshStandardMaterial({
+      color: primaryColor,
+      emissive: primaryColor,
+      emissiveIntensity: 0.85,
+      metalness: 0.3,
+      roughness: 0.1,
+      transparent: true,
+      opacity: 0.92,
+      blending: THREE.AdditiveBlending
+    });
+    this.materials.push(crystalMat);
+    this.crystalCore = new THREE.Mesh(crystalGeom, crystalMat);
+    this.crystalCore.position.y = 2.4;
+    this.root.add(this.crystalCore);
+
+    // Inner bright core
+    const innerCrystalGeom = new THREE.OctahedronGeometry(0.72, 0);
+    this.geometries.push(innerCrystalGeom);
+    const innerCrystalMat = new THREE.MeshBasicMaterial({
+      color: accentColor,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending
+    });
+    this.materials.push(innerCrystalMat);
+    this.crystalInnerCore = new THREE.Mesh(innerCrystalGeom, innerCrystalMat);
+    this.crystalInnerCore.position.y = 2.4;
+    this.root.add(this.crystalInnerCore);
+
+    // 3. Rotating Concentric Energy Rings
+    const ring1Geom = new THREE.TorusGeometry(1.85, 0.08, 8, 32);
     this.geometries.push(ring1Geom);
     const ring1Mat = new THREE.MeshBasicMaterial({
       color: primaryColor,
-      side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.82,
       blending: THREE.AdditiveBlending
     });
     this.materials.push(ring1Mat);
     this.haloRing1 = new THREE.Mesh(ring1Geom, ring1Mat);
-    this.haloRing1.rotation.x = Math.PI / 2;
-    this.haloRing1.position.y = 0.5;
+    this.haloRing1.rotation.x = Math.PI / 3;
+    this.haloRing1.position.y = 2.4;
     this.root.add(this.haloRing1);
 
-    const ring2Geom = new THREE.RingGeometry(2.6, 3.2, 24);
+    const ring2Geom = new THREE.TorusGeometry(2.5, 0.06, 8, 32);
     this.geometries.push(ring2Geom);
     const ring2Mat = new THREE.MeshBasicMaterial({
       color: accentColor,
-      side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.65,
       blending: THREE.AdditiveBlending
     });
     this.materials.push(ring2Mat);
     this.haloRing2 = new THREE.Mesh(ring2Geom, ring2Mat);
-    this.haloRing2.rotation.x = Math.PI / 2;
-    this.haloRing2.position.y = 1.0;
+    this.haloRing2.rotation.x = -Math.PI / 4;
+    this.haloRing2.position.y = 2.4;
     this.root.add(this.haloRing2);
 
-    // 4. Floating Ember Particles (Sparks rising in spiral)
-    const sparkGeom = new THREE.OctahedronGeometry(0.18, 0);
-    this.geometries.push(sparkGeom);
-    const sparkMat = new THREE.MeshBasicMaterial({
-      color: accentColor,
+    // 4. Floating Crystal Photon Particles (Spiraling upwards)
+    const particleGeom = new THREE.OctahedronGeometry(0.18, 0);
+    this.geometries.push(particleGeom);
+    const particleMat = new THREE.MeshBasicMaterial({
+      color: primaryColor,
       transparent: true,
       opacity: 0.9,
       blending: THREE.AdditiveBlending
     });
-    this.materials.push(sparkMat);
+    this.materials.push(particleMat);
 
-    for (let i = 0; i < 22; i++) {
-      const pMesh = new THREE.Mesh(sparkGeom, sparkMat);
+    for (let i = 0; i < 24; i++) {
+      const pMesh = new THREE.Mesh(particleGeom, particleMat);
       const angle = Math.random() * Math.PI * 2;
-      const radius = 0.4 + Math.random() * 1.8;
-      const speed = 1.5 + Math.random() * 2.5;
-      const startY = Math.random() * 12.0;
+      const radius = 0.6 + Math.random() * 2.2;
+      const speed = 1.8 + Math.random() * 3.0;
+      const startY = Math.random() * 16.0;
       pMesh.position.set(Math.cos(angle) * radius, startY, Math.sin(angle) * radius);
       this.root.add(pMesh);
       this.particles.push({
@@ -585,9 +676,9 @@ export class BonfireFlame {
       });
     }
 
-    // 5. Dynamic Light
-    this.light = new THREE.PointLight(primaryColor, 3.0, 35, 1.2);
-    this.light.position.y = 2.5;
+    // 5. Dynamic Cyber PointLight
+    this.light = new THREE.PointLight(primaryColor, 3.5, 40, 1.2);
+    this.light.position.y = 2.4;
     this.root.add(this.light);
   }
 
@@ -599,8 +690,10 @@ export class BonfireFlame {
     const accentColor = new THREE.Color(accentHex);
 
     (this.beaconBeam.material as THREE.MeshBasicMaterial).color.copy(primaryColor);
-    (this.outerFlame.material as THREE.MeshBasicMaterial).color.copy(primaryColor);
-    (this.coreFlame.material as THREE.MeshBasicMaterial).color.copy(accentColor);
+    (this.innerBeam.material as THREE.MeshBasicMaterial).color.copy(accentColor);
+    (this.crystalCore.material as THREE.MeshStandardMaterial).color.copy(primaryColor);
+    (this.crystalCore.material as THREE.MeshStandardMaterial).emissive.copy(primaryColor);
+    (this.crystalInnerCore.material as THREE.MeshBasicMaterial).color.copy(accentColor);
     (this.haloRing1.material as THREE.MeshBasicMaterial).color.copy(primaryColor);
     (this.haloRing2.material as THREE.MeshBasicMaterial).color.copy(accentColor);
     this.light.color.copy(primaryColor);
@@ -610,44 +703,50 @@ export class BonfireFlame {
     this.elapsedTime += delta;
     const t = this.elapsedTime;
 
-    // Beacon beam rotation & pulse
-    this.beaconBeam.rotation.y += 0.35 * delta;
-    (this.beaconBeam.material as THREE.MeshBasicMaterial).opacity = 0.32 + 0.14 * Math.sin(t * 3.0);
+    // Laser beam rotation & pulse
+    this.beaconBeam.rotation.y += 0.45 * delta;
+    (this.beaconBeam.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.15 * Math.sin(t * 3.2);
 
-    // Flame flicker
-    const fScaleY = 1.0 + 0.22 * Math.sin(t * 14.0) + 0.12 * Math.cos(t * 22.0);
-    const fScaleXZ = 1.0 + 0.14 * Math.cos(t * 12.0);
-    this.coreFlame.scale.set(fScaleXZ, fScaleY, fScaleXZ);
-    this.coreFlame.rotation.y += 2.0 * delta;
+    this.innerBeam.rotation.y -= 0.6 * delta;
+    (this.innerBeam.material as THREE.MeshBasicMaterial).opacity = 0.65 + 0.2 * Math.cos(t * 4.0);
 
-    this.outerFlame.scale.set(fScaleXZ * 1.05, fScaleY * 1.08, fScaleXZ * 1.05);
-    this.outerFlame.rotation.y -= 1.5 * delta;
+    // Floating crystal core hovering & rotation
+    const floatY = 2.4 + 0.28 * Math.sin(t * 2.2);
+    this.crystalCore.position.y = floatY;
+    this.crystalCore.rotation.y += 1.5 * delta;
+    this.crystalCore.rotation.x = 0.2 * Math.sin(t * 1.8);
+    this.crystalCore.rotation.z = 0.2 * Math.cos(t * 1.6);
 
-    // Halo energy rings rotate & breathe
-    this.haloRing1.rotation.z += 1.2 * delta;
-    const ring1Pulse = 1.0 + 0.12 * Math.sin(t * 4.0);
-    this.haloRing1.scale.set(ring1Pulse, ring1Pulse, 1);
+    this.crystalInnerCore.position.y = floatY;
+    this.crystalInnerCore.rotation.y -= 2.2 * delta;
 
-    this.haloRing2.rotation.z -= 0.8 * delta;
-    const ring2Pulse = 1.0 + 0.16 * Math.cos(t * 3.5);
-    this.haloRing2.scale.set(ring2Pulse, ring2Pulse, 1);
+    // Energy rings rotation
+    this.haloRing1.rotation.z += 1.6 * delta;
+    this.haloRing1.rotation.y += 0.8 * delta;
+    this.haloRing1.position.y = floatY;
 
-    // Flickering PointLight
-    this.light.intensity = 2.4 + 0.8 * Math.sin(t * 15.0) + 0.4 * Math.cos(t * 23.0);
+    this.haloRing2.rotation.z -= 1.2 * delta;
+    this.haloRing2.rotation.x += 0.9 * delta;
+    this.haloRing2.position.y = floatY;
 
-    // Floating Ember Particles
+    // PointLight cyber flicker
+    this.light.intensity = 3.0 + 1.0 * Math.sin(t * 6.0) + 0.4 * Math.cos(t * 12.0);
+    this.light.position.y = floatY;
+
+    // Floating crystal photon particles
     for (const p of this.particles) {
       p.y += p.speed * delta;
-      p.angle += 1.5 * delta;
-      if (p.y > 14.0) {
-        p.y = 0.2 + Math.random() * 0.8;
+      p.angle += 2.0 * delta;
+      if (p.y > 18.0) {
+        p.y = 0.4 + Math.random() * 0.8;
         p.angle = Math.random() * Math.PI * 2;
       }
-      const r = p.orbitRadius * (1.0 + p.y * 0.15);
+      const r = p.orbitRadius * (1.0 + p.y * 0.12);
       p.mesh.position.set(Math.cos(p.angle) * r, p.y, Math.sin(p.angle) * r);
+      p.mesh.rotation.y += 3.0 * delta;
 
-      const fade = Math.max(0, 1.0 - (p.y / 14.0));
-      p.mesh.scale.setScalar(fade * 0.9 + 0.1);
+      const fade = Math.max(0, 1.0 - (p.y / 18.0));
+      p.mesh.scale.setScalar(fade * 0.95 + 0.05);
     }
   }
 
@@ -661,3 +760,7 @@ export class BonfireFlame {
     this.root.clear();
   }
 }
+
+// Backward-compatibility alias
+export const BonfireFlame = BeaconLight;
+

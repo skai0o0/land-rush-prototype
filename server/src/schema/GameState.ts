@@ -21,11 +21,21 @@ export class PlayerState extends Schema {
   @type("string") currentRole: string = "assault"; // assault | fortify | support
   @type("string") mode: string = "normal"; // normal | dev
   @type("boolean") isLockedSchool: boolean = true;
-  @type("number") charcoal: number = 0;
-  @type("number") silverKeys: number = 0;
-  @type("number") goldKeys: number = 0;
-  @type("number") platinumKeys: number = 0;
+  @type("number") crystals: number = 0;
+  @type("number") aspireKeys: number = 0;
+  @type("number") nitroKeys: number = 0;
+  @type("number") predatorKeys: number = 0;
+  @type({ map: "number" }) guessCooldowns = new MapSchema<number>();
   @type("boolean") hasWeeklyRunningPoints: boolean = false;
+
+  get charcoal(): number { return this.crystals; }
+  set charcoal(val: number) { this.crystals = val; }
+  get silverKeys(): number { return this.aspireKeys; }
+  set silverKeys(val: number) { this.aspireKeys = val; }
+  get goldKeys(): number { return this.nitroKeys; }
+  set goldKeys(val: number) { this.nitroKeys = val; }
+  get platinumKeys(): number { return this.predatorKeys; }
+  set platinumKeys(val: number) { this.predatorKeys = val; }
 }
 
 export class HQState extends Schema {
@@ -40,11 +50,20 @@ export class LandmarkState extends Schema {
   @type("number") x: number = 0;
   @type("number") y: number = 0;
   @type("string") ownerId: string = "";
-  @type("number") currentFuel: number = 0; // Lượng than củi hiện tại của trường dẫn đầu
-  @type("number") maxFuel: number = 500; // Mặc định 500 than củi để thắp lửa
-  @type("string") litBySchoolId: string = ""; // ID trường đang thắp lửa (ban đầu "")
-  @type({ map: "number" }) fuelBySchool = new MapSchema<number>(); // Than củi từng trường nạp
-  @type("boolean") buffActive: boolean = false; // Kích hoạt buff khi đạt maxFuel
+  @type("number") currentCrystals: number = 0; // Lượng tinh thể hiện tại của trường dẫn đầu
+  @type("number") maxCrystals: number = 100; // Mặc định 100 tinh thể để thắp sáng đèn hiệu
+  @type("string") litBySchoolId: string = ""; // ID trường đang thắp sáng đèn hiệu (ban đầu "")
+  @type({ map: "number" }) crystalsBySchool = new MapSchema<number>(); // Tinh thể từng trường nạp
+  @type("boolean") buffActive: boolean = false; // Kích hoạt buff khi đạt maxCrystals hoặc overtake
+  @type("boolean") nameGuessed: boolean = false;
+  @type("string") guessedBySchoolId: string = "";
+
+  get currentFuel(): number { return this.currentCrystals; }
+  set currentFuel(val: number) { this.currentCrystals = val; }
+  get maxFuel(): number { return this.maxCrystals; }
+  set maxFuel(val: number) { this.maxCrystals = val; }
+  get fuelBySchool(): MapSchema<number> { return this.crystalsBySchool; }
+  set fuelBySchool(val: MapSchema<number>) { this.crystalsBySchool = val; }
 }
 
 export class UniStopState extends Schema {
@@ -61,7 +80,7 @@ export class UniStopState extends Schema {
 
 export class ChestState extends Schema {
   @type("string") id: string = "";
-  @type("string") tier: string = "silver"; // 'silver' | 'gold' | 'platinum'
+  @type("string") tier: string = "aspire"; // 'aspire' | 'nitro' | 'predator'
   @type("number") x: number = 0;
   @type("number") z: number = 0;
   @type("boolean") isOpened: boolean = false;

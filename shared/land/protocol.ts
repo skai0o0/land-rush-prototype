@@ -20,9 +20,19 @@ export interface StudyFrame {
   points?: number;
 }
 
+export interface CrystalFrame {
+  t: 'crystal';
+  landmarkId: string;
+  crystals?: number;
+  amount?: number;
+  points?: number;
+}
+
 export interface FuelFrame {
   t: 'fuel';
   landmarkId: string;
+  crystals?: number;
+  amount?: number;
   points?: number;
 }
 
@@ -77,7 +87,7 @@ export interface AckFrame {
   reason?: string;
 }
 
-export type ClientFrame = ClaimFrame | FortifyFrame | StudyFrame | FuelFrame;
+export type ClientFrame = ClaimFrame | FortifyFrame | StudyFrame | CrystalFrame | FuelFrame;
 export type ServerFrame = SnapFrame | OwnBatchFrame | CombatFrame | AckFrame;
 export type AnyFrame = ClientFrame | ServerFrame;
 
@@ -117,9 +127,35 @@ function decodeStudy(v: any): StudyFrame | null {
   return frame;
 }
 
+function decodeCrystal(v: any): CrystalFrame | null {
+  if (!isStr(v.landmarkId) || !v.landmarkId) return null;
+  const frame: CrystalFrame = { t: 'crystal', landmarkId: v.landmarkId };
+  if (v.crystals !== undefined) {
+    if (!isNum(v.crystals) || v.crystals < 0) return null;
+    frame.crystals = v.crystals;
+  }
+  if (v.amount !== undefined) {
+    if (!isNum(v.amount) || v.amount < 0) return null;
+    frame.amount = v.amount;
+  }
+  if (v.points !== undefined) {
+    if (!isNum(v.points) || v.points < 0) return null;
+    frame.points = v.points;
+  }
+  return frame;
+}
+
 function decodeFuel(v: any): FuelFrame | null {
   if (!isStr(v.landmarkId) || !v.landmarkId) return null;
   const frame: FuelFrame = { t: 'fuel', landmarkId: v.landmarkId };
+  if (v.crystals !== undefined) {
+    if (!isNum(v.crystals) || v.crystals < 0) return null;
+    frame.crystals = v.crystals;
+  }
+  if (v.amount !== undefined) {
+    if (!isNum(v.amount) || v.amount < 0) return null;
+    frame.amount = v.amount;
+  }
   if (v.points !== undefined) {
     if (!isNum(v.points) || v.points < 0) return null;
     frame.points = v.points;
@@ -211,6 +247,8 @@ export function decodeFrame(raw: string | object): AnyFrame | null {
       return decodeFortify(v);
     case 'study':
       return decodeStudy(v);
+    case 'crystal':
+      return decodeCrystal(v);
     case 'fuel':
       return decodeFuel(v);
     case 'snap':
@@ -228,7 +266,7 @@ export function decodeFrame(raw: string | object): AnyFrame | null {
 
 export function decodeClientFrame(raw: string | object): ClientFrame | null {
   const f = decodeFrame(raw);
-  if (f && (f.t === 'claim' || f.t === 'fortify' || f.t === 'study' || f.t === 'fuel')) return f;
+  if (f && (f.t === 'claim' || f.t === 'fortify' || f.t === 'study' || f.t === 'crystal' || f.t === 'fuel')) return f;
   return null;
 }
 
@@ -248,6 +286,13 @@ export function makeFortify(x: number, y: number): FortifyFrame {
 
 export function makeStudy(x: number, y: number, points?: number): StudyFrame {
   const frame: StudyFrame = { t: 'study', x, y };
+  if (points !== undefined) frame.points = points;
+  return frame;
+}
+
+export function makeCrystal(landmarkId: string, crystals?: number, points?: number): CrystalFrame {
+  const frame: CrystalFrame = { t: 'crystal', landmarkId };
+  if (crystals !== undefined) frame.crystals = crystals;
   if (points !== undefined) frame.points = points;
   return frame;
 }

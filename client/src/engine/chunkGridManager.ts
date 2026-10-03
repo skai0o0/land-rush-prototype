@@ -1,11 +1,12 @@
 import * as THREE from "three";
 import { getTerrainColor, getTerrainHeight, isInsideLeveledZone } from "./terrainNoise";
 import type { FogOfWarManager } from "./fogOfWarManager";
+import { applyFogOfWar } from "./fogOfWarShader";
 
 export const MAP_SIZE = 1000;
 export const CHUNK_SIZE = 50;
 export const CHUNKS_PER_AXIS = MAP_SIZE / CHUNK_SIZE; // 20
-export const DARK_CYBER_MIST_COLOR = 0x0a0e17; // Predator Unexplored Cyber Mist
+export const DARK_CYBER_MIST_COLOR = 0xd1d5db; // Light grey mist shade for unexplored tiles
 
 interface ChunkData {
   cx: number;
@@ -64,6 +65,8 @@ export class ChunkGridManager {
 
   public setFogOfWar(fog: FogOfWarManager): void {
     this.fogOfWar = fog;
+    applyFogOfWar(this.tileMaterial, fog);
+    this.tileMaterial.needsUpdate = true;
     // Resync existing loaded chunks with initial vision state
     this.syncChunksWithFog();
   }
@@ -90,8 +93,7 @@ export class ChunkGridManager {
             const wy = cy * CHUNK_SIZE + ly;
 
             const baseHeight = getTerrainHeight(wx, wy);
-            const isRevealed = this.fogOfWar ? this.fogOfWar.isRevealed(wx, wy) : false;
-            const initialColorHex = isRevealed ? getTerrainColor(wx, wy) : DARK_CYBER_MIST_COLOR;
+            const initialColorHex = getTerrainColor(wx, wy);
 
             // Center tile in world coordinates
             dummy.position.set(wx, baseHeight, wy);
@@ -424,12 +426,10 @@ export class ChunkGridManager {
           const wx = chunk.cx * CHUNK_SIZE + lx;
           const wy = chunk.cy * CHUNK_SIZE + ly;
 
-          const isRevealed = this.fogOfWar!.isRevealed(wx, wy);
-          if (!isRevealed) {
-            this.tempColor.setHex(DARK_CYBER_MIST_COLOR);
-            chunk.mesh.setColorAt(idx, this.tempColor);
-            hasUpdate = true;
-          }
+          const targetColorHex = getTerrainColor(wx, wy);
+          this.tempColor.setHex(targetColorHex);
+          chunk.mesh.setColorAt(idx, this.tempColor);
+          hasUpdate = true;
           idx++;
         }
       }
@@ -492,8 +492,7 @@ export class ChunkGridManager {
     const ly = y % CHUNK_SIZE;
     const instanceIdx = ly * CHUNK_SIZE + lx;
 
-    const isRev = this.fogOfWar ? this.fogOfWar.isRevealed(x, y) : true;
-    const targetColorHex = isRev ? getTerrainColor(x, y) : DARK_CYBER_MIST_COLOR;
+    const targetColorHex = getTerrainColor(x, y);
     this.tempColor.setHex(targetColorHex);
     chunk.mesh.setColorAt(instanceIdx, this.tempColor);
     if (chunk.mesh.instanceColor) {

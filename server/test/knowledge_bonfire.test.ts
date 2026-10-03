@@ -153,21 +153,29 @@ async function runTests() {
 
     const tB = new TileState();
     tB.x = 600; tB.y = 601; tB.ownerId = "dtu"; tB.retention = 20;
-    // Simulate neglected for 60 seconds (> 30s threshold)
+    // Simulate neglected for 60 seconds
     tB.lastStudiedAt = Date.now() - 60000;
     // DTU hasn't studied, but HCMUT studied this border
     tB.studyCountBySchool.set("hcmut", 5);
     room.state.claimedTiles.set("600,601", tB);
     room.landData.setOwner(600, 601, "dtu");
 
-    // Run knowledge decay
+    // 3a. In production mode (players have mode = 'normal'), 60s neglect (< 12 hours) does NOT decay
     room.processKnowledgeDecay();
-    assert.strictEqual(tB.retention, 10, "Neglected tile should decay by 10");
+    assert.strictEqual(tB.retention, 20, "In production mode, 60s neglect (< 12h threshold) should NOT decay");
+
+    // 3b. Simulate dev mode (player has mode = 'dev') -> threshold drops to 30s
+    playerA.mode = "dev";
+    room.processKnowledgeDecay();
+    assert.strictEqual(tB.retention, 10, "In dev mode, 60s neglect (> 30s threshold) should decay by 10");
 
     // Run again -> retention drops to 0 -> transfer to HCMUT (chăm hơn)
     room.processKnowledgeDecay();
     assert.strictEqual(tB.ownerId, "hcmut", "Neglected tile with retention <= 0 must transfer to diligent neighbor");
     assert.strictEqual(tB.retention, 60, "Newly transferred tile reset to 60 retention");
+
+    // Reset playerA back to normal for subsequent tests
+    playerA.mode = "normal";
 
     // Isolated tile (not overlap, e.g. 700, 700 without enemy neighbor)
     const tIsolated = new TileState();
@@ -175,24 +183,26 @@ async function runTests() {
     tIsolated.lastStudiedAt = Date.now() - 60000;
     room.state.claimedTiles.set("700,700", tIsolated);
 
+    playerA.mode = "dev";
     room.processKnowledgeDecay();
     assert.strictEqual(tIsolated.retention, 80, "Isolated tile inside territory should NOT decay");
+    playerA.mode = "normal";
 
     console.log("✅ Test 3 Passed: Knowledge decay loop decays only neglected overlap tiles and transfers properly!");
   }
 
-  console.log("\n[Test 4] Landmark Bonfire & Fuel Contribution (Thắp lửa Công trình)");
+  console.log("\n[Test 4] Landmark Beacon & Crystal Contribution (Thắp sáng Đèn hiệu)");
   {
     const lm = Array.from(room.state.landmarks.values())[0];
     assert.ok(lm, "At least one landmark must exist");
-    assert.strictEqual(lm.currentFuel, 0);
-    assert.strictEqual(lm.maxFuel, 500);
+    assert.strictEqual(lm.currentCrystals, 0);
+    assert.strictEqual(lm.maxCrystals, 100);
     assert.strictEqual(lm.litBySchoolId, "");
     assert.strictEqual(lm.buffActive, false);
 
-    // 4a. Fuel contribution fails if school has not reached the landmark
+    // 4a. Crystal contribution fails if school has not reached the landmark
     clientA.clear();
-    room.handleContributeFuelAction(clientA as any, { landmarkId: lm.id, points: 50 });
+    room.handleContributeCrystalAction(clientA as any, { landmarkId: lm.id, crystals: 50 });
     const pathErr = clientA.lastMessage("error");
     assert.ok(pathErr?.payload.message.includes("chưa mở đường"), "Must require path to landmark");
 
@@ -206,18 +216,22 @@ async function runTests() {
 
     assert.strictEqual(room.hasPathToLandmark("hcmut", lm), true, "School HCMUT now has path to landmark");
 
-    // 4c. Contribute partial fuel (200)
+    // 4c. Resource check: Player A has 10 crystals, contributes 40 -> 10 crystals used, 30 points deducted
+    playerA.crystals = 10;
+    const prevPoints = playerA.personalTroops;
     clientA.clear();
-    room.handleContributeFuelAction(clientA as any, { landmarkId: lm.id, points: 200 });
-    assert.strictEqual(lm.fuelBySchool.get("hcmut"), 200, "Fuel for HCMUT must be 200");
-    assert.strictEqual(lm.currentFuel, 200, "Current fuel must be 200");
-    assert.strictEqual(lm.buffActive, false, "Buff must not be active before reaching 500");
-    assert.strictEqual(lm.litBySchoolId, "", "Bonfire must not be lit before 500");
+    room.handleContributeCrystalAction(clientA as any, { landmarkId: lm.id, crystals: 40 });
+    assert.strictEqual(playerA.crystals, 0, "Crystals must be consumed first");
+    assert.strictEqual(playerA.personalTroops, prevPoints - 30, "Remaining 30 deducted from points");
+    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 40, "Crystals for HCMUT must be 40");
+    assert.strictEqual(lm.currentCrystals, 40, "Current crystals must be 40");
+    assert.strictEqual(lm.buffActive, false, "Buff must not be active before reaching 100");
+    assert.strictEqual(lm.litBySchoolId, "", "Beacon must not be lit before 100 crystals");
 
-    // 4d. Reach maxFuel (contribute 300 more -> total 500)
-    room.handleContributeFuelAction(clientA as any, { landmarkId: lm.id, points: 300 });
-    assert.strictEqual(lm.fuelBySchool.get("hcmut"), 500);
-    assert.strictEqual(lm.litBySchoolId, "hcmut", "HCMUT reached 500 fuel and lit the bonfire!");
+    // 4d. Reach maxCrystals (contribute 60 more -> total 100)
+    room.handleContributeCrystalAction(clientA as any, { landmarkId: lm.id, crystals: 60 });
+    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 100);
+    assert.strictEqual(lm.litBySchoolId, "hcmut", "HCMUT reached 100 crystals and lit the beacon!");
     assert.strictEqual(lm.buffActive, true, "Landmark buff must be active");
     assert.strictEqual(lm.ownerId, "hcmut", "Landmark owner set to lighting school");
 
@@ -228,7 +242,8 @@ async function runTests() {
     const bonus = config.troopBonus || 6;
     assert.ok(afterTickTroops >= initialTroops + bonus, "Lit landmark buff must grant troops/points in logic tick");
 
-    // 4f. Another school (DTU) opens path and overtakes the bonfire
+    // 4f. Overtake competition rule:
+    // Another school (DTU) opens path to landmark
     const dtuAdjTile = new TileState();
     dtuAdjTile.x = lm.x + config.footprint.width;
     dtuAdjTile.y = lm.y;
@@ -238,26 +253,88 @@ async function runTests() {
 
     assert.strictEqual(room.hasPathToLandmark("dtu", lm), true, "DTU now has path to landmark");
 
-    // DTU contributes 520 fuel (> 500)
+    // DTU contributes 110 crystals (< 100 + 20 = 120) -> MUST NOT OVERTAKE
     clientB.clear();
-    room.handleContributeFuelAction(clientB as any, { landmarkId: lm.id, points: 520 });
-    assert.strictEqual(lm.litBySchoolId, "dtu", "DTU must overtake bonfire when surpassing current fuel");
+    room.handleContributeCrystalAction(clientB as any, { landmarkId: lm.id, crystals: 110 });
+    assert.strictEqual(lm.crystalsBySchool.get("dtu"), 110);
+    assert.strictEqual(lm.litBySchoolId, "hcmut", "DTU cannot overtake without delta >= 20 crystals!");
+
+    // DTU contributes 10 more crystals (total 120 >= 100 + 20) -> OVERTAKES BEACON!
+    room.handleContributeCrystalAction(clientB as any, { landmarkId: lm.id, crystals: 10 });
+    assert.strictEqual(lm.crystalsBySchool.get("dtu"), 120);
+    assert.strictEqual(lm.litBySchoolId, "dtu", "DTU overtakes beacon upon reaching delta >= 20 crystals!");
     assert.strictEqual(lm.ownerId, "dtu");
     assert.strictEqual(lm.buffActive, true);
-    assert.strictEqual(lm.currentFuel, 520);
+    assert.strictEqual(lm.currentCrystals, 120);
 
-    console.log("✅ Test 4 Passed: Landmark Bonfire ignition, buffs, and overtake mechanics work flawlessly!");
+    console.log("✅ Test 4 Passed: Landmark Beacon ignition, buffs, and delta >= 20 overtake work flawlessly!");
   }
 
-  console.log("\n[Test 5] Backward compatibility of fortify message");
+  console.log("\n[Test 5] Landmark Guessing Mechanics (Giải đố Tên Công trình)");
   {
-    // Calling fortify_tile should route to studyTile
-    const tFriendly = room.state.claimedTiles.get("500,500")!;
-    tFriendly.retention = 70;
+    const lm = Array.from(room.state.landmarks.values())[0];
+    const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
+    assert.strictEqual(lm.nameGuessed, false);
+
+    // 5a. Incorrect guess -> returns error and triggers 10 min cooldown
+    clientA.clear();
+    room.handleGuessLandmark(clientA as any, { landmarkId: lm.id, guess: "Tên Sai Hoàn Toàn" });
+    const wrongErr = clientA.lastMessage("error");
+    assert.ok(wrongErr, "Must return error on wrong guess");
+    assert.ok(wrongErr?.payload.message.includes("chưa chính xác"), "Error must state wrong answer");
+    const cd = playerA.guessCooldowns.get(lm.id) || 0;
+    assert.ok(cd > Date.now(), "10 minute cooldown must be set on wrong guess");
+
+    // 5b. Guessing again during cooldown -> rejected
+    clientA.clear();
+    room.handleGuessLandmark(clientA as any, { landmarkId: lm.id, guess: config.name });
+    const cdErr = clientA.lastMessage("error");
+    assert.ok(cdErr, "Must reject guess while cooldown active");
+    assert.ok(cdErr?.payload.message.includes("thời gian chờ"), "Error must state cooldown waiting");
+
+    // 5c. Clear cooldown and guess correctly
+    playerA.guessCooldowns.delete(lm.id);
+    const dtuCrystalsBefore = lm.crystalsBySchool.get("dtu") || 0;
+    const hcmutCrystalsBefore = lm.crystalsBySchool.get("hcmut") || 0;
+
+    clientA.clear();
+    // Test case-insensitivity and trim
+    room.handleGuessLandmark(clientA as any, { landmarkId: lm.id, guess: `  ${config.name.toUpperCase()}  ` });
+    const guessResult = clientA.lastMessage("landmark_guess_result");
+    assert.ok(guessResult, "Must receive landmark_guess_result");
+    assert.strictEqual(guessResult.payload.success, true);
+    assert.strictEqual(guessResult.payload.crystalsAwarded, 10);
+    assert.strictEqual(lm.nameGuessed, true, "Landmark nameGuessed must be true");
+    assert.strictEqual(lm.guessedBySchoolId, "hcmut");
+    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), hcmutCrystalsBefore + 10, "+10 bonus crystals awarded to school");
+
+    // 5d. Subsequent guess when already guessed -> rejected
+    clientB.clear();
+    room.handleGuessLandmark(clientB as any, { landmarkId: lm.id, guess: config.name });
+    const alreadyGuessedErr = clientB.lastMessage("error");
+    assert.ok(alreadyGuessedErr?.payload.message.includes("đã được giải đố"), "Must reject if already guessed");
+
+    console.log("✅ Test 5 Passed: Landmark guessing cooldowns, case-insensitive match, and rewards verified!");
+  }
+
+  console.log("\n[Test 6] Disabled fortify action and backward compatibility of contributeFuel message");
+  {
+    // Calling fortify / fortify_tile must return replaced mechanism error message
     clientA.clear();
     (room as any).handleFortifyAction(clientA, { x: 500, y: 500 }, "fortify");
-    assert.ok(tFriendly.retention > 70, "Fortify action must route to study and boost retention");
-    console.log("✅ Test 5 Passed: fortify backwards-compatibility preserved!");
+    const fortifyErr = clientA.lastMessage("error");
+    assert.ok(fortifyErr, "Fortify action must return error");
+    assert.ok(
+      fortifyErr?.payload.message.includes("Cơ chế gia cố đã được thay thế bằng cơ chế Giao lưu tri thức & Ôn bài!"),
+      "Must inform user that fortify is replaced by study mechanics"
+    );
+
+    // Calling contributeFuel should route to handleContributeCrystalAction
+    const lm = Array.from(room.state.landmarks.values())[0];
+    const prevCrystals = lm.crystalsBySchool.get("hcmut") || 0;
+    room.handleContributeFuelAction(clientA as any, { landmarkId: lm.id, points: 5 });
+    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), prevCrystals + 5, "contributeFuel must route to crystal contribution");
+    console.log("✅ Test 6 Passed: fortify disabled with notice and contributeFuel backwards-compatibility preserved!");
   }
 
   room.onDispose();

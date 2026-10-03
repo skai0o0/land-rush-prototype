@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import {
-  createMelaleucaGeometry,
-  createPoincianaGeometry,
-  createGraniteGeometry,
-  createWildGrassGeometry
+  createOakTreeGeometry,
+  createBirchTreeGeometry,
+  createGrassTuftGeometry,
+  createFlowerGeometry
 } from "./natureProps";
 import {
   getTerrainHeight,
@@ -11,16 +11,21 @@ import {
   isRoad,
   isHoDaLake
 } from "./terrainNoise";
+import { expandRect, getHQRect, getLandmarkRect } from "../../../shared/constants/footprint";
+import { applyFogOfWar } from "./fogOfWarShader";
+import type { FogOfWarManager } from "./fogOfWarManager";
 
 export class NatureGridManager {
   public group: THREE.Group = new THREE.Group();
 
-  private melaleucaMesh!: THREE.InstancedMesh;
-  private poincianaMesh!: THREE.InstancedMesh;
-  private graniteMesh!: THREE.InstancedMesh;
+  private oakMesh!: THREE.InstancedMesh;
+  private birchMesh!: THREE.InstancedMesh;
   private grassMesh!: THREE.InstancedMesh;
+  private flowerMesh!: THREE.InstancedMesh;
 
   private isBuilt = false;
+  private fogOfWar: FogOfWarManager | null = null;
+  private natureMaterial?: THREE.MeshLambertMaterial;
 
   // Set of exclusion coordinate keys: "x,y"
   private exclusionSet: Set<string> = new Set();
@@ -31,15 +36,25 @@ export class NatureGridManager {
     this.group.name = "NaturePropsGroup";
   }
 
+  public setFogOfWar(fog: FogOfWarManager): void {
+    this.fogOfWar = fog;
+    if (this.natureMaterial) {
+      applyFogOfWar(this.natureMaterial, fog);
+      this.natureMaterial.needsUpdate = true;
+    }
+  }
+
   public isExcluded(x: number, y: number): boolean {
     if (this.exclusionSet.has(`${x},${y}`)) return true;
     for (let i = 0; i < this.currentHQs.length; i++) {
       const hq = this.currentHQs[i];
-      if (Math.abs(x - hq.x) <= 12 && Math.abs(y - hq.y) <= 12) return true;
+      const bounds = expandRect(getHQRect(hq.x, hq.y));
+      if (x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY) return true;
     }
     for (let i = 0; i < this.currentLandmarks.length; i++) {
       const lm = this.currentLandmarks[i];
-      if (x >= lm.x - 2 && x <= lm.x + lm.width + 2 && y >= lm.y - 2 && y <= lm.y + lm.height + 2) {
+      const bounds = expandRect(getLandmarkRect(lm.x, lm.y, lm.width, lm.height));
+      if (x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY) {
         return true;
       }
     }
@@ -56,18 +71,20 @@ export class NatureGridManager {
 
     // Exclude HQs: HQ models have ~20 tiles diameter (radius 10). Use 12x12 buffer to fully clear the school grounds
     for (const hq of hqs) {
-      for (let dx = -12; dx <= 12; dx++) {
-        for (let dy = -12; dy <= 12; dy++) {
-          this.exclusionSet.add(`${hq.x + dx},${hq.y + dy}`);
+      const bounds = expandRect(getHQRect(hq.x, hq.y));
+      for (let x = bounds.minX; x <= bounds.maxX; x++) {
+        for (let y = bounds.minY; y <= bounds.maxY; y++) {
+          this.exclusionSet.add(`${x},${y}`);
         }
       }
     }
 
     // Exclude Landmarks (footprint + 2 margin)
     for (const lm of landmarks) {
-      for (let dx = -2; dx <= lm.width + 2; dx++) {
-        for (let dy = -2; dy <= lm.height + 2; dy++) {
-          this.exclusionSet.add(`${lm.x + dx},${lm.y + dy}`);
+      const bounds = expandRect(getLandmarkRect(lm.x, lm.y, lm.width, lm.height));
+      for (let x = bounds.minX; x <= bounds.maxX; x++) {
+        for (let y = bounds.minY; y <= bounds.maxY; y++) {
+          this.exclusionSet.add(`${x},${y}`);
         }
       }
     }
@@ -78,27 +95,31 @@ export class NatureGridManager {
 
   public buildProps() {
     if (this.isBuilt) {
-      if (this.melaleucaMesh) this.melaleucaMesh.geometry.dispose();
-      if (this.poincianaMesh) this.poincianaMesh.geometry.dispose();
-      if (this.graniteMesh) this.graniteMesh.geometry.dispose();
+      if (this.oakMesh) this.oakMesh.geometry.dispose();
+      if (this.birchMesh) this.birchMesh.geometry.dispose();
       if (this.grassMesh) this.grassMesh.geometry.dispose();
+      if (this.flowerMesh) this.flowerMesh.geometry.dispose();
       this.group.clear();
     }
 
+    // MeshLambertMaterial with vertex colors to receive and cast natural sunlight
     const material = new THREE.MeshLambertMaterial({
       vertexColors: true
     });
+    this.natureMaterial = material;
+    if (this.fogOfWar) {
+      applyFogOfWar(material, this.fogOfWar);
+    }
 
-    const geomMelaleuca = createMelaleucaGeometry();
-    const geomPoinciana = createPoincianaGeometry();
-    const geomGranite = createGraniteGeometry();
-    const geomGrass = createWildGrassGeometry();
+    const geomOak = createOakTreeGeometry();
+    const geomBirch = createBirchTreeGeometry();
+    const geomGrass = createGrassTuftGeometry();
+    const geomFlower = createFlowerGeometry();
 
-    // Collect transform matrices for each category
-    const melaleucaMatrices: THREE.Matrix4[] = [];
-    const poincianaMatrices: THREE.Matrix4[] = [];
-    const graniteMatrices: THREE.Matrix4[] = [];
+    const oakMatrices: THREE.Matrix4[] = [];
+    const birchMatrices: THREE.Matrix4[] = [];
     const grassMatrices: THREE.Matrix4[] = [];
+    const flowerMatrices: THREE.Matrix4[] = [];
 
     const dummy = new THREE.Object3D();
 
@@ -129,104 +150,131 @@ export class NatureGridManager {
         if (isHoDaLake(jx, jy)) continue;
 
         const h = getTerrainHeight(jx, jy);
-        if (h < 0) continue; // Skip water basins
+        if (h < 0) continue;
 
         const m = getTerrainMoisture(jx, jy);
         const roll = pseudoRandom(jx, jy, 3.3);
 
+        // Ground anchor height: terrain tile top is at h + 0.1
+        const groundH = h + 0.1;
         dummy.rotation.set(0, pseudoRandom(jx, jy, 4.4) * Math.PI * 2, 0);
 
         if (h > 0.15) {
-          // Hills: granite rocks and scattered dry grass
-          if (roll < 0.28) {
-            const scale = 0.7 + pseudoRandom(jx, jy, 5.5) * 0.6;
+          // Hills & Highlands
+          if (roll < 0.07) {
+            // Hill Oak Tree
+            const scale = 0.85 + pseudoRandom(jx, jy, 5.5) * 0.4;
             dummy.scale.set(scale, scale, scale);
-            dummy.position.set(jx, h, jy);
+            dummy.position.set(jx, groundH, jy);
             dummy.updateMatrix();
-            graniteMatrices.push(dummy.matrix.clone());
-          } else if (roll < 0.45 && !isMobile) {
-            const scale = 0.8 + pseudoRandom(jx, jy, 6.6) * 0.4;
+            oakMatrices.push(dummy.matrix.clone());
+          } else if (roll < 0.11) {
+            // Hill Birch Tree
+            const scale = 0.85 + pseudoRandom(jx, jy, 6.6) * 0.35;
             dummy.scale.set(scale, scale, scale);
-            dummy.position.set(jx, h, jy);
+            dummy.position.set(jx, groundH, jy);
+            dummy.updateMatrix();
+            birchMatrices.push(dummy.matrix.clone());
+          } else if (roll < 0.22 && !isMobile) {
+            // Hill Grass Tuft
+            const scale = 0.75 + pseudoRandom(jx, jy, 7.7) * 0.5;
+            dummy.scale.set(scale, scale, scale);
+            dummy.position.set(jx, groundH, jy);
             dummy.updateMatrix();
             grassMatrices.push(dummy.matrix.clone());
           }
         } else {
-          // Plains & woodlands: trees and grass based on moisture
-          if (m > 0.65) {
-            // High moisture: Royal Poinciana forest (phượng vĩ)
-            if (roll < 0.35) {
-              const scale = 0.85 + pseudoRandom(jx, jy, 7.7) * 0.4;
+          // Plains & Lowlands
+          if (m > 0.62) {
+            // High moisture: Birch grove & Wildflowers
+            if (roll < 0.11) {
+              // Birch Tree
+              const scale = 0.9 + pseudoRandom(jx, jy, 8.8) * 0.35;
               dummy.scale.set(scale, scale, scale);
-              dummy.position.set(jx, h, jy);
+              dummy.position.set(jx, groundH, jy);
               dummy.updateMatrix();
-              poincianaMatrices.push(dummy.matrix.clone());
-            } else if (roll < 0.6 && !isMobile) {
-              const scale = 0.8 + pseudoRandom(jx, jy, 8.8) * 0.5;
+              birchMatrices.push(dummy.matrix.clone());
+            } else if (roll < 0.17) {
+              // Wild Flower
+              const scale = 0.8 + pseudoRandom(jx, jy, 9.9) * 0.4;
               dummy.scale.set(scale, scale, scale);
-              dummy.position.set(jx, h, jy);
+              dummy.position.set(jx, groundH, jy);
+              dummy.updateMatrix();
+              flowerMatrices.push(dummy.matrix.clone());
+            } else if (roll < 0.28 && !isMobile) {
+              // Lush Grass Tuft
+              const scale = 0.8 + pseudoRandom(jx, jy, 10.1) * 0.45;
+              dummy.scale.set(scale, scale, scale);
+              dummy.position.set(jx, groundH, jy);
               dummy.updateMatrix();
               grassMatrices.push(dummy.matrix.clone());
             }
-          } else if (m > 0.38) {
-            // Moderate moisture: Melaleuca groves (tràm)
-            if (roll < 0.32) {
-              const scale = 0.85 + pseudoRandom(jx, jy, 9.9) * 0.45;
+          } else if (m > 0.35) {
+            // Moderate moisture: Oak Forest & Grass
+            if (roll < 0.10) {
+              // Oak Tree
+              const scale = 0.85 + pseudoRandom(jx, jy, 11.2) * 0.45;
               dummy.scale.set(scale, scale, scale);
-              dummy.position.set(jx, h, jy);
+              dummy.position.set(jx, groundH, jy);
               dummy.updateMatrix();
-              melaleucaMatrices.push(dummy.matrix.clone());
-            } else if (roll < 0.5 && !isMobile) {
-              const scale = 0.7 + pseudoRandom(jx, jy, 10.1) * 0.5;
+              oakMatrices.push(dummy.matrix.clone());
+            } else if (roll < 0.13) {
+              // Sparse Birch Tree
+              const scale = 0.85 + pseudoRandom(jx, jy, 12.3) * 0.35;
               dummy.scale.set(scale, scale, scale);
-              dummy.position.set(jx, h, jy);
+              dummy.position.set(jx, groundH, jy);
+              dummy.updateMatrix();
+              birchMatrices.push(dummy.matrix.clone());
+            } else if (roll < 0.16) {
+              // Meadow Flower
+              const scale = 0.75 + pseudoRandom(jx, jy, 13.4) * 0.35;
+              dummy.scale.set(scale, scale, scale);
+              dummy.position.set(jx, groundH, jy);
+              dummy.updateMatrix();
+              flowerMatrices.push(dummy.matrix.clone());
+            } else if (roll < 0.26 && !isMobile) {
+              // Grass Tuft
+              const scale = 0.75 + pseudoRandom(jx, jy, 14.5) * 0.4;
+              dummy.scale.set(scale, scale, scale);
+              dummy.position.set(jx, groundH, jy);
               dummy.updateMatrix();
               grassMatrices.push(dummy.matrix.clone());
             }
           } else {
-            // Dry ground: sparse grass and occasional rocks
-            if (roll < 0.25 && !isMobile) {
-              const scale = 0.6 + pseudoRandom(jx, jy, 11.2) * 0.4;
+            // Drier plains
+            if (roll < 0.05) {
+              // Sparse Oak Tree
+              const scale = 0.75 + pseudoRandom(jx, jy, 15.6) * 0.35;
               dummy.scale.set(scale, scale, scale);
-              dummy.position.set(jx, h, jy);
+              dummy.position.set(jx, groundH, jy);
+              dummy.updateMatrix();
+              oakMatrices.push(dummy.matrix.clone());
+            } else if (roll < 0.14 && !isMobile) {
+              // Dry Grass Tuft
+              const scale = 0.65 + pseudoRandom(jx, jy, 16.7) * 0.35;
+              dummy.scale.set(scale, scale, scale);
+              dummy.position.set(jx, groundH, jy);
               dummy.updateMatrix();
               grassMatrices.push(dummy.matrix.clone());
-            } else if (roll < 0.32) {
-              const scale = 0.6 + pseudoRandom(jx, jy, 12.3) * 0.5;
-              dummy.scale.set(scale, scale, scale);
-              dummy.position.set(jx, h, jy);
-              dummy.updateMatrix();
-              graniteMatrices.push(dummy.matrix.clone());
             }
           }
         }
       }
     }
 
-    // Instantiate InstancedMeshes
-    // On Mobile: Disable castShadow to eliminate 50% vertex shader passes in shadow pipeline
-    const shouldCastShadow = !isMobile;
+    this.oakMesh = new THREE.InstancedMesh(geomOak, material, oakMatrices.length);
+    this.oakMesh.castShadow = true;
+    this.oakMesh.receiveShadow = true;
+    oakMatrices.forEach((m, idx) => this.oakMesh.setMatrixAt(idx, m));
+    this.oakMesh.instanceMatrix.needsUpdate = true;
+    this.group.add(this.oakMesh);
 
-    this.melaleucaMesh = new THREE.InstancedMesh(geomMelaleuca, material, melaleucaMatrices.length);
-    this.melaleucaMesh.castShadow = shouldCastShadow;
-    this.melaleucaMesh.receiveShadow = true;
-    melaleucaMatrices.forEach((m, idx) => this.melaleucaMesh.setMatrixAt(idx, m));
-    this.melaleucaMesh.instanceMatrix.needsUpdate = true;
-    this.group.add(this.melaleucaMesh);
-
-    this.poincianaMesh = new THREE.InstancedMesh(geomPoinciana, material, poincianaMatrices.length);
-    this.poincianaMesh.castShadow = shouldCastShadow;
-    this.poincianaMesh.receiveShadow = true;
-    poincianaMatrices.forEach((m, idx) => this.poincianaMesh.setMatrixAt(idx, m));
-    this.poincianaMesh.instanceMatrix.needsUpdate = true;
-    this.group.add(this.poincianaMesh);
-
-    this.graniteMesh = new THREE.InstancedMesh(geomGranite, material, graniteMatrices.length);
-    this.graniteMesh.castShadow = shouldCastShadow;
-    this.graniteMesh.receiveShadow = true;
-    graniteMatrices.forEach((m, idx) => this.graniteMesh.setMatrixAt(idx, m));
-    this.graniteMesh.instanceMatrix.needsUpdate = true;
-    this.group.add(this.graniteMesh);
+    this.birchMesh = new THREE.InstancedMesh(geomBirch, material, birchMatrices.length);
+    this.birchMesh.castShadow = true;
+    this.birchMesh.receiveShadow = true;
+    birchMatrices.forEach((m, idx) => this.birchMesh.setMatrixAt(idx, m));
+    this.birchMesh.instanceMatrix.needsUpdate = true;
+    this.group.add(this.birchMesh);
 
     if (grassMatrices.length > 0) {
       this.grassMesh = new THREE.InstancedMesh(geomGrass, material, grassMatrices.length);
@@ -237,15 +285,25 @@ export class NatureGridManager {
       this.group.add(this.grassMesh);
     }
 
+    if (flowerMatrices.length > 0) {
+      this.flowerMesh = new THREE.InstancedMesh(geomFlower, material, flowerMatrices.length);
+      this.flowerMesh.castShadow = false;
+      this.flowerMesh.receiveShadow = true;
+      flowerMatrices.forEach((m, idx) => this.flowerMesh.setMatrixAt(idx, m));
+      this.flowerMesh.instanceMatrix.needsUpdate = true;
+      this.group.add(this.flowerMesh);
+    }
+
     this.isBuilt = true;
     console.log(
-      `[NatureGridManager] Spawned ${melaleucaMatrices.length} Melaleuca, ${poincianaMatrices.length} Poinciana, ${graniteMatrices.length} Granite, ${grassMatrices.length} Grass (isMobile: ${isMobile}).`
+      `[NatureGridManager] Spawned ${oakMatrices.length} OakTrees, ${birchMatrices.length} BirchTrees, ${grassMatrices.length} GrassTufts, ${flowerMatrices.length} Flowers (isMobile: ${isMobile}).`
     );
   }
 
   public setShadowCasting(castShadow: boolean): void {
-    if (this.melaleucaMesh) this.melaleucaMesh.castShadow = castShadow;
-    if (this.poincianaMesh) this.poincianaMesh.castShadow = castShadow;
-    if (this.graniteMesh) this.graniteMesh.castShadow = castShadow;
+    if (this.oakMesh) this.oakMesh.castShadow = castShadow;
+    if (this.birchMesh) this.birchMesh.castShadow = castShadow;
+    if (this.grassMesh) this.grassMesh.castShadow = castShadow;
+    if (this.flowerMesh) this.flowerMesh.castShadow = castShadow;
   }
 }

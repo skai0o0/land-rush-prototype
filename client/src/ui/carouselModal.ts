@@ -206,10 +206,12 @@ export class CarouselModal {
   private getItemIcon(item: LootItem, size: number = 36): string {
     if (item.type === 'points') {
       return Icons.star(size);
-    } else if (item.type === 'charcoal') {
-      return Icons.flame(size);
+    } else if (item.type === 'crystal' || (item.type as any) === 'charcoal') {
+      return Icons.crystal(size);
     } else if (item.type === 'key') {
       return Icons.key(size);
+    } else if (item.type === 'treasure_map') {
+      return Icons.map(size);
     } else if (item.isRealGift || item.type === 'real_gift') {
       return Icons.gift(size);
     }
@@ -220,7 +222,7 @@ export class CarouselModal {
     switch (rarity) {
       case 'legendary': return '#eab308';
       case 'epic': return '#a855f7';
-      case 'rare': return '#0284c7';
+      case 'rare': return '#00ffe8';
       case 'common':
       default:
         return '#64748b';
@@ -240,7 +242,7 @@ export class CarouselModal {
     const statusEl = this.overlay.querySelector('.carousel-spin-status') as HTMLElement;
 
     if (titleEl) titleEl.textContent = options.title.toUpperCase();
-    if (subtitleEl) subtitleEl.textContent = options.subtitle || (options.sourceType === 'chest' ? 'CYBER CHEST UNBOXING' : 'UNISTOP SUPPLY CRATE');
+    if (subtitleEl) subtitleEl.textContent = options.subtitle || (options.sourceType === 'chest' ? 'CYBER CHEST UNBOXING // PREDATOR' : 'UNISTOP SUPPLY CRATE');
     if (statusEl) statusEl.textContent = 'Đang quay thưởng CS:GO style...';
 
     // 2. Hide Result & Clear Confetti
@@ -255,7 +257,10 @@ export class CarouselModal {
     const items = options.items;
     items.forEach((item, index) => {
       const card = document.createElement('div');
-      card.className = `carousel-card rarity-${item.rarity}`;
+      const isRealGift = !!item.isRealGift || item.type === 'real_gift';
+      const isCrystal = item.type === 'crystal' || (item.type as any) === 'charcoal';
+      
+      card.className = `carousel-card rarity-${item.rarity} ${isRealGift ? 'is-predator-gift' : ''} ${isCrystal ? 'is-crystal-card' : ''}`;
       card.dataset.index = index.toString();
       card.dataset.rarity = item.rarity;
 
@@ -265,14 +270,22 @@ export class CarouselModal {
       const iconSvg = this.getItemIcon(item, 38);
       const isWinner = index === options.winningIndex;
 
+      // Special badge for Real Gifts or Crystals
+      let badgeLabel = item.rarity.toUpperCase();
+      if (isRealGift) {
+        badgeLabel = 'PREDATOR GEAR';
+      } else if (isCrystal && item.amount) {
+        badgeLabel = `+${item.amount} TINH THỂ`;
+      }
+
       card.innerHTML = `
         <div class="card-glow-bg"></div>
         <div class="card-rarity-strip"></div>
-        <div class="card-icon-wrapper">
+        <div class="card-icon-wrapper ${isCrystal ? 'crystal-glow-icon' : ''} ${isRealGift ? 'gift-glow-icon' : ''}">
           ${iconSvg}
         </div>
         <div class="card-info">
-          <span class="card-rarity-label">${item.rarity.toUpperCase()}</span>
+          <span class="card-rarity-label ${isRealGift ? 'brand-label' : ''}">${badgeLabel}</span>
           <span class="card-item-name" title="${item.name}">${item.name}</span>
         </div>
       `;
@@ -299,10 +312,8 @@ export class CarouselModal {
     const targetTranslateX = -(targetCardCenter - centerOffset + jitter);
 
     // 5. Run CS:GO Easing Animation
-    // cubic-bezier(0.12, 0.8, 0.33, 1) -> high initial speed, silky smooth deceleration
     const spinDuration = 4800; // 4.8 seconds
 
-    // Small delay to allow CSS layout reflow before launching transition
     setTimeout(() => {
       this.strip.style.transition = `transform ${spinDuration}ms cubic-bezier(0.12, 0.8, 0.33, 1)`;
       this.strip.style.transform = `translateX(${targetTranslateX}px)`;
@@ -316,7 +327,6 @@ export class CarouselModal {
 
         const elapsed = now - startTime;
         if (elapsed < spinDuration) {
-          // Read current rendered translateX from matrix
           const computed = window.getComputedStyle(this.strip);
           const matrix = computed.transform;
           let currentX = 0;
@@ -326,17 +336,14 @@ export class CarouselModal {
             currentX = parseFloat(values[4]);
           }
 
-          // Calculate which card is currently under the center needle
           const needleWorldX = -currentX + centerOffset;
           const currentCardIndex = Math.floor(needleWorldX / this.cardStep);
 
           if (currentCardIndex !== lastTickIndex && currentCardIndex >= 0 && currentCardIndex < items.length) {
             lastTickIndex = currentCardIndex;
-            // Laser flare effect on needle
             this.needle.classList.add('active-tick');
             setTimeout(() => this.needle.classList.remove('active-tick'), 45);
 
-            // Progressive pitch based on progress
             const progress = elapsed / spinDuration;
             const pitch = 1200 - progress * 500;
             this.playTick(pitch);
@@ -344,7 +351,6 @@ export class CarouselModal {
 
           requestAnimationFrame(trackTicks);
         } else {
-          // Spin Finished!
           this.onSpinComplete(options);
         }
       };
@@ -382,12 +388,22 @@ export class CarouselModal {
       const descEl = this.overlay.querySelector('#cmodal-result-desc') as HTMLElement;
       const celebrationCard = this.overlay.querySelector('.result-card-celebration') as HTMLElement;
 
+      const isRealGift = !!winningItem.isRealGift || winningItem.type === 'real_gift';
+      const isCrystal = winningItem.type === 'crystal' || (winningItem.type as any) === 'charcoal';
       const rarityColor = this.getRarityColor(winningItem.rarity);
       celebrationCard.style.setProperty('--rarity-color', rarityColor);
 
       if (rarityEl) {
-        rarityEl.textContent = `${winningItem.rarity.toUpperCase()} REWARD`;
-        rarityEl.className = `result-badge-rarity rarity-${winningItem.rarity}`;
+        if (isRealGift) {
+          rarityEl.textContent = `[PREDATOR GAMING REWARD]`;
+          rarityEl.className = `result-badge-rarity rarity-legendary`;
+        } else if (isCrystal) {
+          rarityEl.textContent = `+${winningItem.amount || 1} TINH THỂ TRI THỨC`;
+          rarityEl.className = `result-badge-rarity rarity-rare`;
+        } else {
+          rarityEl.textContent = `${winningItem.rarity.toUpperCase()} REWARD`;
+          rarityEl.className = `result-badge-rarity rarity-${winningItem.rarity}`;
+        }
       }
 
       if (iconEl) {
@@ -400,7 +416,13 @@ export class CarouselModal {
       }
 
       if (descEl) {
-        descEl.textContent = winningItem.description || 'Phần thưởng đã được cộng trực tiếp vào hành trang sinh viên!';
+        if (isCrystal) {
+          descEl.textContent = `Đã nhận +${winningItem.amount || 1} Tinh Thể! Dùng để nạp và Thắp sáng Đèn hiệu Công trình Tri thức.`;
+        } else if (isRealGift) {
+          descEl.textContent = winningItem.description || 'Hiện vật Predator Gaming chính hãng dành cho Runner xuất sắc!';
+        } else {
+          descEl.textContent = winningItem.description || 'Phần thưởng đã được cộng trực tiếp vào hành trang sinh viên!';
+        }
       }
 
       this.resultOverlay.classList.add('show');
@@ -414,7 +436,7 @@ export class CarouselModal {
     this.confettiCanvas.height = this.dialog.clientHeight;
 
     const ctx = this.confettiCtx;
-    const count = 75;
+    const count = 85;
     const particles: {
       x: number;
       y: number;
@@ -427,7 +449,7 @@ export class CarouselModal {
       alpha: number;
     }[] = [];
 
-    const colors = ['#00ffe8', '#fbbf24', '#a855f7', '#0062ff', '#ef4444', '#10b981', '#ffffff'];
+    const colors = ['#00ffe8', '#0062ff', '#fbbf24', '#a855f7', '#ef4444', '#10b981', '#ffffff'];
 
     for (let i = 0; i < count; i++) {
       particles.push({

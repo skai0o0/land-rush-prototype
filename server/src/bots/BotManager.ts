@@ -18,8 +18,8 @@ export class BotManager {
     this.landmarkTileMap.clear();
     for (const [_, lm] of landmarks) {
       const config = LANDMARK_ROSTER[lm.landmarkKey];
-      const w = config?.footprint.width || 4;
-      const h = config?.footprint.height || 4;
+      const w = config?.footprint.width || 50;
+      const h = config?.footprint.height || 50;
       for (let dx = 0; dx < w; dx++) {
         for (let dy = 0; dy < h; dy++) {
           this.landmarkTileMap.set(`${lm.x + dx},${lm.y + dy}`, lm.landmarkKey);
@@ -201,10 +201,14 @@ export class BotManager {
       const existing = state.claimedTiles.get(bestKey);
 
       if (isLandmark && lmConfig && existing) {
-        // Landmark bonfire contribution by bot
+        // Landmark beacon contribution by bot
         if (troops >= 20) {
           state.schoolTroops.set(schoolId, troops - 20);
-          room?.handleBotContributeFuel?.(schoolId, lmKey, 20);
+          if (typeof room?.handleBotContributeCrystal === "function") {
+            room.handleBotContributeCrystal(schoolId, lmKey, 20);
+          } else {
+            room?.handleBotContributeFuel?.(schoolId, lmKey, 20);
+          }
         }
       } else if (existing && existing.ownerId !== schoolId) {
         // Normal enemy overlap tile: Study (Giao lưu tri thức)

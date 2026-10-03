@@ -163,8 +163,8 @@ export class SceneManager {
 
   constructor(private container: HTMLElement, private chunkManager: ChunkGridManager) {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xd7e9f7); // Clean sky blue
-    this.scene.fog = new THREE.FogExp2(0xd7e9f7, 0.002);
+    this.scene.background = new THREE.Color(0x87ceeb); // Minecraft Sky Blue (Bầu trời xanh lơ)
+    this.scene.fog = new THREE.FogExp2(0xd1d5db, 0.0005); // Light grey chân trời sương mù tự nhiên
 
     const aspect = container.clientWidth / container.clientHeight;
     this.camera = new THREE.PerspectiveCamera(45, aspect, 1, 2000);
@@ -230,41 +230,37 @@ export class SceneManager {
     const h = getTerrainHeight(x, y);
     const color = new THREE.Color(colorHex);
 
-    // Slender cylinder (radius 0.9, height 60.0) with additive blending
-    const outerGeom = new THREE.CylinderGeometry(0.9, 0.9, 60.0, 24, 1, true);
+    // Minecraft Style Beacon Light: Cột đèn hiệu ấm áp vươn cao
+    const beamGeom = new THREE.CylinderGeometry(0.45, 0.45, 48.0, 16, 1, true);
     this.beaconMaterial = new THREE.MeshBasicMaterial({
       color: color,
       transparent: true,
-      opacity: 0.55,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.35,
       side: THREE.DoubleSide,
       depthWrite: false
     });
-    const outerMesh = new THREE.Mesh(outerGeom, this.beaconMaterial);
-    outerMesh.position.set(x, h + 30.0, y);
-    this.beaconGroup.add(outerMesh);
+    const beamMesh = new THREE.Mesh(beamGeom, this.beaconMaterial);
+    beamMesh.position.set(x, h + 24.0, y);
+    this.beaconGroup.add(beamMesh);
 
-    // Inner bright core beam (radius 0.25, height 65.0)
-    const coreGeom = new THREE.CylinderGeometry(0.25, 0.25, 65.0, 16, 1, true);
+    // Lõi đèn ấm áp (Warm core pillar)
+    const coreGeom = new THREE.CylinderGeometry(0.18, 0.18, 50.0, 12, 1, true);
     this.beaconCoreMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+      color: 0xfffbe8, // Vàng nắng ấm
       transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
+      opacity: 0.55,
       depthWrite: false
     });
     const coreMesh = new THREE.Mesh(coreGeom, this.beaconCoreMaterial);
-    coreMesh.position.set(x, h + 32.5, y);
+    coreMesh.position.set(x, h + 25.0, y);
     this.beaconGroup.add(coreMesh);
 
-    // Pulsing ground target ring encircling 20-tile diameter HQ base
-    const ringGeom = new THREE.RingGeometry(10.2, 11.8, 48);
+    // Vòng mốc mặt đất viền trường học mềm mại quanh khuôn viên Trụ sở HQ (~20 ô)
+    const ringGeom = new THREE.RingGeometry(10.2, 11.4, 48);
     const ringMat = new THREE.MeshBasicMaterial({
       color: color,
       transparent: true,
-      opacity: 0.65,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.45,
       side: THREE.DoubleSide,
       depthWrite: false
     });
@@ -367,14 +363,14 @@ export class SceneManager {
   }
 
   private setupLighting() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
     this.scene.add(ambientLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xe8f4f8, 0x5a4d41, 0.65);
+    const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x5b8c32, 0.7);
     hemiLight.position.set(0, 200, 0);
     this.scene.add(hemiLight);
 
-    const dirLight = new THREE.DirectionalLight(0xfff7e6, 1.25);
+    const dirLight = new THREE.DirectionalLight(0xfffbe8, 1.35);
     dirLight.position.set(this.targetPosition.x + 180, 320, this.targetPosition.z + 180);
     dirLight.target.position.set(this.targetPosition.x, 0, this.targetPosition.z);
     this.scene.add(dirLight.target);

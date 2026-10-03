@@ -478,6 +478,106 @@ html, body {
   color: var(--predator-cyan);
 }
 
+/* Student Action Dock Resource Bar */
+.dock-resource-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 255, 232, 0.15);
+  margin-bottom: 2px;
+}
+
+.dock-res-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dock-res-pill.points {
+  color: #fbbf24;
+}
+
+.dock-res-pill.crystals {
+  color: #00ffe8;
+}
+
+.dock-res-pill.keys {
+  color: #38bdf8;
+}
+
+.dock-res-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.dock-res-val {
+  font-weight: 800;
+}
+
+.dock-keys-mini-tags {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 3px;
+}
+
+.key-tag-mini {
+  font-size: 8px;
+  font-weight: 800;
+  padding: 1px 3px;
+  border-radius: 2px;
+}
+
+.key-tag-mini.aspire {
+  background: rgba(148, 163, 184, 0.25);
+  color: #cbd5e1;
+}
+
+.key-tag-mini.nitro {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+
+.key-tag-mini.predator {
+  background: rgba(0, 255, 232, 0.25);
+  color: #00ffe8;
+}
+
+.mode-text-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.mode-sub {
+  font-size: 9px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.mode-btn.is-active .mode-sub {
+  color: #00ffe8;
+}
+
+.mode-beacon-btn {
+  border-color: rgba(0, 255, 232, 0.35);
+}
+
+.mode-beacon-btn .mode-cost {
+  color: #00ffe8;
+}
+
+
 /* TILE TOOLTIP */
 .tile-tactical-tooltip {
   position: fixed;
@@ -1988,6 +2088,145 @@ html, body {
   color: #94a3b8;
 }
 
+/* Landmark Guessing Card */
+.lm-guessing-card {
+  background: linear-gradient(135deg, rgba(0, 255, 232, 0.08) 0%, rgba(11, 16, 26, 0.8) 100%);
+  border: 1px solid rgba(0, 255, 232, 0.3);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lm-guess-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lm-guess-icon {
+  color: var(--predator-cyan);
+}
+
+.lm-guess-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  color: #00ffe8;
+}
+
+.lm-guess-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-guess-input-wrap {
+  display: flex;
+  gap: 8px;
+}
+
+.lm-guess-input {
+  flex: 1;
+  background: rgba(4, 7, 13, 0.8);
+  border: 1px solid rgba(0, 255, 232, 0.4);
+  border-radius: 4px;
+  color: #ffffff;
+  padding: 8px 12px;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.lm-guess-input:focus {
+  border-color: #00ffe8;
+  box-shadow: 0 0 10px rgba(0, 255, 232, 0.3);
+}
+
+.lm-guess-input.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lm-guess-submit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #00ffe8 0%, #0062ff 100%);
+  color: #04070d;
+  font-weight: 800;
+  font-size: 11px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.lm-guess-submit-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 0 12px rgba(0, 255, 232, 0.5);
+}
+
+.lm-guess-submit-btn:disabled,
+.lm-guess-submit-btn.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.lm-guess-timer {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f59e0b;
+}
+
+.lm-guess-hint {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.lm-guess-solved-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  border-radius: 4px;
+  color: #10b981;
+}
+
+.lm-guess-solved-icon {
+  flex-shrink: 0;
+}
+
+.lm-guess-solved-text {
+  font-size: 11px;
+  color: #e2e8f0;
+}
+
+.lm-guess-solved-text strong {
+  color: #10b981;
+}
+
+.lm-user-balance-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.lm-balance-val.crystal strong {
+  color: #00ffe8;
+}
+
+.lm-balance-val.points strong {
+  color: #fbbf24;
+}
+
 /* Schools Leaderboard */
 .lm-schools-leaderboard {
   display: flex;
@@ -2935,5 +3174,53 @@ html, body {
   color: var(--predator-cyan);
   box-shadow: var(--hud-glow);
 }
+
+/* ============================================================
+   HUD BEACONS & SCI-FI TACTICAL STYLING
+   ============================================================ */
+.stat-beacons .stat-value {
+  color: #00ffe8;
+  text-shadow: 0 0 10px rgba(0, 255, 232, 0.4);
+}
+
+.beacon-glow {
+  filter: drop-shadow(0 0 8px #00ffe8);
+}
+
+/* Predator Loot & Crystal Highlights in Carousel */
+.carousel-card.is-predator-gift {
+  border-color: #eab308 !important;
+  box-shadow: 0 0 14px rgba(234, 179, 8, 0.35);
+}
+
+.carousel-card.is-crystal-card {
+  border-color: rgba(0, 255, 232, 0.6) !important;
+}
+
+.card-icon-wrapper.crystal-glow-icon {
+  color: #00ffe8;
+  filter: drop-shadow(0 0 10px rgba(0, 255, 232, 0.7));
+}
+
+.card-icon-wrapper.gift-glow-icon {
+  color: #eab308;
+  filter: drop-shadow(0 0 10px rgba(234, 179, 8, 0.7));
+}
+
+.card-rarity-label.brand-label {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.lm-leading-beacon {
+  font-size: 10px;
+  color: #00ffe8;
+  font-weight: 800;
+  text-shadow: 0 0 6px rgba(0, 255, 232, 0.5);
+}
+
 
 

@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { getTerrainHeight } from "./terrainNoise";
 import { UNISTOP_CONFIGS, CHEST_CONFIGS, UniStopTier, ChestTier } from "../../../shared/constants/unistops";
+import { applyFogOfWar } from "./fogOfWarShader";
+import type { FogOfWarManager } from "./fogOfWarManager";
 
 export interface UniStopData {
   id: string;
@@ -47,6 +49,7 @@ export class SupplyDropManager {
   private unistops = new Map<string, UniStopMeshEntry>();
   private chests = new Map<string, ChestMeshEntry>();
   private elapsedTime = 0;
+  private fogOfWar: FogOfWarManager | null = null;
 
   // Cached reusable materials & geometries
   private sharedMaterials: THREE.Material[] = [];
@@ -54,6 +57,20 @@ export class SupplyDropManager {
 
   constructor() {
     this.group.name = "SupplyDropsGroup";
+  }
+
+  public setFogOfWar(fog: FogOfWarManager): void {
+    this.fogOfWar = fog;
+    this.group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const m = (child as THREE.Mesh).material;
+        if (m) {
+          applyFogOfWar(m, fog);
+          if (Array.isArray(m)) m.forEach((mat) => (mat.needsUpdate = true));
+          else m.needsUpdate = true;
+        }
+      }
+    });
   }
 
   // =========================================================================
@@ -234,6 +251,15 @@ export class SupplyDropManager {
       }
     }
 
+    if (this.fogOfWar) {
+      unistopGroup.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const m = (child as THREE.Mesh).material;
+          if (m) applyFogOfWar(m, this.fogOfWar!);
+        }
+      });
+    }
+
     this.group.add(unistopGroup);
     this.unistops.set(data.id, {
       data,
@@ -277,7 +303,7 @@ export class SupplyDropManager {
       return;
     }
 
-    const tier = (data.tier || "silver") as ChestTier;
+    const tier = (data.tier || "aspire") as ChestTier;
     const h = getTerrainHeight(data.x, data.z);
     const chestGroup = new THREE.Group();
     chestGroup.name = `Chest_${data.id}`;
@@ -287,23 +313,23 @@ export class SupplyDropManager {
     const materials: THREE.Material[] = [];
 
     // Colors per Tier
-    // Silver: #94a3b8 / #cbd5e1 / #e2e8f0
-    // Gold: #d97706 / #f59e0b / #fbbf24
-    // Platinum: #0284c7 / #00ffe8 / #ffffff
-    let mainColor = 0x475569;
+    // Aspire (silver/cyan): Sleek slate #334155, silver trim #cbd5e1, cyan glow #00ffe8
+    // Nitro (vibrant orange/amber): Bronze copper #7c2d12, vibrant orange trim #f97316, amber glow #fbbf24
+    // Predator (cyber black/neon cyan): Stealth black #0b0e14, neon cyan trim #00ffe8, cyan pulse #00ffe8
+    let mainColor = 0x334155;
     let trimColor = 0xcbd5e1;
-    let glowColor = 0xe2e8f0;
-    let lightColor = 0xffffff;
+    let glowColor = 0x00ffe8;
+    let lightColor = 0x67e8f9;
 
-    if (tier === "gold") {
-      mainColor = 0x92400e;
-      trimColor = 0xfbbf24;
-      glowColor = 0xf59e0b;
-      lightColor = 0xfbbf24;
-    } else if (tier === "platinum") {
-      mainColor = 0x0f172a;
+    if (tier === "nitro" || (tier as any) === "gold") {
+      mainColor = 0x7c2d12;
+      trimColor = 0xf97316;
+      glowColor = 0xfbbf24;
+      lightColor = 0xff6b35;
+    } else if (tier === "predator" || (tier as any) === "platinum") {
+      mainColor = 0x0b0e14;
       trimColor = 0x00ffe8;
-      glowColor = 0x38bdf8;
+      glowColor = 0x00ffe8;
       lightColor = 0x00ffe8;
     }
 
@@ -397,6 +423,15 @@ export class SupplyDropManager {
     const light = new THREE.PointLight(lightColor, data.isOpened ? 0.4 : 2.2, 10, 1.4);
     light.position.set(0, 0.3, 0);
     chestGroup.add(light);
+
+    if (this.fogOfWar) {
+      chestGroup.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const m = (child as THREE.Mesh).material;
+          if (m) applyFogOfWar(m, this.fogOfWar!);
+        }
+      });
+    }
 
     this.group.add(chestGroup);
     this.chests.set(data.id, {

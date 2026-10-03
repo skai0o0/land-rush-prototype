@@ -64,10 +64,18 @@ export interface ClientStudyTileMessage {
   points?: number;
 }
 
-export interface ClientContributeFuelMessage {
+export interface ClientContributeCrystalMessage {
   landmarkId: string;
-  points?: number;
+  crystals?: number;
   amount?: number;
+  points?: number;
+}
+
+export type ClientContributeFuelMessage = ClientContributeCrystalMessage;
+
+export interface ClientGuessLandmarkMessage {
+  landmarkId: string;
+  guess: string;
 }
 
 export interface ClientSetSpeedMessage {
@@ -113,6 +121,7 @@ export interface MapLandmarkPlacement {
   x: number;
   y?: number;
   z?: number;
+  maxCrystals?: number;
   maxFuel?: number;
 }
 
@@ -127,7 +136,7 @@ export interface MapUniStopPlacement {
 
 export interface MapChestPlacement {
   id: string;
-  tier: 'silver' | 'gold' | 'platinum';
+  tier: 'aspire' | 'nitro' | 'predator';
   x: number;
   z?: number;
   y?: number;

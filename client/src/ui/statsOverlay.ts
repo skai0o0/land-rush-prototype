@@ -9,6 +9,7 @@ export interface StudentStats {
   schoolName: string;
   schoolColor: string;
   points: number;
+  crystals?: number;
   claimedTiles: number;
   totalSchoolTiles: number;
   controlPercentage: number;
@@ -17,6 +18,7 @@ export interface StudentStats {
   totalMapTiles?: number;
   mode: "normal" | "dev";
   isLocked: boolean;
+  litLandmarksCount?: number;
 }
 
 export class StatsOverlay {
@@ -34,6 +36,7 @@ export class StatsOverlay {
       schoolName: defaultSchool?.name || "HCMUT",
       schoolColor: defaultSchool?.colorHex || "#0062FF",
       points: 500,
+      crystals: 0,
       claimedTiles: 0,
       totalSchoolTiles: 9,
       controlPercentage: 10.0,
@@ -42,6 +45,7 @@ export class StatsOverlay {
       totalMapTiles: 1000000,
       mode: "dev",
       isLocked: false,
+      litLandmarksCount: 0,
       ...initialStats
     };
 
@@ -57,12 +61,45 @@ export class StatsOverlay {
     this.render();
   }
 
-  public updateTroops(points: number): void {
+  /**
+   * Cập nhật Điểm Tri Thức (thay cho Quân lực)
+   */
+  public updatePoints(points: number): void {
     if (this.stats.points === points) return;
     this.stats.points = points;
     const pointEl = this.element.querySelector('.stat-points .stat-value');
     if (pointEl) {
       pointEl.textContent = points.toLocaleString();
+    } else {
+      this.render();
+    }
+  }
+
+  // Backward-compatibility alias
+  public updateTroops(points: number): void {
+    this.updatePoints(points);
+  }
+
+  public updateCrystals(crystals: number): void {
+    if (this.stats.crystals === crystals) return;
+    this.stats.crystals = crystals;
+    const crystalEl = this.element.querySelector('.stat-crystals .stat-value');
+    if (crystalEl) {
+      crystalEl.textContent = crystals.toLocaleString();
+    } else {
+      this.render();
+    }
+  }
+
+  /**
+   * Thống kê số lượng Công trình đã Thắp Đèn Hiệu
+   */
+  public updateLitLandmarks(count: number): void {
+    if (this.stats.litLandmarksCount === count) return;
+    this.stats.litLandmarksCount = count;
+    const beaconEl = this.element.querySelector('.stat-beacons .stat-value');
+    if (beaconEl) {
+      beaconEl.textContent = `${count} công trình`;
     } else {
       this.render();
     }
@@ -154,19 +191,30 @@ export class StatsOverlay {
       </div>
 
       <div class="hud-center">
-        <!-- Điểm tích luỹ hiện có -->
-        <div class="stat-badge stat-points" title="Điểm (Points) tích luỹ từ giải chạy">
+        <!-- Điểm Tri Thức tích luỹ hiện có (thay cho Quân lực) -->
+        <div class="stat-badge stat-points" title="Điểm Tri Thức (Points) tích luỹ từ hoạt động chạy bộ">
           <div class="stat-icon-box point-glow">
             ${Icons.star(16)}
           </div>
           <div class="stat-content">
-            <span class="stat-label">ĐIỂM (POINTS)</span>
+            <span class="stat-label">ĐIỂM TRI THỨC</span>
             <span class="stat-value point-number">${this.stats.points.toLocaleString()}</span>
           </div>
         </div>
 
+        <!-- Tinh thể cá nhân -->
+        <div class="stat-badge stat-crystals" title="Tinh thể (Crystals) thu thập từ UniStop/Rương để thắp sáng Đèn hiệu">
+          <div class="stat-icon-box crystal-glow" style="color: #00ffe8;">
+            ${Icons.crystal(16)}
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">TINH THỂ</span>
+            <span class="stat-value crystal-number" style="color: #00ffe8;">${(this.stats.crystals || 0).toLocaleString()}</span>
+          </div>
+        </div>
+
         <!-- Vùng tri thức trường đang kiểm soát -->
-        <div class="stat-badge stat-territory" title="Vùng tri thức (Knowledge) trường kiểm soát">
+        <div class="stat-badge stat-territory" title="Vùng tri thức trường đang kiểm soát">
           <div class="stat-icon-box">
             ${Icons.tile('md')}
           </div>
@@ -177,7 +225,7 @@ export class StatsOverlay {
         </div>
 
         <!-- Tiến độ khám phá bản đồ toàn cục (Xua tan sương mù) -->
-        <div class="stat-badge stat-exploration" title="Tiến độ khám phá toàn bản đồ (Khám phá ô đất để xua tan sương mù)">
+        <div class="stat-badge stat-exploration" title="Tiến độ khám phá toàn bản đồ (Khai phá ô đất để xua tan sương mù)">
           <div class="stat-icon-box exploration-glow">
             ${Icons.compass('md')}
           </div>
@@ -189,12 +237,24 @@ export class StatsOverlay {
       </div>
 
       <div class="hud-right">
+        <!-- Thống kê Công trình đã Thắp Đèn Hiệu -->
+        <div class="stat-badge stat-beacons" title="Số lượng Công trình Tri Thức trường đã Thắp Đèn Hiệu">
+          <div class="stat-icon-box beacon-glow" style="color: #00ffe8;">
+            ${Icons.beacon('md')}
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">ĐÈN HIỆU ĐÃ THẮP</span>
+            <span class="stat-value beacon-number">${this.stats.litLandmarksCount || 0} công trình</span>
+          </div>
+        </div>
+
+        <!-- Vùng tri thức sinh viên đã khai phá (thay cho Chiếm đóng) -->
         <div class="stat-badge stat-rank" title="Số vùng tri thức sinh viên đã khai phá">
           <div class="stat-icon-box">
             ${Icons.trophy('md')}
           </div>
           <div class="stat-content">
-            <span class="stat-label">ĐÃ KHÁM PHÁ</span>
+            <span class="stat-label">ĐÃ KHAI PHÁ</span>
             <span class="stat-value">${this.stats.claimedTiles} vùng</span>
           </div>
         </div>

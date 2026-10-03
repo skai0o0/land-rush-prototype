@@ -1,6 +1,6 @@
 export type UniStopTier = 'aspire' | 'nitro' | 'predator';
-export type ChestTier = 'silver' | 'gold' | 'platinum';
-export type LootItemType = 'points' | 'charcoal' | 'key' | 'real_gift';
+export type ChestTier = 'aspire' | 'nitro' | 'predator';
+export type LootItemType = 'points' | 'crystal' | 'key' | 'treasure_map' | 'real_gift';
 export type LootRarity = 'common' | 'rare' | 'epic' | 'legendary';
 
 export interface LootItem {
@@ -34,145 +34,190 @@ export const UNISTOP_CONFIGS: Record<UniStopTier, UniStopConfig> = {
   aspire: {
     tier: 'aspire',
     name: 'UniStop - Aspire',
-    cooldownMs: 15000, // 15 giây hồi chiêu
-    description: 'Trạm tiếp tế cơ bản Aspire - Cung cấp điểm cơ bản và than củi cho sinh viên trên hành trình'
+    cooldownMs: 12 * 3600 * 1000, // 12 giờ hồi chiêu
+    description: 'Trạm tiếp tế cơ bản Aspire - Cung cấp điểm cơ bản và tinh thể cho sinh viên trên hành trình'
   },
   nitro: {
     tier: 'nitro',
     name: 'UniStop - Nitro',
-    cooldownMs: 30000, // 30 giây hồi chiêu
+    cooldownMs: 24 * 3600 * 1000, // 24 giờ hồi chiêu
     description: 'Trạm tiếp tế nâng cao Nitro - Nguồn năng lượng dồi dào, chìa khoá rương và quà tặng'
   },
   predator: {
     tier: 'predator',
     name: 'UniStop - Predator',
-    cooldownMs: 60000, // 60 giây hồi chiêu
+    cooldownMs: 24 * 3600 * 1000, // 24 giờ hồi chiêu
     description: 'Trạm tiếp tế cao cấp Predator - Tối thượng sức mạnh, tỉ lệ mở ra quà hiện vật Predator độc quyền'
   }
 };
 
 export const CHEST_CONFIGS: Record<ChestTier, ChestConfig> = {
-  silver: {
-    tier: 'silver',
-    chestName: 'Chest - Silver',
-    keyName: 'Key - Silver',
-    requiredKey: 'silver',
-    description: 'Rương Bạc - Chứa điểm thưởng, than củi và chìa khóa nâng cấp'
+  aspire: {
+    tier: 'aspire',
+    chestName: 'Chest - Aspire',
+    keyName: 'Key - Aspire',
+    requiredKey: 'aspire',
+    description: 'Rương Aspire - Chứa điểm thưởng, tinh thể và bản đồ kho báu'
   },
-  gold: {
-    tier: 'gold',
-    chestName: 'Chest - Gold',
-    keyName: 'Key - Gold',
-    requiredKey: 'gold',
-    description: 'Rương Vàng - Chứa lượng lớn tài nguyên và cơ hội trúng quà tặng Predator Gaming'
+  nitro: {
+    tier: 'nitro',
+    chestName: 'Chest - Nitro',
+    keyName: 'Key - Nitro',
+    requiredKey: 'nitro',
+    description: 'Rương Nitro - Chứa lượng lớn tài nguyên và cơ hội trúng quà tặng Predator Gaming'
   },
-  platinum: {
-    tier: 'platinum',
-    chestName: 'Chest - Platinum',
-    keyName: 'Key - Platinum',
-    requiredKey: 'platinum',
-    description: 'Rương Bạch Kim - Kho báu tối thượng chứa quà hiện vật độc quyền và tài nguyên dồi dào'
+  predator: {
+    tier: 'predator',
+    chestName: 'Chest - Predator',
+    keyName: 'Key - Predator',
+    requiredKey: 'predator',
+    description: 'Rương Predator - Kho báu tối thượng chứa quà hiện vật độc quyền và tài nguyên dồi dào'
   }
 };
 
 // Item definitions
 export const LOOT_ITEMS: Record<string, LootItem> = {
-  // Điểm chơi game (Points: 20, 50, 100)
-  points_20: {
-    id: 'points_20',
-    name: '20 Điểm (Points)',
+  // Điểm chơi game (Points: 1, 2, 3, 5)
+  points_x1: {
+    id: 'points_x1',
+    name: '1 Điểm (Points)',
     type: 'points',
     rarity: 'common',
-    amount: 20,
-    weight: 40,
-    description: 'Cộng 20 Điểm vào tài khoản cá nhân và quân lực trường'
+    amount: 1,
+    weight: 0,
+    description: 'Cộng 1 Điểm vào tài khoản cá nhân và quân lực trường'
   },
-  points_50: {
-    id: 'points_50',
-    name: '50 Điểm (Points)',
+  points_x2: {
+    id: 'points_x2',
+    name: '2 Điểm (Points)',
     type: 'points',
-    rarity: 'rare',
-    amount: 50,
-    weight: 25,
-    description: 'Cộng 50 Điểm vào tài khoản cá nhân và quân lực trường'
-  },
-  points_100: {
-    id: 'points_100',
-    name: '100 Điểm (Points)',
-    type: 'points',
-    rarity: 'epic',
-    amount: 100,
-    weight: 10,
-    description: 'Cộng 100 Điểm vào tài khoản cá nhân và quân lực trường'
-  },
-
-  // Nguyên liệu Than củi (Charcoal: 15, 30, 60)
-  charcoal_15: {
-    id: 'charcoal_15',
-    name: '15 Than củi (Charcoal)',
-    type: 'charcoal',
     rarity: 'common',
-    amount: 15,
-    weight: 35,
-    description: 'Nguyên liệu than củi dùng để thắp lửa Công trình biểu tượng'
+    amount: 2,
+    weight: 0,
+    description: 'Cộng 2 Điểm vào tài khoản cá nhân và quân lực trường'
   },
-  charcoal_30: {
-    id: 'charcoal_30',
-    name: '30 Than củi (Charcoal)',
-    type: 'charcoal',
+  points_x3: {
+    id: 'points_x3',
+    name: '3 Điểm (Points)',
+    type: 'points',
     rarity: 'rare',
-    amount: 30,
-    weight: 20,
-    description: 'Nguyên liệu than củi dồi dào hỗ trợ trường thắp lửa'
+    amount: 3,
+    weight: 0,
+    description: 'Cộng 3 Điểm vào tài khoản cá nhân và quân lực trường'
   },
-  charcoal_60: {
-    id: 'charcoal_60',
-    name: '60 Than củi (Charcoal)',
-    type: 'charcoal',
+  points_x5: {
+    id: 'points_x5',
+    name: '5 Điểm (Points)',
+    type: 'points',
     rarity: 'epic',
-    amount: 60,
-    weight: 10,
-    description: 'Kho than củi lớn tạo bước ngoặt thắp lửa'
+    amount: 5,
+    weight: 0,
+    description: 'Cộng 5 Điểm vào tài khoản cá nhân và quân lực trường'
   },
 
-  // Chìa khoá rương (Silver, Gold, Platinum Key)
-  key_silver: {
-    id: 'key_silver',
-    name: 'Chìa khoá Bạc (Key - Silver)',
-    type: 'key',
-    keyTier: 'silver',
+  // Nguyên liệu Tinh thể (Crystal: 1, 2, 3, 4, 5, 10)
+  crystal_1: {
+    id: 'crystal_1',
+    name: '1 Tinh thể (Crystal)',
+    type: 'crystal',
+    rarity: 'common',
+    amount: 1,
+    weight: 0,
+    description: 'Nguyên liệu tinh thể dùng để thắp sáng Đèn hiệu Công trình'
+  },
+  crystal_2: {
+    id: 'crystal_2',
+    name: '2 Tinh thể (Crystal)',
+    type: 'crystal',
+    rarity: 'common',
+    amount: 2,
+    weight: 0,
+    description: 'Nguyên liệu tinh thể dùng để thắp sáng Đèn hiệu Công trình'
+  },
+  crystal_3: {
+    id: 'crystal_3',
+    name: '3 Tinh thể (Crystal)',
+    type: 'crystal',
     rarity: 'rare',
-    weight: 15,
-    description: 'Dùng để mở Chest - Silver rải rác trên bản đồ'
+    amount: 3,
+    weight: 0,
+    description: 'Lượng tinh thể quý giá dùng để thắp sáng Đèn hiệu Công trình'
   },
-  key_gold: {
-    id: 'key_gold',
-    name: 'Chìa khoá Vàng (Key - Gold)',
-    type: 'key',
-    keyTier: 'gold',
+  crystal_4: {
+    id: 'crystal_4',
+    name: '4 Tinh thể (Crystal)',
+    type: 'crystal',
+    rarity: 'rare',
+    amount: 4,
+    weight: 0,
+    description: 'Nguyên liệu tinh thể dùng để thắp sáng Đèn hiệu Công trình'
+  },
+  crystal_5: {
+    id: 'crystal_5',
+    name: '5 Tinh thể (Crystal)',
+    type: 'crystal',
+    rarity: 'rare',
+    amount: 5,
+    weight: 0,
+    description: 'Nguyên liệu tinh thể dùng để thắp sáng Đèn hiệu Công trình'
+  },
+  crystal_10: {
+    id: 'crystal_10',
+    name: '10 Tinh thể (Crystal)',
+    type: 'crystal',
     rarity: 'epic',
-    weight: 8,
-    description: 'Dùng để mở Chest - Gold chứa nhiều phần quà giá trị'
+    amount: 10,
+    weight: 0,
+    description: 'Lượng lớn tinh thể tạo bước ngoặt thắp sáng Đèn hiệu'
   },
-  key_platinum: {
-    id: 'key_platinum',
-    name: 'Chìa khoá Bạch Kim (Key - Platinum)',
+
+  // Bản đồ kho báu (Treasure Map)
+  treasure_map: {
+    id: 'treasure_map',
+    name: 'Bản đồ kho báu',
+    type: 'treasure_map',
+    rarity: 'rare',
+    weight: 0,
+    description: 'Chỉ dẫn vị trí chính xác của một rương kho báu chưa mở trên bản đồ'
+  },
+
+  // Chìa khoá rương (Aspire, Nitro, Predator Key)
+  key_aspire: {
+    id: 'key_aspire',
+    name: 'Chìa khoá Aspire (Key - Aspire)',
     type: 'key',
-    keyTier: 'platinum',
+    keyTier: 'aspire',
+    rarity: 'rare',
+    weight: 0,
+    description: 'Dùng để mở Chest - Aspire rải rác trên bản đồ'
+  },
+  key_nitro: {
+    id: 'key_nitro',
+    name: 'Chìa khoá Nitro (Key - Nitro)',
+    type: 'key',
+    keyTier: 'nitro',
+    rarity: 'epic',
+    weight: 0,
+    description: 'Dùng để mở Chest - Nitro chứa nhiều phần quà giá trị'
+  },
+  key_predator: {
+    id: 'key_predator',
+    name: 'Chìa khoá Predator (Key - Predator)',
+    type: 'key',
+    keyTier: 'predator',
     rarity: 'legendary',
-    weight: 3,
-    description: 'Chìa khóa quý giá nhất dùng để mở Chest - Platinum'
+    weight: 0,
+    description: 'Chìa khóa quý giá nhất dùng để mở Chest - Predator'
   },
 
   // Quà thật Predator (Áo thun Predator, Móc khoá Predator Gaming, Vớ thể thao R2PL)
-  // cờ isRealGift: true, chỉ mở khóa tỉ lệ trúng khi sinh viên có điểm chạy trong tuần (hasWeeklyRunningPoints)
   gift_socks: {
     id: 'gift_socks',
     name: 'Vớ thể thao R2PL',
     type: 'real_gift',
     isRealGift: true,
     rarity: 'epic',
-    weight: 5,
+    weight: 0,
     description: 'Hiện vật Vớ thể thao Road to Predator League chính hãng'
   },
   gift_keychain: {
@@ -181,7 +226,7 @@ export const LOOT_ITEMS: Record<string, LootItem> = {
     type: 'real_gift',
     isRealGift: true,
     rarity: 'epic',
-    weight: 4,
+    weight: 0,
     description: 'Hiện vật Móc khoá kim loại Predator Gaming phiên bản giới hạn'
   },
   gift_tshirt: {
@@ -190,81 +235,103 @@ export const LOOT_ITEMS: Record<string, LootItem> = {
     type: 'real_gift',
     isRealGift: true,
     rarity: 'legendary',
-    weight: 2,
+    weight: 0,
     description: 'Hiện vật Áo thun Predator Gaming thời thượng dành cho Runner xuất sắc'
   }
 };
 
+// Backward-compatibility aliases
+(LOOT_ITEMS as any).points_20 = LOOT_ITEMS.points_x1;
+(LOOT_ITEMS as any).points_50 = LOOT_ITEMS.points_x2;
+(LOOT_ITEMS as any).points_100 = LOOT_ITEMS.points_x5;
+(LOOT_ITEMS as any).charcoal_15 = LOOT_ITEMS.crystal_1;
+(LOOT_ITEMS as any).charcoal_30 = LOOT_ITEMS.crystal_2;
+(LOOT_ITEMS as any).charcoal_60 = LOOT_ITEMS.crystal_5;
+(LOOT_ITEMS as any).key_silver = LOOT_ITEMS.key_aspire;
+(LOOT_ITEMS as any).key_gold = LOOT_ITEMS.key_nitro;
+(LOOT_ITEMS as any).key_platinum = LOOT_ITEMS.key_predator;
+
+(CHEST_CONFIGS as any).silver = CHEST_CONFIGS.aspire;
+(CHEST_CONFIGS as any).gold = CHEST_CONFIGS.nitro;
+(CHEST_CONFIGS as any).platinum = CHEST_CONFIGS.predator;
+
 export const ALL_LOOT_ITEMS: LootItem[] = Object.values(LOOT_ITEMS);
 
-// Loot Tables per UniStop Tier
+// Loot Tables per UniStop Tier (exact integer weights out of 1000)
 export const UNISTOP_LOOT_TABLES: Record<UniStopTier, LootItem[]> = {
   aspire: [
-    { ...LOOT_ITEMS.points_20, weight: 50 },
-    { ...LOOT_ITEMS.points_50, weight: 20 },
-    { ...LOOT_ITEMS.charcoal_15, weight: 45 },
-    { ...LOOT_ITEMS.charcoal_30, weight: 15 },
-    { ...LOOT_ITEMS.key_silver, weight: 10 },
-    { ...LOOT_ITEMS.gift_socks, weight: 3 },
-    { ...LOOT_ITEMS.gift_keychain, weight: 1 }
+    { ...LOOT_ITEMS.points_x1, weight: 325 },     // 32.5%
+    { ...LOOT_ITEMS.points_x2, weight: 100 },     // 10.0%
+    { ...LOOT_ITEMS.points_x3, weight: 50 },      // 5.0%
+    { ...LOOT_ITEMS.crystal_1, weight: 325 },     // 32.5%
+    { ...LOOT_ITEMS.crystal_2, weight: 100 },     // 10.0%
+    { ...LOOT_ITEMS.crystal_4, weight: 50 },      // 5.0%
+    { ...LOOT_ITEMS.treasure_map, weight: 30 },  // 3.0%
+    { ...LOOT_ITEMS.key_aspire, weight: 20 }      // 2.0%
   ],
   nitro: [
-    { ...LOOT_ITEMS.points_20, weight: 25 },
-    { ...LOOT_ITEMS.points_50, weight: 40 },
-    { ...LOOT_ITEMS.points_100, weight: 15 },
-    { ...LOOT_ITEMS.charcoal_15, weight: 20 },
-    { ...LOOT_ITEMS.charcoal_30, weight: 35 },
-    { ...LOOT_ITEMS.charcoal_60, weight: 15 },
-    { ...LOOT_ITEMS.key_silver, weight: 15 },
-    { ...LOOT_ITEMS.key_gold, weight: 8 },
-    { ...LOOT_ITEMS.gift_socks, weight: 5 },
-    { ...LOOT_ITEMS.gift_keychain, weight: 4 },
-    { ...LOOT_ITEMS.gift_tshirt, weight: 2 }
+    { ...LOOT_ITEMS.points_x1, weight: 295 },     // 29.5%
+    { ...LOOT_ITEMS.points_x2, weight: 110 },     // 11.0%
+    { ...LOOT_ITEMS.points_x3, weight: 70 },      // 7.0%
+    { ...LOOT_ITEMS.crystal_1, weight: 295 },     // 29.5%
+    { ...LOOT_ITEMS.crystal_2, weight: 110 },     // 11.0%
+    { ...LOOT_ITEMS.crystal_4, weight: 70 },      // 7.0%
+    { ...LOOT_ITEMS.treasure_map, weight: 30 },  // 3.0%
+    { ...LOOT_ITEMS.key_nitro, weight: 19 },      // 1.9%
+    { ...LOOT_ITEMS.gift_socks, weight: 1 }       // 0.1%
   ],
   predator: [
-    { ...LOOT_ITEMS.points_50, weight: 30 },
-    { ...LOOT_ITEMS.points_100, weight: 45 },
-    { ...LOOT_ITEMS.charcoal_30, weight: 25 },
-    { ...LOOT_ITEMS.charcoal_60, weight: 45 },
-    { ...LOOT_ITEMS.key_silver, weight: 10 },
-    { ...LOOT_ITEMS.key_gold, weight: 20 },
-    { ...LOOT_ITEMS.key_platinum, weight: 8 },
-    { ...LOOT_ITEMS.gift_socks, weight: 8 },
-    { ...LOOT_ITEMS.gift_keychain, weight: 7 },
-    { ...LOOT_ITEMS.gift_tshirt, weight: 5 }
+    { ...LOOT_ITEMS.points_x1, weight: 250 },     // 25.0%
+    { ...LOOT_ITEMS.points_x2, weight: 125 },     // 12.5%
+    { ...LOOT_ITEMS.points_x3, weight: 100 },     // 10.0%
+    { ...LOOT_ITEMS.crystal_1, weight: 250 },     // 25.0%
+    { ...LOOT_ITEMS.crystal_2, weight: 125 },     // 12.5%
+    { ...LOOT_ITEMS.crystal_4, weight: 100 },     // 10.0%
+    { ...LOOT_ITEMS.treasure_map, weight: 30 },  // 3.0%
+    { ...LOOT_ITEMS.key_predator, weight: 15 },   // 1.5%
+    { ...LOOT_ITEMS.gift_socks, weight: 3 },      // 0.3%
+    { ...LOOT_ITEMS.gift_keychain, weight: 2 }    // 0.2%
   ]
 };
 
-// Loot Tables per Chest Tier
+// Loot Tables per Chest Tier (exact integer weights out of 1000)
 export const CHEST_LOOT_TABLES: Record<ChestTier, LootItem[]> = {
-  silver: [
-    { ...LOOT_ITEMS.points_50, weight: 40 },
-    { ...LOOT_ITEMS.points_100, weight: 20 },
-    { ...LOOT_ITEMS.charcoal_30, weight: 40 },
-    { ...LOOT_ITEMS.charcoal_60, weight: 20 },
-    { ...LOOT_ITEMS.key_gold, weight: 10 },
-    { ...LOOT_ITEMS.gift_socks, weight: 6 },
-    { ...LOOT_ITEMS.gift_keychain, weight: 4 }
+  aspire: [
+    { ...LOOT_ITEMS.points_x1, weight: 300 },     // 30.0%
+    { ...LOOT_ITEMS.points_x2, weight: 135 },     // 13.5%
+    { ...LOOT_ITEMS.points_x5, weight: 50 },      // 5.0%
+    { ...LOOT_ITEMS.crystal_1, weight: 300 },     // 30.0%
+    { ...LOOT_ITEMS.crystal_2, weight: 135 },     // 13.5%
+    { ...LOOT_ITEMS.crystal_3, weight: 50 },      // 5.0%
+    { ...LOOT_ITEMS.gift_socks, weight: 30 }      // 3.0%
   ],
-  gold: [
-    { ...LOOT_ITEMS.points_50, weight: 20 },
-    { ...LOOT_ITEMS.points_100, weight: 50 },
-    { ...LOOT_ITEMS.charcoal_30, weight: 20 },
-    { ...LOOT_ITEMS.charcoal_60, weight: 50 },
-    { ...LOOT_ITEMS.key_platinum, weight: 12 },
-    { ...LOOT_ITEMS.gift_socks, weight: 8 },
-    { ...LOOT_ITEMS.gift_keychain, weight: 8 },
-    { ...LOOT_ITEMS.gift_tshirt, weight: 4 }
+  nitro: [
+    { ...LOOT_ITEMS.points_x1, weight: 250 },     // 25.0%
+    { ...LOOT_ITEMS.points_x2, weight: 150 },     // 15.0%
+    { ...LOOT_ITEMS.points_x5, weight: 75 },      // 7.5%
+    { ...LOOT_ITEMS.crystal_1, weight: 250 },     // 25.0%
+    { ...LOOT_ITEMS.crystal_2, weight: 150 },     // 15.0%
+    { ...LOOT_ITEMS.crystal_3, weight: 75 },      // 7.5%
+    { ...LOOT_ITEMS.gift_socks, weight: 30 },     // 3.0%
+    { ...LOOT_ITEMS.gift_keychain, weight: 20 }   // 2.0%
   ],
-  platinum: [
-    { ...LOOT_ITEMS.points_100, weight: 60 },
-    { ...LOOT_ITEMS.charcoal_60, weight: 60 },
-    { ...LOOT_ITEMS.key_platinum, weight: 15 },
-    { ...LOOT_ITEMS.gift_socks, weight: 12 },
-    { ...LOOT_ITEMS.gift_keychain, weight: 12 },
-    { ...LOOT_ITEMS.gift_tshirt, weight: 10 }
+  predator: [
+    { ...LOOT_ITEMS.points_x1, weight: 200 },     // 20.0%
+    { ...LOOT_ITEMS.points_x2, weight: 165 },     // 16.5%
+    { ...LOOT_ITEMS.points_x5, weight: 100 },     // 10.0%
+    { ...LOOT_ITEMS.crystal_1, weight: 200 },     // 20.0%
+    { ...LOOT_ITEMS.crystal_2, weight: 165 },     // 16.5%
+    { ...LOOT_ITEMS.crystal_3, weight: 100 },     // 10.0%
+    { ...LOOT_ITEMS.gift_socks, weight: 30 },     // 3.0%
+    { ...LOOT_ITEMS.gift_keychain, weight: 25 },  // 2.5%
+    { ...LOOT_ITEMS.gift_tshirt, weight: 15 }     // 1.5%
   ]
 };
+
+// Backward compat aliases for CHEST_LOOT_TABLES
+(CHEST_LOOT_TABLES as any).silver = CHEST_LOOT_TABLES.aspire;
+(CHEST_LOOT_TABLES as any).gold = CHEST_LOOT_TABLES.nitro;
+(CHEST_LOOT_TABLES as any).platinum = CHEST_LOOT_TABLES.predator;
 
 export const MAX_UNISTOP_INTERACTION_DISTANCE = 50; // Khoảng cách tối đa để sinh viên có thể quay trạm
 export const MAX_CHEST_INTERACTION_DISTANCE = 50; // Khoảng cách tối đa để sinh viên có thể mở rương
@@ -286,7 +353,7 @@ export function rollLoot(
   });
 
   if (eligibleItems.length === 0) {
-    return LOOT_ITEMS.points_20;
+    return LOOT_ITEMS.points_x1;
   }
 
   const totalWeight = eligibleItems.reduce((sum, item) => sum + item.weight, 0);

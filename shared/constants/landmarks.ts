@@ -2,7 +2,7 @@ export interface LandmarkConfig {
   id: string;
   name: string;
   category: 'scenic' | 'iconic';
-  footprint: { width: number; height: number }; // Đơn vị ô tiles (Scale ~14-18 ô)
+  footprint: { width: number; height: number }; // Đơn vị ô tiles (Scale 50x50 ô)
   requiredTroops: number;
   buffDescription: string;
   gameplayRole: string;
@@ -21,7 +21,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "fansipan",
     name: "Đỉnh Fansipan",
     category: "scenic",
-    footprint: { width: 16, height: 16 },
+    footprint: { width: 50, height: 50 },
     requiredTroops: 2500,
     tileHp: 600,
     coreHp: 3000,
@@ -29,7 +29,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     claimCost: 4,
     attackCost: 6,
     troopBonus: 8,
-    buffDescription: "Nóc nhà Đông Dương: Tầm nhìn bao quát, tăng 35% kháng lực phòng thủ, +8 quân/giây",
+    buffDescription: "Nóc nhà Đông Dương: Tầm nhìn học thuật bao quát, tăng 35% độ bền tri thức, +8 Điểm/giây",
     gameplayRole: "highland_fortress",
     modelFileName: "fansipan.glb"
   },
@@ -37,7 +37,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "halong",
     name: "Vịnh Hạ Long",
     category: "scenic",
-    footprint: { width: 18, height: 16 },
+    footprint: { width: 50, height: 50 },
     requiredTroops: 2000,
     tileHp: 550,
     coreHp: 2600,
@@ -45,7 +45,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     claimCost: 3,
     attackCost: 5,
     troopBonus: 7,
-    buffDescription: "Vịnh ngàn đảo: Chiến luỹ tự nhiên chia cắt, giảm 30% hao quân ven biển, +7 quân/giây",
+    buffDescription: "Vịnh ngàn đảo: Kỳ quan mở rộng tầm nhìn, giảm 30% suy giảm tri thức ven biển, +7 Điểm/giây",
     gameplayRole: "natural_barrier",
     modelFileName: "halong.glb"
   },
@@ -53,7 +53,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "nguhanhson",
     name: "Núi Ngũ Hành Sơn",
     category: "scenic",
-    footprint: { width: 14, height: 12 },
+    footprint: { width: 50, height: 50 },
     requiredTroops: 1400,
     tileHp: 450,
     coreHp: 1800,
@@ -61,7 +61,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     claimCost: 3,
     attackCost: 4,
     troopBonus: 6,
-    buffDescription: "Ngũ Sơn Linh Khí: Hồi phục sinh lực tự động +6 HP/s cho cứ điểm, +6 quân/giây",
+    buffDescription: "Ngũ Sơn Tinh Tú: Hồi phục độ bền tri thức tự động +6/s cho các vùng tri thức lân cận, +6 Điểm/giây",
     gameplayRole: "healing_sanctuary",
     modelFileName: "nguhanhson.glb"
   },
@@ -69,7 +69,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "phongnha",
     name: "Động Phong Nha",
     category: "scenic",
-    footprint: { width: 14, height: 10 },
+    footprint: { width: 50, height: 50 },
     requiredTroops: 1200,
     tileHp: 400,
     coreHp: 1600,
@@ -77,7 +77,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     claimCost: 2,
     attackCost: 4,
     troopBonus: 6,
-    buffDescription: "Mạng lưới địa đạo: Ẩn mật chuyển quân, giảm 20% chi phí viễn chinh mở rộng, +6 quân/giây",
+    buffDescription: "Mạng lưới địa đạo: Khám phá mạch tri thức ngầm, giảm 20% chi phí mở rộng vùng tri thức, +6 Điểm/giây",
     gameplayRole: "hidden_corridor",
     modelFileName: "phongnha.glb"
   },
@@ -85,7 +85,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "nuibaden",
     name: "Núi Bà Đen",
     category: "scenic",
-    footprint: { width: 16, height: 14 },
+    footprint: { width: 50, height: 50 },
     requiredTroops: 1800,
     tileHp: 500,
     coreHp: 2200,
@@ -93,7 +93,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     claimCost: 3,
     attackCost: 5,
     troopBonus: 6,
-    buffDescription: "Đỉnh cao chiến lược Đông Nam Bộ: Tăng tốc độ cơ động lãnh thổ thêm 25%, +6 quân/giây",
+    buffDescription: "Đỉnh cao chiến lược Đông Nam Bộ: Tăng tốc độ mở rộng tri thức thêm 25%, +6 Điểm/giây",
     gameplayRole: "strategic_overlook",
     modelFileName: "nuibaden.glb"
   },
@@ -103,7 +103,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "thanglong",
     name: "Hoàng thành Thăng Long",
     category: "iconic",
-    footprint: { width: 18, height: 16 },
+    footprint: { width: 50, height: 50 },
     requiredTroops: 2600,
     tileHp: 650,
     coreHp: 3200,
@@ -111,7 +111,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     claimCost: 4,
     attackCost: 6,
     troopBonus: 10,
-    buffDescription: "Đế đô tối cao: Giảm 25% chi phí chiếm đất toàn bản đồ, +10 quân/giây",
+    buffDescription: "Kinh đô ngàn năm văn hiến: Đỉnh cao học thuật, giảm 25% chi phí mở rộng vùng tri thức toàn bản đồ, +10 Điểm/giây",
     gameplayRole: "capitol",
     modelFileName: "thanglong.glb"
   },
@@ -119,7 +119,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "canghaiphong",
     name: "Cảng Hải Phòng",
     category: "iconic",
-    footprint: { width: 16, height: 12 },
+    footprint: { width: 50, height: 50 },
     requiredTroops: 1600,
     tileHp: 480,
     coreHp: 2000,
@@ -127,7 +127,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     claimCost: 3,
     attackCost: 5,
     troopBonus: 8,
-    buffDescription: "Đầu mối logistics biển: Tiếp tế khí tài thần tốc, +8 quân/giây",
+    buffDescription: "Đầu mối giao lưu tri thức biển: Tiếp tế tri thức thần tốc, +8 Điểm/giây",
     gameplayRole: "logistics_port",
     modelFileName: "canghaiphong.glb"
   },
@@ -135,7 +135,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "kinhthanhhue",
     name: "Kinh Thành Huế",
     category: "iconic",
-    footprint: { width: 16, height: 16 },
+    footprint: { width: 50, height: 50 },
     requiredTroops: 2000,
     tileHp: 550,
     coreHp: 2400,
@@ -143,7 +143,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     claimCost: 3,
     attackCost: 5,
     troopBonus: 7,
-    buffDescription: "Thành trì kiên cố: Tăng 30% giáp hộ vệ cho toàn bộ ô phòng tuyến lân cận, +7 quân/giây",
+    buffDescription: "Cố đô văn hiến: Tăng 30% độ bền tri thức cho toàn bộ vùng tiếp giáp lân cận, +7 Điểm/giây",
     gameplayRole: "citadel",
     modelFileName: "kinhthanhhue.glb"
   },
@@ -151,7 +151,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "bitexco",
     name: "Toà nhà Bitexco",
     category: "iconic",
-    footprint: { width: 14, height: 14 },
+    footprint: { width: 50, height: 50 },
     requiredTroops: 2200,
     tileHp: 500,
     coreHp: 2200,
@@ -159,7 +159,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     claimCost: 4,
     attackCost: 6,
     troopBonus: 12,
-    buffDescription: "Trung tâm tài chính kinh tế: Tạo ngân sách dồi dào, +12 quân/giây cho phe kiểm soát",
+    buffDescription: "Biểu tượng năng động hiện đại: Tạo nguồn năng lượng tri thức dồi dào, +12 Điểm/giây cho trường kiểm soát",
     gameplayRole: "economic_hub",
     modelFileName: "bitexco.glb"
   },
@@ -167,7 +167,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "cairang",
     name: "Chợ nổi Cái Răng",
     category: "iconic",
-    footprint: { width: 14, height: 12 },
+    footprint: { width: 50, height: 50 },
     requiredTroops: 1400,
     tileHp: 420,
     coreHp: 1600,
@@ -175,7 +175,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     claimCost: 2,
     attackCost: 4,
     troopBonus: 8,
-    buffDescription: "Đầu mối giao thương đường thuỷ: Gia tăng lưu lượng chiêu mộ quân, +8 quân/giây",
+    buffDescription: "Giao thoa văn hóa sông nước: Gia tăng lưu lượng lan tỏa tri thức, +8 Điểm/giây",
     gameplayRole: "trade_market",
     modelFileName: "cairang.glb"
   }
