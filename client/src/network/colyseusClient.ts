@@ -1,3 +1,5 @@
+import { WorldClientState } from "../../../shared/world/WorldClientState";
+import { configureSchoolRegistry, SCHOOL_ROSTER, getSchoolBit } from "../../../shared/constants/schools";
 import type { GameplayEvent } from "../../../shared/types/gameplay";
 import { Client, Room } from "colyseus.js";
 import * as THREE from "three";
@@ -34,6 +36,9 @@ import {
 export { LAND_FRAME_CHANNEL };
 
 export interface NetworkCallbacks {
+  onFogReset?: () => void;
+  onFogChunk?: (record: any) => void;
+  onKnowledgeBatch?: (indices: number[]) => void;
   onConnected?: (room: Room) => void;
   onDisconnected?: (code: number) => void;
   onStateChange?: (state: any) => void;
@@ -85,6 +90,7 @@ export class ColyseusClient {
   public territoryCounts: Record<string, number> = {};
   /** Dense ownership bytes + sparse combat overlay (no 1e6 tile objects). */
   public readonly landSync = new ClientLandSync();
+  public readonly worldSync = new WorldClientState();
   public knowledgeSchools = new Map<string, string[]>();
   private lastJoinOptions: any = { schoolId: "hcmut" };
   private isReconnecting = false;
@@ -118,7 +124,7 @@ export class ColyseusClient {
   }
 
   public async connect(
-    options: { schoolId?: string; email?: string; mode?: "normal" | "dev"; points?: number; km?: number } | string = "hcmut",
+    options: { sessionToken?: string; schoolId?: string; email?: string; mode?: "normal" | "dev"; points?: number; km?: number } | string = "hcmut",
     maxRetries = 20,
     retryDelay = 1000
   ): Promise<Room> {
@@ -525,9 +531,30 @@ export class ColyseusClient {
       this.triggerTerritoryUpdate();
       this.paintLandTile({ x: tile.x, y: tile.y, owner: tile.schools.length ? SCHOOL_IDS.indexOf(tile.schools[0]) + 1 : 0 } as DirtyTileChange);
     };
+    const paintPresence = (indices: number[]) => {
+      for(const index of indices) {
+        const x=index%1000,y=Math.floor(index/1000),mask=this.worldSync.masks[index];
+        const schools=SCHOOL_IDS.filter(id => mask & (1<<getSchoolBit(id)));
+        // Preserve presence independently of the legacy owner paint buffer.
+        if(schools.length) this.knowledgeSchools.set(x+","+y,schools); else this.knowledgeSchools.delete(x+","+y);
+        this.paintLandTile({x,y,owner:schools.length?SCHOOL_IDS.indexOf(schools[0])+1:0} as DirtyTileChange);
+      }
+      this.callbacks.onKnowledgeBatch?.(indices);
+      this.rebuildTerritoryCountsFromLand();this.triggerTerritoryUpdate();
+    };
+    const receiveWorld = (apply:()=>number[]) => {
+      try { paintPresence(apply()); } catch(error) { this.callbacks.onError?.(String(error));room.send("world_resync"); }
+    };
+    room.onMessage("world_manifest", data=>{
+      configureSchoolRegistry(data.schools);this.worldSync.reset(data.format);this.knowledgeSchools.clear();
+    });
+    room.onMessage("world_chunk", data=>receiveWorld(()=>this.worldSync.chunk(data)));
+    room.onMessage("world_delta", data=>receiveWorld(()=>this.worldSync.delta(data)));
+    room.onMessage("fog_reset", data=>{this.worldSync.resetFog(data.schoolId,data.format);this.callbacks.onFogReset?.();});
+    room.onMessage("fog_chunk", data=>{this.worldSync.fogChunk(data);if(data.schoolId===this.worldSync.schoolId)this.callbacks.onFogChunk?.(data);});
+    room.onMessage("fog_batch", data=>{if(data.schoolId!==this.worldSync.schoolId)return;for(const record of data.records){this.worldSync.fogChunk(record);this.callbacks.onFogChunk?.(record);}});
     room.onMessage("knowledge_update", receiveKnowledge);
     room.onMessage("knowledge_sync", (data: { tiles: { x: number; y: number; schools: string[] }[] }) => {
-      this.knowledgeSchools.clear();
       this.paintAllOwnedTilesFromLand();
       data.tiles.forEach(receiveKnowledge);
     });
@@ -658,7 +685,7 @@ export class ColyseusClient {
     for (const change of result.dirtyTiles) {
       const key = `${change.x},${change.y}`;
       const schools = this.knowledgeSchools.get(key);
-      if (schools && schools.length <= 1 && (schools[0] || "") === (SCHOOL_IDS[change.owner - 1] || "")) this.knowledgeSchools.delete(key);
+      // Shared presence is maintained by the Uint16 world plane.
       this.paintLandTile(change);
     }
 

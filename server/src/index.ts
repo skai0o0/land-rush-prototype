@@ -53,9 +53,11 @@ httpServer.listen(port, "0.0.0.0", () => {
 });
 
 // Clean shutdown handlers to release port on Windows / ts-node-dev reload
-const cleanup = () => {
-  httpServer.close();
-  process.exit(0);
+let shuttingDown = false;
+const cleanup = async () => {
+  if(shuttingDown) return; shuttingDown=true;
+  try { await gameServer.gracefullyShutdown(false); httpServer.close(); process.exit(0); }
+  catch(error) { console.error("Shutdown flush failed", error); process.exit(1); }
 };
 process.on("SIGINT", cleanup);
 process.on("SIGTERM", cleanup);
