@@ -38,8 +38,8 @@ async function run() {
     room.onJoin(client as any,{schoolId:'dtu'},identity);
     const player=room.state.players.get(client.sessionId)!;
     assert.equal(player.schoolId,'hcmut'); assert.equal(player.displayName,'Portal Name'); assert(player.isLockedSchool);
-    assert.equal((room as any).portalStudentIds.get(client.sessionId),'student-id');
-    (room as any).cleanupClient(client); assert(!(room as any).activeStudentSessions.has('student-id'));
+    assert.equal((room as any).gameUserIds.get(client.sessionId),'game-id');
+    (room as any).cleanupClient(client); assert(!(room as any).activeStudentSessions.has('game-id'));
   } finally { delete process.env.NODE_ENV; await room.onDispose(); }
   console.log('Foundation polish passed: canonical identity, campaign mismatch, UUID mapping, dev domains, registry leases and rejected cross-campaign contamination.');
 }

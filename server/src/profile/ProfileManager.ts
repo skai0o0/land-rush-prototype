@@ -2,6 +2,7 @@ import { StudentProfile, StudentProfileEntity } from "./StudentProfile";
 import { RunningPointsProvider } from "./RunningPointsProvider";
 import { getSchoolIdFromEmail } from "../../../shared/constants/schools";
 
+/** All lookup/mutation arguments are gameplay keys: gameUserId in production, normalized email in legacy dev mode. */
 export class ProfileManager {
   private static instance: ProfileManager;
   private profiles: Map<string, StudentProfile> = new Map();
@@ -22,8 +23,8 @@ export class ProfileManager {
    * Lấy hoặc khởi tạo Profile của sinh viên.
    * KHÔNG BAO GIỜ bị xoá khi sinh viên ngắt kết nối.
    */
-  public getOrCreateProfile(studentId: string, schoolId?: string): StudentProfile {
-    const cleanId = (studentId || "guest").toLowerCase().trim();
+  public getOrCreateProfile(profileKey: string, schoolId?: string): StudentProfile {
+    const cleanId = (profileKey || "guest").toLowerCase().trim();
     let profile = this.profiles.get(cleanId);
     if (!profile) {
       const resolvedSchool = schoolId || getSchoolIdFromEmail(cleanId) || "hcmut";
@@ -38,8 +39,8 @@ export class ProfileManager {
     return profile;
   }
 
-  public getProfile(studentId: string): StudentProfile | undefined {
-    const cleanId = (studentId || "").toLowerCase().trim();
+  public getProfile(profileKey: string): StudentProfile | undefined {
+    const cleanId = (profileKey || "").toLowerCase().trim();
     return this.profiles.get(cleanId);
   }
 
@@ -47,27 +48,27 @@ export class ProfileManager {
    * Tính số điểm khả dụng của sinh viên:
    * availablePoints = runningPoints + gamePointsEarned - pointsSpent
    */
-  public getAvailablePoints(studentId: string): number {
-    const cleanId = (studentId || "").toLowerCase().trim();
+  public getAvailablePoints(profileKey: string): number {
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     const totalPoints = this.pointsProvider.getTotalPoints(cleanId);
     return Math.max(0, totalPoints + (profile.gamePointsEarned || 0) - profile.pointsSpent);
   }
 
   /** Exact game rewards; never modify running distance or weekly eligibility. */
-  public addGamePoints(studentId: string, amount: number): number {
+  public addGamePoints(profileKey: string, amount: number): number {
     if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error("Invalid game reward");
-    const profile = this.getOrCreateProfile(studentId);
+    const profile = this.getOrCreateProfile(profileKey);
     profile.gamePointsEarned = (profile.gamePointsEarned || 0) + amount;
-    return this.getAvailablePoints(studentId);
+    return this.getAvailablePoints(profileKey);
   }
 
   /**
    * Trừ điểm khi sinh viên thực hiện hành động (lan toả tri thức, ôn bài, đổi điểm).
    */
-  public deductPoints(studentId: string, amount: number): boolean {
+  public deductPoints(profileKey: string, amount: number): boolean {
     if (amount <= 0) return true;
-    const cleanId = (studentId || "").toLowerCase().trim();
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     const available = this.getAvailablePoints(cleanId);
     if (available < amount) {
@@ -80,23 +81,23 @@ export class ProfileManager {
   /**
    * Hoàn điểm hoặc nạp thêm điểm tiêu dùng
    */
-  public refundPoints(studentId: string, amount: number): void {
+  public refundPoints(profileKey: string, amount: number): void {
     if (amount <= 0) return;
-    const cleanId = (studentId || "").toLowerCase().trim();
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     profile.pointsSpent = Math.max(0, profile.pointsSpent - amount);
   }
 
-  public addCrystals(studentId: string, amount: number): number {
-    const cleanId = (studentId || "").toLowerCase().trim();
+  public addCrystals(profileKey: string, amount: number): number {
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     profile.crystals = Math.max(0, (profile.crystals || 0) + amount);
     return profile.crystals;
   }
 
-  public deductCrystals(studentId: string, amount: number): boolean {
+  public deductCrystals(profileKey: string, amount: number): boolean {
     if (amount <= 0) return true;
-    const cleanId = (studentId || "").toLowerCase().trim();
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     if ((profile.crystals || 0) < amount) {
       return false;
@@ -105,8 +106,8 @@ export class ProfileManager {
     return true;
   }
 
-  public addKeys(studentId: string, tier: "aspire" | "nitro" | "predator" | "silver" | "gold" | "platinum", count: number = 1): void {
-    const cleanId = (studentId || "").toLowerCase().trim();
+  public addKeys(profileKey: string, tier: "aspire" | "nitro" | "predator" | "silver" | "gold" | "platinum", count: number = 1): void {
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     if (tier === "aspire" || tier === "silver") {
       profile.aspireKeys = (profile.aspireKeys || 0) + count;
@@ -117,8 +118,8 @@ export class ProfileManager {
     }
   }
 
-  public deductKeys(studentId: string, tier: "aspire" | "nitro" | "predator" | "silver" | "gold" | "platinum", count: number = 1): boolean {
-    const cleanId = (studentId || "").toLowerCase().trim();
+  public deductKeys(profileKey: string, tier: "aspire" | "nitro" | "predator" | "silver" | "gold" | "platinum", count: number = 1): boolean {
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     if (tier === "aspire" || tier === "silver") {
       if ((profile.aspireKeys || 0) < count) return false;
@@ -136,32 +137,32 @@ export class ProfileManager {
     return false;
   }
 
-  public getUniStopCooldown(studentId: string, stopId: string): number {
-    const cleanId = (studentId || "").toLowerCase().trim();
+  public getUniStopCooldown(profileKey: string, stopId: string): number {
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     return profile.unistopCooldowns.get(stopId) || 0;
   }
 
-  public setUniStopCooldown(studentId: string, stopId: string, untilMs: number): void {
-    const cleanId = (studentId || "").toLowerCase().trim();
+  public setUniStopCooldown(profileKey: string, stopId: string, untilMs: number): void {
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     profile.unistopCooldowns.set(stopId, untilMs);
   }
 
-  public getGuessCooldown(studentId: string, landmarkKey: string): number {
-    const cleanId = (studentId || "").toLowerCase().trim();
+  public getGuessCooldown(profileKey: string, landmarkKey: string): number {
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     return profile.guessCooldowns.get(landmarkKey) || 0;
   }
 
-  public setGuessCooldown(studentId: string, landmarkKey: string, untilMs: number): void {
-    const cleanId = (studentId || "").toLowerCase().trim();
+  public setGuessCooldown(profileKey: string, landmarkKey: string, untilMs: number): void {
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     profile.guessCooldowns.set(landmarkKey, untilMs);
   }
 
-  public addGift(studentId: string, gift: any): void {
-    const cleanId = (studentId || "").toLowerCase().trim();
+  public addGift(profileKey: string, gift: any): void {
+    const cleanId = (profileKey || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     profile.gifts.push({
       ...gift,

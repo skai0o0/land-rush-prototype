@@ -1,4 +1,9 @@
 export interface StudentProfile {
+  /** Production gameplay key. Legacy dev profiles continue to use normalized email. */
+  gameUserId?: string;
+  portalUserId?: string;
+  campaignId?: string;
+  /** MSSV metadata in production; legacy dev identifier for prototype clients. */
   studentId: string;
   email: string;
   schoolId: string;
@@ -15,6 +20,9 @@ export interface StudentProfile {
 }
 
 export class StudentProfileEntity implements StudentProfile {
+  public gameUserId?: string;
+  public portalUserId?: string;
+  public campaignId?: string;
   public studentId: string;
   public email: string;
   public schoolId: string;
