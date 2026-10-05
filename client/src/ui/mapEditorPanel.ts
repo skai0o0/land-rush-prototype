@@ -16,6 +16,7 @@ export interface MapEditorItem {
   maxCrystals?: number;
   x: number;
   y: number; // or z
+  unassigned?: boolean;
 }
 
 export interface MapLayoutPayload {
@@ -172,6 +173,9 @@ export class MapEditorPanel {
       });
     }
 
+    for(const school of Object.values(SCHOOL_ROSTER)) if(!hqs.some(h=>h.schoolId===school.id)) {
+      this.items.set("hq_"+school.id,{id:"hq_"+school.id,type:"hq",schoolId:school.id,name:"Trụ sở "+school.shortName,x:NaN,y:NaN,unassigned:true});
+    }
     // 2. Landmarks
     for (const lm of landmarks) {
       const key = lm.landmarkKey || lm.id;
@@ -243,7 +247,7 @@ export class MapEditorPanel {
       row.innerHTML = `
         <div class="editor-item-info">
           <span class="editor-item-name">${item.name}</span>
-          <span class="editor-item-coords">[X: ${item.x}, Z: ${item.y}]</span>
+          <span class="editor-item-coords">${item.unassigned ? "Chưa bố trí — chọn Đặt vị trí" : `[X: ${item.x}, Z: ${item.y}]`}</span>
         </div>
         <button class="editor-relocate-btn ${isRelocating ? 'active' : ''}" data-relocate-id="${item.id}" title="Click vào bản đồ 3D để di dời">
           ${Icons.crosshair(12)}
@@ -271,7 +275,7 @@ export class MapEditorPanel {
   public selectItem(item: MapEditorItem): void {
     this.selectedItemId = item.id;
     this.renderList();
-    if (this.callbacks.onFocusItem) {
+    if (this.callbacks.onFocusItem && !item.unassigned) {
       this.callbacks.onFocusItem(item);
     }
   }
@@ -304,6 +308,7 @@ export class MapEditorPanel {
       return;
     }
 
+    item.unassigned = false;
     item.x = Math.round(newX);
     item.y = Math.round(newY);
     const relocatedId = this.relocatingItemId;
@@ -337,7 +342,7 @@ export class MapEditorPanel {
     const chests: { id: string; tier?: string; x: number; z: number; isOpened?: boolean }[] = [];
 
     this.items.forEach((item) => {
-      if (item.type === 'hq' && item.schoolId) {
+      if (item.type === 'hq' && item.schoolId && !item.unassigned) {
         hqs.push({ schoolId: item.schoolId, x: item.x, y: item.y });
       } else if (item.type === 'landmark') {
         const key = item.landmarkKey || item.id.replace('lm_', '');

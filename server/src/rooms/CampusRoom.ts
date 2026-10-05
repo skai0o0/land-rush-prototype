@@ -1,3 +1,8 @@
+import fs from "node:fs";
+import { WorldStore } from "../world/WorldStore";
+import { Campaign, WorldRepository, createWorldRepository, InMemoryWorldRepository } from "../world/WorldRepository";
+import { configureSchoolRegistry, getSchoolBit } from "../../../shared/constants/schools";
+import { IdentityProvider, PortalIdentityProvider, PortalIdentity } from "../identity/PortalIdentityProvider";
 import { planMapLayout, footprint, Placement } from "../gameplay/mapLayout";
 import { BEACON_CRYSTALS, beaconOvertakeTarget, landmarkGuessReward } from "../../../shared/constants/gameplay";
 import { initializeKnowledge, pruneKnowledge, studyKnowledge, projectKnowledge, EXCHANGE_COST } from "../gameplay/knowledge";
@@ -6,6 +11,7 @@ import { GameplayEventType } from "../../../shared/types/gameplay";
 import { Room, Client, Delayed } from "colyseus";
 import {
   GameState,
+  KnowledgeState,
   TileState,
   PlayerState,
   HQState,
@@ -78,21 +84,38 @@ export function normalizeAnswer(str: string): string {
 }
 
 export class CampusRoom extends Room<GameState> {
+  public world?: WorldStore;
+  /** Server/test injection only; never read from room join options. */
+  public persistenceRepository?: WorldRepository;
+  private worldReady = false;
+  private shuttingDown = false;
+  public identityProvider: IdentityProvider = new PortalIdentityProvider();
+  private persistedCampaign?: Campaign;
+  private randomState = 0;
+  private layoutRandom() {
+    if (!this.persistedCampaign) return Math.random();
+    this.randomState = (Math.imul(this.randomState, 1664525) + 1013904223) >>> 0;
+    return this.randomState / 4294967296;
+  }
   private stationArrivalSequence = 0;
   private knowledgeCountIndex = new Map<string, number>();
   private updateKnowledgeCounts(tile: TileState) {
     const key = `${tile.x},${tile.y}`;
+    if (this.world && this.worldReady && !this.landmarkTileMap.has(key)) {
+      initializeKnowledge(tile, Date.now());
+      this.world.syncTile(tile.y * 1000 + tile.x, Array.from(tile.knowledge, ([schoolId, entry]) => ({ schoolId, strength: entry.retention, lastStudiedAt: entry.lastStudiedAt })));
+    }
     const previous = this.knowledgeCountIndex.get(key) || 0;
     let next = 0;
     if (!this.landmarkTileMap.has(key)) {
       for (let i = 0; i < SCHOOL_IDS.length; i++) {
         const entry = tile.knowledge.get(SCHOOL_IDS[i]);
-        if (entry && !entry.persistent) next |= 1 << i;
+        if (entry && !entry.persistent) next |= 1 << getSchoolBit(SCHOOL_IDS[i]);
       }
     }
     if (next === previous) return;
     for (let i = 0; i < SCHOOL_IDS.length; i++) {
-      const bit = 1 << i;
+      const bit = 1 << getSchoolBit(SCHOOL_IDS[i]);
       const delta = Number(Boolean(next & bit)) - Number(Boolean(previous & bit));
       if (delta) {
         const id = SCHOOL_IDS[i];
@@ -152,8 +175,8 @@ export class CampusRoom extends Room<GameState> {
     this.landData.writeTile(tile.x, tile.y, tile.ownerId, tile.retention, tile.maxHp, tile.defenseTier);
     this.clusterEngine.setTile(tile.x, tile.y, this.getSchoolNumericId(tile.ownerId), tile.defenseTier, tile.retention);
     const schools = Array.from(tile.knowledge.keys()).sort();
-    this.broadcast("knowledge_update", { x: tile.x, y: tile.y, schools });
-    this.emitGameplay("knowledge.changed", { x: tile.x, y: tile.y, schools });
+    // Presence mutations are sent in chunk batches by flushWorldNetwork().
+    // Chunk batches replace per-tile knowledge.changed traffic.
   }
   private territoryTouches(school: string, x: number, y: number, width: number, height: number): boolean {
     const minX = Math.floor(x) - Math.floor(width / 2), minY = Math.floor(y) - Math.floor(height / 2);
@@ -338,12 +361,92 @@ export class CampusRoom extends Room<GameState> {
   private roomOptions: any = {};
 
   onCreate(options: any) {
+    if (process.env.DATABASE_URL || this.persistenceRepository) return this.startPersistentRoom(options);
+    this.world = new WorldStore({ id: "r2pl-2027", code: "r2pl-2027", width: 1000, height: 1000, chunkSize: 64, format: 1, maxSlots: 16, schools: Object.values(SCHOOL_ROSTER) }, new InMemoryWorldRepository());
+    this.initializeRoom(options);
+    this.worldReady=true;this.rebuildKnowledgeCounts();
+    this.world.start(Number(process.env.WORLD_FLUSH_MS || 3000));
+  }
+  private async startPersistentRoom(options: any) {
+    const repository = this.persistenceRepository || createWorldRepository();
+    try {
+      this.persistedCampaign = await repository.loadCampaign(process.env.CAMPAIGN_CODE || "r2pl-2027");
+      configureSchoolRegistry(this.persistedCampaign.schools);
+      this.world = new WorldStore(this.persistedCampaign, repository);
+      await this.world.restore();
+      this.randomState = Array.from(this.persistedCampaign.code).reduce((seed,c)=>Math.imul(seed,31)+c.charCodeAt(0),0) >>> 0;
+      this.initializeRoom(options);
+      if(process.env.WORLD_LAYOUT_FILE) {
+        const layout=JSON.parse(fs.readFileSync(process.env.WORLD_LAYOUT_FILE,"utf8"));
+        for(const school of this.persistedCampaign.schools) {
+          const hq=layout.hqs?.find(h=>h.schoolId===school.id);
+          if((!!hq)!=(!!school.hq) || (hq && (hq.x!==school.hq.x || (hq.y??hq.z)!==school.hq.y))) throw new Error("Approved layout HQs must match campaign_schools");
+        }
+        this.handleUpdateMapLayout({send:()=>{}} as any,layout,true);
+      }
+      for (const [index, records] of this.world.knowledge) {
+        const x = index % 1000, y = Math.floor(index / 1000), key = x + "," + y;
+        if (this.landmarkTileMap.has(key)) throw new Error("Persisted knowledge overlaps a landmark foundation");
+        let tile = this.state.claimedTiles.get(key);
+        if (!tile) { tile = new TileState(); tile.x=x; tile.y=y; this.state.claimedTiles.set(key,tile); }
+        tile.knowledge.clear(); tile.knowledgeInitialized=true;
+        for (const record of records) {
+          const entry = new KnowledgeState(); entry.retention=record.strength; entry.lastStudiedAt=record.lastStudiedAt;
+          entry.persistent = this.initialHQTiles.get(record.schoolId)?.some(t=>t.x===x && t.y===y) || false;
+          tile.knowledge.set(record.schoolId,entry);
+        }
+        projectKnowledge(tile);
+        this.landData.writeTile(x,y,tile.ownerId,tile.retention,tile.maxHp,tile.defenseTier);
+        this.clusterEngine.setTile(x,y,this.getSchoolNumericId(tile.ownerId),tile.defenseTier,tile.retention);
+      }
+      this.worldReady=true;this.rebuildKnowledgeCounts();
+      this.world.start(Number(process.env.WORLD_FLUSH_MS || 3000));
+    } catch(error) { if(this.gameInterval)this.gameInterval.clear(); if(this.landFlushInterval)this.landFlushInterval.clear(); await repository.close(); throw error; }
+  }
+  private flushWorldNetwork() {
+    this.landData.flush();
+    if (!this.world) return;
+    for (const packet of this.world.networkDeltas()) this.broadcast("world_delta",packet);
+    const fogGroups=this.world.fogDeltas();
+    for (const client of this.clients) {
+      const school=this.state.players.get(client.sessionId)?.schoolId;
+      const records=school && fogGroups.get(school);
+      if(records?.length)client.send("fog_batch",{schoolId:school,records});
+    }
+  }
+  private fogSent = new Map<string, Map<string, number>>();
+  private sendFog(client: Client, reset=false) {
+    const school = this.state.players.get(client.sessionId)?.schoolId;
+    if (!school || !this.world) return;
+    let sent = this.fogSent.get(client.sessionId);
+    if (!sent || reset) { sent=new Map();this.fogSent.set(client.sessionId,sent);client.send("fog_reset",{schoolId:school,format:1}); }
+    for (const record of this.world.fogPackets(school)) {
+      const key=record.x+","+record.z;
+      if (sent.get(key)===record.version) continue;
+      client.send("fog_chunk",record);sent.set(key,record.version);
+    }
+  }
+  private sendWorld(client: Client) {
+    if(!this.world)return;
+    const chunks=this.world.chunkPackets();
+    client.send("world_manifest", { campaign: this.world.campaign.code, format:1, schools:Object.values(SCHOOL_ROSTER), chunks:chunks.map(r=>({x:r.x,z:r.z,version:r.version})) });
+    for(const chunk of chunks) client.send("world_chunk",chunk);
+    this.sendFog(client,true);
+  }
+  async onAuth(_client: Client, options: any): Promise<PortalIdentity | true> {
+    if (process.env.NODE_ENV !== "production") return true;
+    if (typeof options?.sessionToken !== "string") throw new Error("Game session token required");
+    const identity = await this.identityProvider.verifyGameSession(options.sessionToken);
+    if (!SCHOOL_ROSTER[identity.schoolId]) throw new Error("Identity school is not active in campaign");
+    return identity;
+  }
+  private initializeRoom(options: any) {
     this.maxClients = parseInt(process.env.MAX_CLIENTS || "500", 10) || 500;
     this.roomOptions = options || {};
     this.autoDispose = false;
     this.setState(new GameState());
 
-    // 1. Spawn 5 School HQs (distance > 200 tiles)
+    // 1. Spawn configured HQs; unassigned schools remain without coordinates.
     this.spawnHQs();
 
     // 2. Spawn 10 Landmarks (distance from HQs > 75 tiles, from each other > 65 tiles)
@@ -361,12 +464,13 @@ export class CampusRoom extends Room<GameState> {
 
     // 4. Register Message Handlers
     this.registerMessages();
+    this.onMessage("world_resync", (client) => { if(this.rateLimiter.check(client.sessionId,"world_resync").allowed) this.sendWorld(client); });
 
     // 5. Start Game Loop at default 1x
     this.setSimulationSpeed(1);
 
     // 6. LandState flush timer: broadcast own_batch / combat when non-empty
-    this.landFlushInterval = this.clock.setInterval(() => this.landData.flush(), DEFAULT_FLUSH_MS);
+    this.landFlushInterval = this.clock.setInterval(() => this.flushWorldNetwork(), DEFAULT_FLUSH_MS);
   }
 
   private spawnHQs() {
@@ -376,15 +480,17 @@ export class CampusRoom extends Room<GameState> {
     const maxBound = 880;
 
     for (const schoolId of SCHOOL_IDS) {
-      let x = 0;
-      let y = 0;
+      const assigned = SCHOOL_ROSTER[schoolId].hq;
+      if(assigned === null) continue;
+      let x = assigned?.x ?? 0;
+      let y = assigned?.y ?? 0;
       let attempts = 0;
-      let valid = false;
+      let valid = !!assigned;
 
       while (!valid && attempts < 1000) {
         attempts++;
-        x = Math.floor(margin + Math.random() * (maxBound - margin));
-        y = Math.floor(margin + Math.random() * (maxBound - margin));
+        x = Math.floor(margin + this.layoutRandom() * (maxBound - margin));
+        y = Math.floor(margin + this.layoutRandom() * (maxBound - margin));
 
         valid = true;
         for (const p of placed) {
@@ -453,8 +559,8 @@ export class CampusRoom extends Room<GameState> {
 
       while (!valid && attempts < 1000) {
         attempts++;
-        x = Math.floor(margin + Math.random() * (maxBound - margin));
-        y = Math.floor(margin + Math.random() * (maxBound - margin));
+        x = Math.floor(margin + this.layoutRandom() * (maxBound - margin));
+        y = Math.floor(margin + this.layoutRandom() * (maxBound - margin));
 
         valid = true;
         // Check distance against HQs
@@ -559,8 +665,8 @@ export class CampusRoom extends Room<GameState> {
 
       while (!valid && attempts < 1000) {
         attempts++;
-        x = Math.floor(margin + Math.random() * (maxBound - margin));
-        z = Math.floor(margin + Math.random() * (maxBound - margin));
+        x = Math.floor(margin + this.layoutRandom() * (maxBound - margin));
+        z = Math.floor(margin + this.layoutRandom() * (maxBound - margin));
 
         valid = true;
         // Distance against HQs
@@ -625,8 +731,8 @@ export class CampusRoom extends Room<GameState> {
 
       while (!valid && attempts < 1000) {
         attempts++;
-        x = Math.floor(margin + Math.random() * (maxBound - margin));
-        z = Math.floor(margin + Math.random() * (maxBound - margin));
+        x = Math.floor(margin + this.layoutRandom() * (maxBound - margin));
+        z = Math.floor(margin + this.layoutRandom() * (maxBound - margin));
 
         valid = true;
         // Distance against HQs
@@ -1355,6 +1461,7 @@ export class CampusRoom extends Room<GameState> {
       const unopenedChests = Array.from(this.state.chests.values()).filter((c) => !c.isOpened);
       if (unopenedChests.length > 0) {
         const targetChest = unopenedChests[Math.floor(Math.random() * unopenedChests.length)];
+        this.world?.revealRect(player.schoolId,targetChest.x-14,targetChest.z-14,targetChest.x+14,targetChest.z+14);
         client.send("treasure_map_reveal", {
           chestId: targetChest.id,
           x: targetChest.x,
@@ -1600,17 +1707,21 @@ export class CampusRoom extends Room<GameState> {
    * Cập nhật Bản Đồ Linh Hoạt (Map Layout):
    * Nhận tọa độ mới của HQs, Landmarks, UniStops, Chests từ Map Editor và áp dụng ngay vào GameState.
    */
-  public handleUpdateMapLayout(client: Client, data: ClientUpdateMapLayoutMessage) {
-    if (!this.isDevCommandAllowed(client, "update_map_layout", data)) return;
+  public handleUpdateMapLayout(client: Client, data: ClientUpdateMapLayoutMessage, serverApproved=false) {
+    if (!serverApproved && !this.isDevCommandAllowed(client, "update_map_layout", data)) return;
     let plan: Placement[];
     try { plan = planMapLayout(this.state, data, this.landmarkTileMap, ...this.decayTiming()); }
     catch (error) {
+      if(serverApproved)throw error;
       const message = (error as Error).message;
       client.send("map_layout_ack", {success:false,message});
       client.send("error", {message});
       return;
     }
     const moved = plan.filter(p=>p.moved);
+    if(this.persistedCampaign && moved.length && !serverApproved) {
+      client.send("map_layout_ack",{success:false,message:"Xuất bố trí từ local editor, duyệt HQ và cấu hình WORLD_LAYOUT_FILE trước khi khởi động campaign persistent."});return;
+    }
     // Remove the old reserved geometry, retaining other schools' knowledge at old HQs.
     for (const p of moved) {
       if (p.kind === "hqs") {
@@ -1621,6 +1732,7 @@ export class CampusRoom extends Room<GameState> {
           if (tile.knowledge.get(p.id)?.persistent) tile.knowledge.delete(p.id);
           tile.maxHp=100; tile.hp=100; tile.defenseTier=0;
           projectKnowledge(tile);
+          this.updateKnowledgeCounts(tile);
           if (!tile.knowledge.size) this.state.claimedTiles.delete(`${t.x},${t.y}`);
         }
       } else if (p.kind === "landmarks") {
@@ -1690,6 +1802,7 @@ export class CampusRoom extends Room<GameState> {
     this.decayCursor=undefined;
     this.rebuildKnowledgeCounts();this.captureReachedStops();
     this.landData.finishReset();
+    for(const connected of this.clients)this.sendWorld(connected);
     this.broadcast("knowledge_sync",{tiles:Array.from(this.state.claimedTiles.values()).filter(t=>!this.landmarkTileMap.has(`${t.x},${t.y}`) && t.knowledge.size>1).map(t=>({x:t.x,y:t.y,schools:Array.from(t.knowledge.keys()).sort()}))});
     const layout={
       hqs:Array.from(this.state.hqs.values()).map(h=>({schoolId:h.schoolId,x:h.x,y:h.y})),
@@ -1740,7 +1853,7 @@ export class CampusRoom extends Room<GameState> {
    *   ngoại trừ soft_reset và updateMapLayout nếu có ADMIN_KEY hợp lệ.
    */
   public isDevCommandAllowed(client: Client, command: string, data?: any): boolean {
-    if (process.env.ALLOW_DEV === "true") {
+    if (process.env.NODE_ENV !== "production" && process.env.ALLOW_DEV === "true") {
       return true;
     }
 
@@ -1787,6 +1900,7 @@ export class CampusRoom extends Room<GameState> {
   ) {
     this.onMessage(messageType, (client: Client, data: T) => {
       try {
+        if(this.shuttingDown)return;
         if (client && client.sessionId) {
           const rateCheck = this.rateLimiter.check(client.sessionId, messageType);
           if (!rateCheck.allowed) {
@@ -1971,6 +2085,7 @@ export class CampusRoom extends Room<GameState> {
       // Clear all claimed tiles
       this.state.claimedTiles.clear();
       this.decayCursor = undefined;
+      if(this.world) for(const index of Array.from(this.world.knowledge.keys())) this.world.syncTile(index,[]);
       this.knowledgeCountIndex.clear();
       this.currentLeaderSchoolId = "";
       this.stationArrivalSequence = 0;
@@ -2049,12 +2164,15 @@ export class CampusRoom extends Room<GameState> {
       });
 
       // Rebuild dirty is dropped; clients resync from a fresh snap under a new epoch
+      this.rebuildKnowledgeCounts();
       this.landData.finishReset();
+      for(const connected of this.clients)this.sendWorld(connected);
     });
 
 
     // 6. select_school
     this.registerHandler("select_school", (client, data: ClientSelectSchoolMessage) => {
+      if(process.env.NODE_ENV === "production") return;
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
 
@@ -2067,6 +2185,7 @@ export class CampusRoom extends Room<GameState> {
 
       if (isValidSchoolId(data?.schoolId)) {
         player.schoolId = data.schoolId;
+        this.sendFog(client,true);
         this.devLog(`[CampusRoom] Player ${client.sessionId} switched to school: ${data.schoolId}`);
       } else {
         client.send("error", { message: "Mã trường không hợp lệ!" });
@@ -2092,6 +2211,7 @@ export class CampusRoom extends Room<GameState> {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
 
+      if(process.env.NODE_ENV === "production") return;
       const email = (data.email || "").trim();
       const studentId = (email || client.sessionId).toLowerCase().trim();
 
@@ -2118,7 +2238,7 @@ export class CampusRoom extends Room<GameState> {
       const targetSchool = player.schoolId || "hcmut";
       const profile = this.profileManager.getOrCreateProfile(studentId, targetSchool);
 
-      const isDevAllowed = process.env.ALLOW_DEV === "true";
+      const isDevAllowed = process.env.NODE_ENV !== "production" && process.env.ALLOW_DEV === "true";
       if (isDevAllowed) {
         if (isSafeInteger(data.points, 0, 10000000)) {
           this.runningPointsProvider.setTotalPoints(studentId, data.points);
@@ -2429,8 +2549,12 @@ export class CampusRoom extends Room<GameState> {
     });
   }
 
-  onJoin(client: Client, options: any) {
-    const isDevAllowed = process.env.ALLOW_DEV === "true";
+  onJoin(client: Client, options: any, auth?: PortalIdentity | true) {
+    if (process.env.NODE_ENV === "production") {
+      if (!auth || auth === true) throw new Error("Verified Portal identity required");
+      options = { email: auth.email || auth.gameUserId, schoolId: auth.schoolId, mode:"normal" };
+    }
+    const isDevAllowed = process.env.NODE_ENV !== "production" && process.env.ALLOW_DEV === "true";
     const player = new PlayerState();
     player.id = client.sessionId;
 
@@ -2450,13 +2574,14 @@ export class CampusRoom extends Room<GameState> {
     const emailSchool = email ? getSchoolIdFromEmail(email) : null;
     const requestedSchool = options?.schoolId;
 
-    let targetSchool = "hcmut";
+    let targetSchool = SCHOOL_IDS[0];
     if (emailSchool && SCHOOL_ROSTER[emailSchool]) {
       targetSchool = emailSchool;
     } else if (requestedSchool && SCHOOL_ROSTER[requestedSchool]) {
       targetSchool = requestedSchool;
     }
 
+    if(process.env.NODE_ENV === "production" && auth && auth !== true) targetSchool=auth.schoolId;
     // Nạp/tạo profile
     const profile = this.profileManager.getOrCreateProfile(studentId, targetSchool);
 
@@ -2542,6 +2667,7 @@ export class CampusRoom extends Room<GameState> {
     }
 
     // Data-plane snap FIRST (before any live batches)
+    this.sendWorld(client);
     this.landData.sendSnap((type, payload) => client.send(type, payload));
 
     // Send profile sync immediately to this client
@@ -2590,6 +2716,7 @@ export class CampusRoom extends Room<GameState> {
       }
     }
 
+    this.fogSent.delete(client.sessionId);
     this.playerEmails.delete(client.sessionId);
     this.clientAdminKeys.delete(client.sessionId);
     this.rateLimiter.removeClient(client.sessionId);
@@ -2601,7 +2728,14 @@ export class CampusRoom extends Room<GameState> {
     this.devLog(`[CampusRoom] Player left: ${client.sessionId} (consented: ${consented})`);
   }
 
-  onDispose() {
+  onBeforeShutdown() {
+    this.shuttingDown=true;
+    // disconnect waits for asynchronous onDispose; freeze action/decay timers first.
+    if(this.gameInterval)this.gameInterval.clear();
+    if(this.landFlushInterval)this.landFlushInterval.clear();
+    this.disconnect();
+  }
+  async onDispose() {
     if (this.gameInterval) {
       this.gameInterval.clear();
     }
@@ -2610,6 +2744,8 @@ export class CampusRoom extends Room<GameState> {
     }
     this.profileSyncTimers.forEach((timer) => clearTimeout(timer));
     this.profileSyncTimers.clear();
+    this.fogSent.clear();
+    if(this.world) await this.world.close();
     this.devLog("[CampusRoom] Disposed");
   }
 }

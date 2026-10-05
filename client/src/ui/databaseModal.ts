@@ -200,7 +200,7 @@ export class DatabaseModal {
             </button>
           </form>
           <div class="db-add-hint">
-            Hỗ trợ tự động nhận diện 5 trường theo email: @hcmut.edu.vn, @ou.edu.vn, @dtu.edu.vn, @dhhp.edu.vn, @sinhvien.hoasen.edu.vn.
+            Hỗ trợ tự động nhận diện các trường trong chiến dịch theo email (chỉ dùng cho demo).
           </div>
         </div>
 
@@ -313,7 +313,7 @@ export class DatabaseModal {
 
       const schoolId = getSchoolIdFromEmail(email);
       if (!schoolId) {
-        if (!confirm(`Tên miền email ${email.split('@')[1]} chưa thuộc danh sách 5 trường chính thức. Hệ thống sẽ gán mặc định về HCMUT. Bạn có muốn tiếp tục?`)) {
+        if (!confirm(`Tên miền email ${email.split('@')[1]} chưa thuộc danh sách trường của chiến dịch. Hệ thống sẽ gán mặc định về HCMUT. Bạn có muốn tiếp tục?`)) {
           return;
         }
       }

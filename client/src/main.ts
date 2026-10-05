@@ -805,7 +805,7 @@ async function bootstrap() {
     fogOfWarManager.update(delta, now);
   };
 
-  // Helper to immediately reveal all 5 HQs and all 10 Landmarks
+  // Helper to immediately reveal configured HQs and all 10 Landmarks
   function revealAllHQsAndLandmarks(state?: any) {
     const s = state || colyseusClient?.room?.state;
     if (!s) return;
@@ -858,9 +858,9 @@ async function bootstrap() {
         updateHQMapFromRoom();
         updateMiniMapStatic();
 
-        // 1. Reveal all 5 HQs and all 10 Landmarks vision zones immediately
+        // 1. Reveal configured HQs and all 10 Landmarks vision zones immediately
         revealAllHQsAndLandmarks(room.state);
-        fogOfWarManager.syncAllClaimedTiles(colyseusClient.landSync.owner);
+        // Persistent school fog is consumed through fog_chunk messages.
 
         // Check if player's HQ is already in state on join
         const existingHQ = schoolHQMap.get(playerSchoolId) || room.state.hqs.get(playerSchoolId);
@@ -909,7 +909,7 @@ async function bootstrap() {
         for (const hq of layout.hqs || []) schoolHQMap.set(hq.schoolId,{x:hq.x,y:hq.y});
         fogOfWarManager.revealHQs(layout.hqs || []);
         fogOfWarManager.revealLandmarks((layout.landmarks || []).map((lm:any)=>({...lm,...LANDMARK_ROSTER[lm.landmarkKey]?.footprint,solved:!!colyseusClient.room?.state.landmarks.get(lm.id)?.guessedSchools?.get(playerSchoolId)})));
-        fogOfWarManager.syncAllClaimedTiles(colyseusClient.landSync.owner);
+        // Persistent school fog is consumed through fog_chunk messages.
         const ownHQ=(layout.hqs || []).find((h:any)=>h.schoolId===playerSchoolId);
         if (ownHQ) {
           playerHQCoords={x:ownHQ.x,y:ownHQ.y};
@@ -1201,18 +1201,28 @@ async function bootstrap() {
         statsOverlay.updateTerritory(territoryCounts);
         miniMap.setLandOwnerBytes(colyseusClient.landSync.owner);
       },
+      onFogReset: () => { fogOfWarManager.resetVision(); revealAllHQsAndLandmarks(colyseusClient?.room?.state); },
+      onFogChunk: (record) => {
+        for(let local=0;local<4096;local++) if(record.data[local>>3] & (1<<(local&7))) {
+          const x=record.x*64+local%64,y=record.z*64+Math.floor(local/64);
+          if(x<1000 && y<1000) fogOfWarManager.revealRect(x,y,x,y,false);
+        }
+      },
+      onKnowledgeBatch: (indices) => {
+        for(const index of indices) if(colyseusClient.hasSchoolKnowledge(index%1000,Math.floor(index/1000),playerSchoolId)) fogOfWarManager.revealClaimedTile(index%1000,Math.floor(index/1000),false);
+      },
       onLandSync: (info) => {
         scheduleStudentGuidance();
         // Wire dense owner bytes into the minimap (S2.4) — no 1e6 tile objects.
         miniMap.setLandOwnerBytes(colyseusClient.landSync.owner);
         if (info.kind === "snap") {
           statsOverlay.updateTerritory(colyseusClient.territoryCounts);
-          fogOfWarManager.syncAllClaimedTiles(colyseusClient.landSync.owner);
+          // Persistent school fog is consumed through fog_chunk messages.
         } else if (info.kind === "own_batch") {
           statsOverlay.updateTerritory(colyseusClient.territoryCounts);
           if (info.dirtyTiles) {
             for (const change of info.dirtyTiles) {
-              if (change.owner > 0) {
+              if (colyseusClient.hasSchoolKnowledge(change.x, change.y, playerSchoolId)) {
                 fogOfWarManager.revealClaimedTile(change.x, change.y, true);
               }
             }
