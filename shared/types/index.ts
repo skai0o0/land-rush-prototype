@@ -159,6 +159,8 @@ export interface ClientUpdateMapLayoutMessage {
 
 
 export interface ProfileSyncMessage {
+  /** Canonical production gameplay ID; studentId below is MSSV metadata. */
+  gameUserId?: string;
   studentId: string;
   points: number;       // điểm khả dụng (availablePoints)
   totalPoints: number;  // tổng điểm từ running provider

@@ -10,6 +10,7 @@ export interface StudentRunningRecord {
   lastUpdated: number;
 }
 
+/** Lookup arguments use the same canonical gameplay key as ProfileManager. */
 export class RunningPointsProvider {
   private static instance: RunningPointsProvider;
   private records: Map<string, StudentRunningRecord> = new Map();
@@ -52,7 +53,7 @@ export class RunningPointsProvider {
     if (record) {
       return record.totalPoints;
     }
-    if (process.env.ALLOW_DEV === "false") {
+    if (process.env.NODE_ENV === "production" || process.env.ALLOW_DEV === "false") {
       return 0;
     }
     return 100; // Fallback 100 điểm cho sinh viên mới

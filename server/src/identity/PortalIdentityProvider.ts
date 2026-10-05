@@ -1,7 +1,14 @@
 export interface PortalIdentity {
+  /** Canonical game_users.id; gameplay/profile/session keys use this value. */
   gameUserId: string;
   portalUserId: string;
-  schoolId: string;
+  /** School-scoped MSSV metadata; never an authentication or gameplay key. */
+  studentId: string;
+  /** Canonical gameplay code (e.g. hcmut), never the schools.id UUID. */
+  schoolCode: string;
+  /** Internal campaigns.id UUID resolved by the game adapter. Webmaster supplies
+   * an external campaign code such as r2pl-2027, not this database UUID. */
+  campaignId: string;
   displayName: string;
   email?: string;
 }
