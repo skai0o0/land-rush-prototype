@@ -19,6 +19,7 @@ export interface TileData {
   isAdjacent?: boolean;
   isExchangeZone?: boolean; // Khu vực giao lưu tri thức
   isShared?: boolean; // Ô Tri Thức Chung (Shared Knowledge Zone)
+  knowledgeSchoolIds?: string[];
   sharedWithSchoolId?: string | null;
   sharedExpiresAt?: number;
   isChallengedByMe?: boolean;
@@ -119,7 +120,7 @@ export class TileTooltip {
 
     const sharedBadge = tile.isShared
       ? `<span class="shared-zone-badge" style="background: linear-gradient(135deg, #f59e0b, #ef4444); color: #fff; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.5px; margin-left: 4px; display: inline-flex; align-items: center; gap: 3px; box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);">
-          ⚡ Ô TRI THỨC CHUNG (ĐANG ĐẾM NGƯỢC CHUYỂN GIAO)
+          ⚡ Ô TRI THỨC CHUNG
         </span>`
       : '';
 
@@ -132,9 +133,11 @@ export class TileTooltip {
     // Shared Knowledge Zone Section (Ô Tri Thức Chung)
     let sharedSection = '';
     if (tile.isShared) {
+      const schools = tile.knowledgeSchoolIds || (tile.sharedWithSchoolId || '').split(',').map(id => id.trim()).filter(Boolean);
+      const schoolNames = schools.map(id => SCHOOL_ROSTER[id]?.name || 'Trường tham gia').join(' · ');
       sharedSection = `<div class="tooltip-shared-zone" style="padding:8px;color:#fbbf24">
         <strong>Ô TRI THỨC CHUNG</strong><br>
-        ${tile.sharedWithSchoolId || ""}<br>Mỗi trường ôn bài và giữ tri thức độc lập.
+        ${schoolNames}<br>Mỗi trường ôn bài và giữ tri thức độc lập. Tri thức của một trường có thể phai, các trường còn lại vẫn tiếp tục giữ tri thức tại ô này.
       </div>`;
     }
 

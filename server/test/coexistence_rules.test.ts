@@ -34,6 +34,8 @@ try {
   room.handleRollUniStop(a as any, { stopId: stop.id });
   room.handleRollUniStop(b as any, { stopId: stop.id });
   assert.ok(a.got("unistop_rolled") && b.got("unistop_rolled"), "All students of owner school may claim");
+  assert.ok(a.messages.find(m => m.type === "unistop_rolled")!.data.cooldownUntil > Date.now(),
+    "Claim response carries the student's private cooldown, not the obsolete station timer");
   a.clear(); stop.cooldownUntil = 0;
   studyKnowledge(stationTile, "dtu", 3, Date.now());
   room.handleRollUniStop(c as any, { stopId: stop.id });

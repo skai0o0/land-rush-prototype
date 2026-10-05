@@ -1,3 +1,29 @@
+.first-landmark-card {
+  position: fixed; top: 164px; left: 18px; z-index: 950; width: 268px;
+  box-sizing: border-box; padding: 14px; border: 1px solid rgba(0,255,232,.35);
+  border-radius: 10px; background: rgba(8,12,20,.94); color: #e2e8f0;
+  box-shadow: 0 8px 24px rgba(0,0,0,.3); font-size: 12px;
+}
+.first-landmark-card[hidden], .goal-content[hidden] { display: none; }
+.first-landmark-card header, .guidance-modal header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.first-landmark-card header { color: #00ffe8; font-size: 10px; letter-spacing: 1px; }
+.first-landmark-card h3 { margin: 12px 0 6px; font-size: 15px; }
+.first-landmark-card p { margin: 7px 0; line-height: 1.5; }
+.goal-distance { color: #94a3b8; }
+.goal-progress { color: #00ffe8; }
+.goal-collapse, .guidance-close { border: 0; color: #cbd5e1; background: transparent; font-size: 23px; cursor: pointer; min-width: 32px; min-height: 32px; }
+.guidance-primary { width: 100%; padding: 11px; margin-top: 10px; border: 1px solid #00ffe8; border-radius: 6px; background: rgba(0,255,232,.12); color: #00ffe8; font-weight: 700; cursor: pointer; }
+.guidance-primary:disabled { opacity: .45; cursor: not-allowed; }
+.guidance-primary:focus-visible, .goal-collapse:focus-visible, .guidance-close:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+.guidance-note { color: #94a3b8; font-size: 11px; line-height: 1.6; }
+.guidance-modal-overlay { position: fixed; inset: 0; z-index: 9500; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.65); }
+.guidance-modal { box-sizing: border-box; width: 420px; max-width: 100%; max-height: 85vh; overflow-y: auto; background: #0b101a; border: 1px solid #00ffe8; border-radius: 12px; padding: 20px; color: #e2e8f0; box-shadow: 0 0 32px rgba(0,255,232,.12); }
+.guidance-modal h2 { margin: 0; font-size: 19px; color: #00ffe8; }
+.guidance-modal p { line-height: 1.6; font-size: 13px; }
+.unistop-status { color: #00ffe8; }
+.unistop-cooldown { color: #fbbf24; }
+@media (max-width: 600px) { .first-landmark-card { top: 142px; left: 10px; width: 235px; padding: 10px; } }
+
 /* ============================================================
    PREDATOR LEAGUE - ACER PREDATOR GAMING HUD THEME
    ============================================================ */

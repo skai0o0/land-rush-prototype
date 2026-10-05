@@ -1408,7 +1408,7 @@ export class CampusRoom extends Room<GameState> {
       winningItem,
       carouselItems,
       winningIndex: 24,
-      cooldownUntil: stop.cooldownUntil,
+      cooldownUntil: this.profileManager.getUniStopCooldown(studentId, stop.id),
       playerPoints: player.personalTroops,
       playerCrystals: player.crystals,
       playerCharcoal: player.crystals,

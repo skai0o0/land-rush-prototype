@@ -1,4 +1,4 @@
-import { BEACON_CRYSTALS } from "../../shared/constants/gameplay";
+import { BEACON_CRYSTALS, beaconOvertakeTarget } from "../../shared/constants/gameplay";
 import * as THREE from "three";
 import { ChunkGridManager } from "./engine/chunkGridManager";
 import { NatureGridManager } from "./engine/natureGridManager";
@@ -12,6 +12,9 @@ import { ColyseusClient } from "./network/colyseusClient";
 import { StatsOverlay } from "./ui/statsOverlay";
 import { StudentActionDock, ACTION_MODES, ActionMode } from "./ui/studentActionDock";
 import { TileTooltip } from "./ui/tileTooltip";
+import { UniStopModal } from "./ui/uniStopModal";
+import { FirstLandmarkCard } from "./ui/firstLandmarkCard";
+import { firstLandmarkGoal } from "../../shared/engine/studentGuidance";
 import { MiniMap } from "./ui/miniMap";
 import type { MapEditorPanel } from "./ui/mapEditorPanel";
 import type { DevToolsPanel } from "./ui/devToolsPanel";
@@ -168,6 +171,69 @@ async function bootstrap() {
   };
 
   let colyseusClient: ColyseusClient;
+  const uniStopModal = new UniStopModal(id => {
+    if (!isSessionReplaced && colyseusClient?.room) colyseusClient.rollUniStop(id);
+  }, appEl);
+  const firstLandmarkCard = new FirstLandmarkCard(id => {
+    if (isSessionReplaced) return;
+    const lm = colyseusClient?.room?.state.landmarks.get(id);
+    if (!lm) return;
+    const footprint = LANDMARK_ROSTER[lm.landmarkKey || lm.id]?.footprint || { width: 40, height: 40 };
+    const x = lm.x + (footprint.width - 1) / 2, y = lm.y + (footprint.height - 1) / 2;
+    sceneManager.panTo(x, y, { duration: 0.8, zoom: 0.8 });
+    sceneManager.setSelectedTileMarker(Math.floor(x), Math.floor(y), "#00ffe8");
+    setTimeout(() => sceneManager.clearSelectedTileMarker(), 1200);
+  }, appEl);
+  function uniStopView(stop: any) {
+    const profile = colyseusClient?.currentProfile;
+    return {
+      id: stop.id, tier: stop.tier, ownerSchoolId: stop.ownerSchoolId || "",
+      schoolId: profile?.schoolId || playerSchoolId,
+      cooldownUntil: profile?.unistopCooldowns?.[stop.id] || 0,
+      profileReady: !!profile, hasWeeklyRunningPoints: !!profile?.hasWeeklyRunningPoints
+    };
+  }
+  function refreshStudentGuidance() {
+    const state = colyseusClient?.room?.state;
+    if (!state || isSessionReplaced) { firstLandmarkCard.update(); uniStopModal.close(); return; }
+    if (uniStopModal.isOpen()) {
+      const stop = state.unistops.get(uniStopModal.getStopId());
+      if (stop) uniStopModal.update(uniStopView(stop)); else uniStopModal.close();
+    }
+    const school = colyseusClient.currentProfile?.schoolId || playerSchoolId;
+    const hq = state.hqs.get(school);
+    const goals = Array.from(state.landmarks.values()).map((lm: any) => {
+      const footprint = LANDMARK_ROSTER[lm.landmarkKey || lm.id]?.footprint || { width: 40, height: 40 };
+      return { id: lm.id, landmarkKey: lm.landmarkKey || lm.id, x: lm.x, y: lm.y, ...footprint };
+    });
+    const goal = firstLandmarkGoal(hq, goals);
+    if (!goal) { firstLandmarkCard.update(); return; }
+    const lm = state.landmarks.get(goal.id);
+    if (!lm) { firstLandmarkCard.update(); return; }
+    let hasPath = false;
+    // Inspect this landmark's perimeter, never the full million-tile map.
+    for (let x = goal.x - 1; x <= goal.x + goal.width && !hasPath; x++) {
+      for (let y = goal.y - 1; y <= goal.y + goal.height; y++) {
+        if (x >= goal.x && x < goal.x + goal.width && y >= goal.y && y < goal.y + goal.height) continue;
+        if (colyseusClient.hasSchoolKnowledge(x, y, school)) { hasPath = true; break; }
+      }
+    }
+    const guessed = !!lm.guessedSchools?.get(school);
+    const target = lm.buffActive && lm.litBySchoolId && lm.litBySchoolId !== school
+      ? beaconOvertakeTarget(lm.crystalsBySchool?.get(lm.litBySchoolId) || BEACON_CRYSTALS)
+      : Math.max(BEACON_CRYSTALS, lm.maxCrystals || BEACON_CRYSTALS);
+    firstLandmarkCard.update({
+      id: goal.id, name: guessed ? LANDMARK_ROSTER[goal.landmarkKey]?.name || "Công trình đã giải đố" : "Công trình bí ẩn",
+      distance: goal.distance, hasPath, guessed, litBySchool: lm.buffActive && lm.litBySchoolId === school,
+      crystals: lm.crystalsBySchool?.get(school) || 0, targetCrystals: target
+    });
+  }
+  let guidanceRefreshQueued = false;
+  function scheduleStudentGuidance() {
+    if (guidanceRefreshQueued) return;
+    guidanceRefreshQueued = true;
+    setTimeout(() => { guidanceRefreshQueued = false; refreshStudentGuidance(); }, 250);
+  }
 
   // Helper to sync HQ coordinates map from room state
   function updateHQMapFromRoom() {
@@ -509,6 +575,8 @@ async function bootstrap() {
   };
 
   function showSessionReplacedModal(customMessage?: string) {
+    uniStopModal.close();
+    firstLandmarkCard.update();
     isSessionReplaced = true;
     if (colyseusClient) {
       colyseusClient.isSessionReplaced = true;
@@ -805,6 +873,7 @@ async function bootstrap() {
 
         // Listen to room ticks
         room.onStateChange((state) => {
+          scheduleStudentGuidance();
           devTools?.setTick(state.currentTick);
           // Ownership paint comes from land frames (snap/own_batch), not schema.
           miniMap.setLandOwnerBytes(colyseusClient.landSync.owner);
@@ -830,6 +899,7 @@ async function bootstrap() {
         }
       },
       onMapLayoutUpdated: layout => {
+        scheduleStudentGuidance();
         fogOfWarManager.resetVision();
         miniMap.setStaticFeatures(layout.hqs || [],layout.landmarks || []);
         miniMap.setUniStops(layout.unistops || []);miniMap.setChests(layout.chests || []);
@@ -995,6 +1065,7 @@ async function bootstrap() {
         }
       },
       onProfileSync: (profile) => {
+        scheduleStudentGuidance();
         userPoints = profile.points;
         userCrystals = profile.crystals;
         if (profile.schoolId && profile.schoolId !== playerSchoolId && currentGameMode !== "normal") {
@@ -1028,6 +1099,7 @@ async function bootstrap() {
       },
       onUniStopChange: (stop) => {
         supplyDropManager.updateUniStop(stop.id, stop);
+        scheduleStudentGuidance();
       },
       onChestAdded: (chest) => {
         supplyDropManager.addChest(chest);
@@ -1036,6 +1108,7 @@ async function bootstrap() {
         supplyDropManager.updateChest(chest.id, chest);
       },
       onUniStopRolled: (data) => {
+        uniStopModal.close();
         if (data.playerPoints !== undefined) {
           userPoints = data.playerPoints;
           if (colyseusClient?.currentProfile) colyseusClient.currentProfile.points = userPoints;
@@ -1122,11 +1195,13 @@ async function bootstrap() {
         }
       },
       onTerritoryChange: (territoryCounts) => {
+        scheduleStudentGuidance();
         miniMap.setKnowledgeSchools(colyseusClient.knowledgeSchools);
         statsOverlay.updateTerritory(territoryCounts);
         miniMap.setLandOwnerBytes(colyseusClient.landSync.owner);
       },
       onLandSync: (info) => {
+        scheduleStudentGuidance();
         // Wire dense owner bytes into the minimap (S2.4) — no 1e6 tile objects.
         miniMap.setLandOwnerBytes(colyseusClient.landSync.owner);
         if (info.kind === "snap") {
@@ -1149,9 +1224,11 @@ async function bootstrap() {
         }
       },
       onError: (msg) => {
+        uniStopModal.finishRequest();
         showActionToast(msg, "error");
       },
       onDisconnected: (_code) => {
+        uniStopModal.close();
         showActionToast("Mất kết nối server. Đang tự động kết nối lại...", "warning");
       },
       onGameNotification: (data: { templateId: string; vars: Record<string, any>; category?: string }) => {
@@ -1376,6 +1453,7 @@ async function bootstrap() {
           isExchangeZone,
           isShared,
           sharedWithSchoolId,
+          knowledgeSchoolIds: sharedWithSchoolId?.split(",").map(id => id.trim()).filter(Boolean),
           sharedExpiresAt,
           playerSchoolId,
           retention: hp,
@@ -1608,16 +1686,15 @@ async function bootstrap() {
       return;
     }
 
-    // Direct click on any UniStop triggers supply roll
+    // Inspect the station before spending the student's private supply turn.
     if (colyseusClient?.room?.state?.unistops) {
       let clickedStop: any = null;
       colyseusClient.room.state.unistops.forEach((stop: any) => {
         const targetZ = stop.z !== undefined ? stop.z : stop.y;
-        const dist = Math.hypot(stop.x - x, targetZ - y);
-        if (dist <= 2.5) clickedStop = stop;
+        if (x >= stop.x - 5 && x < stop.x + 5 && y >= targetZ - 2 && y < targetZ + 3) clickedStop = stop;
       });
       if (clickedStop) {
-        colyseusClient.rollUniStop(clickedStop.id, x, y);
+        uniStopModal.open(uniStopView(clickedStop));
         sceneManager.setSelectedTileMarker(x, y, "#00ffe8");
         setTimeout(() => sceneManager.clearSelectedTileMarker(), 850);
         return;
