@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { WorldStore } from "../world/WorldStore";
 import { Campaign, WorldRepository, createWorldRepository, InMemoryWorldRepository } from "../world/WorldRepository";
-import { configureSchoolRegistry, getSchoolBit } from "../../../shared/constants/schools";
+import { acquireSchoolRegistry, getSchoolBit } from "../../../shared/constants/schools";
 import { IdentityProvider, PortalIdentityProvider, PortalIdentity } from "../identity/PortalIdentityProvider";
 import { planMapLayout, footprint, Placement } from "../gameplay/mapLayout";
 import { BEACON_CRYSTALS, beaconOvertakeTarget, landmarkGuessReward } from "../../../shared/constants/gameplay";
@@ -359,9 +359,12 @@ export class CampusRoom extends Room<GameState> {
   }
 
   private roomOptions: any = {};
+  private releaseRegistry?: () => void;
+  private portalStudentIds = new Map<string, string>();
 
   onCreate(options: any) {
     if (process.env.DATABASE_URL || this.persistenceRepository) return this.startPersistentRoom(options);
+    this.releaseRegistry = acquireSchoolRegistry("local-demo", Object.values(SCHOOL_ROSTER));
     this.world = new WorldStore({ id: "r2pl-2027", code: "r2pl-2027", width: 1000, height: 1000, chunkSize: 64, format: 1, maxSlots: 16, schools: Object.values(SCHOOL_ROSTER) }, new InMemoryWorldRepository());
     this.initializeRoom(options);
     this.worldReady=true;this.rebuildKnowledgeCounts();
@@ -371,7 +374,7 @@ export class CampusRoom extends Room<GameState> {
     const repository = this.persistenceRepository || createWorldRepository();
     try {
       this.persistedCampaign = await repository.loadCampaign(process.env.CAMPAIGN_CODE || "r2pl-2027");
-      configureSchoolRegistry(this.persistedCampaign.schools);
+      this.releaseRegistry = acquireSchoolRegistry(this.persistedCampaign.id, this.persistedCampaign.schools);
       this.world = new WorldStore(this.persistedCampaign, repository);
       await this.world.restore();
       this.randomState = Array.from(this.persistedCampaign.code).reduce((seed,c)=>Math.imul(seed,31)+c.charCodeAt(0),0) >>> 0;
@@ -401,7 +404,7 @@ export class CampusRoom extends Room<GameState> {
       }
       this.worldReady=true;this.rebuildKnowledgeCounts();
       this.world.start(Number(process.env.WORLD_FLUSH_MS || 3000));
-    } catch(error) { if(this.gameInterval)this.gameInterval.clear(); if(this.landFlushInterval)this.landFlushInterval.clear(); await repository.close(); throw error; }
+    } catch(error) { if(this.gameInterval)this.gameInterval.clear(); if(this.landFlushInterval)this.landFlushInterval.clear(); await repository.close(); this.releaseRegistry?.(); this.releaseRegistry=undefined; throw error; }
   }
   private flushWorldNetwork() {
     this.landData.flush();
@@ -437,7 +440,9 @@ export class CampusRoom extends Room<GameState> {
     if (process.env.NODE_ENV !== "production") return true;
     if (typeof options?.sessionToken !== "string") throw new Error("Game session token required");
     const identity = await this.identityProvider.verifyGameSession(options.sessionToken);
-    if (!SCHOOL_ROSTER[identity.schoolId]) throw new Error("Identity school is not active in campaign");
+    if (!identity.portalUserId?.trim() || !identity.studentId?.trim() || !identity.displayName?.trim()) throw new Error("Incomplete Portal identity");
+    if (identity.campaignId !== this.world.campaign.id) throw new Error("Identity campaign mismatch");
+    if (!SCHOOL_ROSTER[identity.schoolCode]) throw new Error("Identity school is not active in campaign");
     return identity;
   }
   private initializeRoom(options: any) {
@@ -962,7 +967,7 @@ export class CampusRoom extends Room<GameState> {
     const adding = !friendly;
     const minimum = adding && tile && tile.knowledge.size ? EXCHANGE_COST : 1;
     const cost = Math.max(minimum, points);
-    const studentId = (player.email || client.sessionId).toLowerCase().trim();
+    const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
     const schoolPoints = this.state.schoolTroops.get(player.schoolId) || 0;
     if (schoolPoints < cost || !this.profileManager.deductPoints(studentId, cost)) {
       client.send("error", { message: `Không đủ Điểm! Cần ${cost} Điểm.` });
@@ -1026,7 +1031,7 @@ export class CampusRoom extends Room<GameState> {
     }
 
     const amount = Math.max(1, Math.floor(data.crystals || data.amount || data.points || 1));
-    const studentId = (player.email || client.sessionId).toLowerCase().trim();
+    const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
     const profile = this.profileManager.getOrCreateProfile(studentId, player.schoolId);
     if (player.crystals !== undefined && player.crystals > (profile.crystals || 0)) {
       profile.crystals = player.crystals;
@@ -1225,7 +1230,7 @@ export class CampusRoom extends Room<GameState> {
     }
 
     const now = Date.now();
-    const studentId = (player.email || client.sessionId).toLowerCase().trim();
+    const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
     if (!player.guessCooldowns.has(lm.id)) {
       this.profileManager.setGuessCooldown(studentId, lm.id, 0);
     }
@@ -1407,7 +1412,7 @@ export class CampusRoom extends Room<GameState> {
       client.send("error", { message: "Chỉ sinh viên trường sở hữu Trạm tiếp tế mới được nhận đồ!" }); return;
     }
     const now = Date.now();
-    const studentId = (player.email || client.sessionId).toLowerCase().trim();
+    const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
     const studentCd = this.profileManager.getUniStopCooldown(studentId, stop.id);
     const effectiveCd = studentCd;
 
@@ -1572,7 +1577,7 @@ export class CampusRoom extends Room<GameState> {
     }
 
     // Kiểm tra chìa khóa tương ứng
-    const studentId = (player.email || client.sessionId).toLowerCase().trim();
+    const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
     const profile = this.profileManager.getOrCreateProfile(studentId, player.schoolId);
     const tier = chest.tier as ChestTier;
     if (tier === "aspire" || (tier as any) === "silver") {
@@ -1955,7 +1960,7 @@ export class CampusRoom extends Room<GameState> {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       const amount = data?.points || 0;
-      const studentId = (player.email || client.sessionId).toLowerCase().trim();
+      const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
       const available = this.profileManager.getAvailablePoints(studentId);
       if (!isSafeInteger(amount, 1, 1000000) || available < amount) {
         client.send("error", { message: "Không đủ điểm để chuyển đổi!" });
@@ -2288,7 +2293,7 @@ export class CampusRoom extends Room<GameState> {
       const player = this.state.players.get(client.sessionId);
       if (player) {
         const added = isSafeInteger(data?.amount, 1, 1000000) ? data.amount : 100;
-        const studentId = (player.email || client.sessionId).toLowerCase().trim();
+        const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
         const curTotal = this.runningPointsProvider.getTotalPoints(studentId);
         this.runningPointsProvider.setTotalPoints(studentId, curTotal + added);
         player.personalTroops = this.profileManager.getAvailablePoints(studentId);
@@ -2479,7 +2484,7 @@ export class CampusRoom extends Room<GameState> {
     }) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
-        const studentId = (player.email || client.sessionId).toLowerCase().trim();
+        const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
         if (data.aspire) this.profileManager.addKeys(studentId, "aspire", data.aspire);
         if (data.nitro) this.profileManager.addKeys(studentId, "nitro", data.nitro);
         if (data.predator) this.profileManager.addKeys(studentId, "predator", data.predator);
@@ -2499,7 +2504,7 @@ export class CampusRoom extends Room<GameState> {
     this.registerHandler("dev_add_crystals", (client, data: { amount?: number }) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
-        const studentId = (player.email || client.sessionId).toLowerCase().trim();
+        const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
         const added = data.amount || 10;
         player.crystals = this.profileManager.addCrystals(studentId, added);
         this.syncProfile(client, studentId);
@@ -2514,7 +2519,7 @@ export class CampusRoom extends Room<GameState> {
       }
       const player = this.state.players.get(client.sessionId);
       if (player && data?.stopId) {
-        const studentId = (player.email || client.sessionId).toLowerCase().trim();
+        const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
         const profile = this.profileManager.getOrCreateProfile(studentId, player.schoolId);
         profile.unistopCooldowns.delete(data.stopId);
         this.syncProfile(client, studentId);
@@ -2525,7 +2530,7 @@ export class CampusRoom extends Room<GameState> {
     this.registerHandler("dev_reset_cooldowns", (client) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
-        const studentId = (player.email || client.sessionId).toLowerCase().trim();
+        const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
         const profile = this.profileManager.getOrCreateProfile(studentId, player.schoolId);
         profile.guessCooldowns.clear();
         profile.unistopCooldowns.clear();
@@ -2543,7 +2548,7 @@ export class CampusRoom extends Room<GameState> {
       const player = this.state.players.get(client.sessionId);
       if (player) {
         player.hasWeeklyRunningPoints = Boolean(data.hasWeeklyRunningPoints);
-        const studentId = (player.email || client.sessionId).toLowerCase().trim();
+        const studentId = (this.portalStudentIds.get(client.sessionId) || player.email || client.sessionId).toLowerCase().trim();
         this.syncProfile(client, studentId);
       }
     });
@@ -2552,14 +2557,17 @@ export class CampusRoom extends Room<GameState> {
   onJoin(client: Client, options: any, auth?: PortalIdentity | true) {
     if (process.env.NODE_ENV === "production") {
       if (!auth || auth === true) throw new Error("Verified Portal identity required");
-      options = { email: auth.email || auth.gameUserId, schoolId: auth.schoolId, mode:"normal" };
+      if (auth.campaignId !== this.world?.campaign.id) throw new Error("Identity campaign mismatch");
+      if (!SCHOOL_ROSTER[auth.schoolCode] || !auth.studentId?.trim()) throw new Error("Invalid Portal identity");
+      options = { email: auth.email || "", schoolId: auth.schoolCode, mode:"normal" };
     }
     const isDevAllowed = process.env.NODE_ENV !== "production" && process.env.ALLOW_DEV === "true";
     const player = new PlayerState();
     player.id = client.sessionId;
 
     const email = (options?.email || "").trim().toLowerCase();
-    const studentId = email || client.sessionId;
+    const studentId = auth && auth !== true && process.env.NODE_ENV === "production" ? auth.studentId.toLowerCase().trim() : email || client.sessionId;
+    if (process.env.NODE_ENV === "production") this.portalStudentIds.set(client.sessionId, studentId);
 
     if (email) {
       this.playerEmails.set(client.sessionId, email);
@@ -2571,7 +2579,7 @@ export class CampusRoom extends Room<GameState> {
     const mode = isDevAllowed
       ? (options?.mode === "dev" ? "dev" : (email ? "normal" : (options?.mode || "dev")))
       : "normal";
-    const emailSchool = email ? getSchoolIdFromEmail(email) : null;
+    const emailSchool = process.env.NODE_ENV !== "production" && email ? getSchoolIdFromEmail(email) : null;
     const requestedSchool = options?.schoolId;
 
     let targetSchool = SCHOOL_IDS[0];
@@ -2581,7 +2589,7 @@ export class CampusRoom extends Room<GameState> {
       targetSchool = requestedSchool;
     }
 
-    if(process.env.NODE_ENV === "production" && auth && auth !== true) targetSchool=auth.schoolId;
+    if(process.env.NODE_ENV === "production" && auth && auth !== true) targetSchool=auth.schoolCode;
     // Nạp/tạo profile
     const profile = this.profileManager.getOrCreateProfile(studentId, targetSchool);
 
@@ -2596,10 +2604,10 @@ export class CampusRoom extends Room<GameState> {
     this.activeStudentSessions.set(studentId, { client, sessionId: client.sessionId });
 
     player.email = email;
-    player.displayName = maskEmail(email);
+    player.displayName = process.env.NODE_ENV === "production" && auth && auth !== true ? auth.displayName : maskEmail(email);
     player.schoolId = targetSchool;
     player.mode = mode;
-    player.isLockedSchool = mode === "normal" && !!emailSchool;
+    player.isLockedSchool = process.env.NODE_ENV === "production" || (mode === "normal" && !!emailSchool);
 
     // Running points: 1 km = 1 point
     // When ALLOW_DEV is disabled (default), ignores client-supplied starting points, crystals, keys
@@ -2702,7 +2710,7 @@ export class CampusRoom extends Room<GameState> {
   }
 
   private cleanupClient(client: Client, consented?: boolean) {
-    const email = this.playerEmails.get(client.sessionId);
+    const email = this.portalStudentIds.get(client.sessionId) || this.playerEmails.get(client.sessionId);
     if (email) {
       const studentId = email.toLowerCase().trim();
       const active = this.activeStudentSessions.get(studentId);
@@ -2718,6 +2726,7 @@ export class CampusRoom extends Room<GameState> {
 
     this.fogSent.delete(client.sessionId);
     this.playerEmails.delete(client.sessionId);
+    this.portalStudentIds.delete(client.sessionId);
     this.clientAdminKeys.delete(client.sessionId);
     this.rateLimiter.removeClient(client.sessionId);
     this.state.players.delete(client.sessionId);
@@ -2745,7 +2754,7 @@ export class CampusRoom extends Room<GameState> {
     this.profileSyncTimers.forEach((timer) => clearTimeout(timer));
     this.profileSyncTimers.clear();
     this.fogSent.clear();
-    if(this.world) await this.world.close();
+    try { if(this.world) await this.world.close(); } finally { this.releaseRegistry?.(); this.releaseRegistry=undefined; }
     this.devLog("[CampusRoom] Disposed");
   }
 }

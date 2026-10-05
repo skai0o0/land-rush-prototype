@@ -9,7 +9,7 @@ import { WorldClientState } from '../../shared/world/WorldClientState';
 async function run() {
   if (!process.env.DATABASE_URL) {console.log('SKIPPED: DATABASE_URL unavailable; PostgreSQL restart acceptance not verified.');return;}
   const code=process.env.ACCEPTANCE_CAMPAIGN_CODE;
-  if(!code)throw new Error('Set ACCEPTANCE_CAMPAIGN_CODE to a dedicated test campaign with approved HCMUT and DTU HQ layout; this test changes ~20 tiles.');
+  if(!code || !/^r2pl-2027-acceptance(?:-[a-z0-9-]+)?$/.test(code))throw new Error('Set ACCEPTANCE_CAMPAIGN_CODE to a dedicated test campaign with approved temporary HCMUT HQ layout; this test changes ~20 tiles.');
   const db=new Pool({connectionString:process.env.DATABASE_URL,max:2}),port=Number(process.env.ACCEPTANCE_PORT||'2579');
   let child:ChildProcess|undefined,room:Room|undefined;
   const stop=async()=>{if(room){await room.leave();room=undefined;}if(child){const current=child;const closed=new Promise<void>(resolve=>current.once('exit',()=>resolve()));current.kill('SIGTERM');await closed;child=undefined;}};

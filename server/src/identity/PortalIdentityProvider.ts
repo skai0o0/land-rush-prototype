@@ -1,7 +1,11 @@
 export interface PortalIdentity {
   gameUserId: string;
   portalUserId: string;
-  schoolId: string;
+  studentId: string;
+  /** Canonical gameplay code (e.g. hcmut), never the schools.id UUID. */
+  schoolCode: string;
+  /** campaigns.id UUID, not the campaign code. Portal/Webmaster is authoritative. */
+  campaignId: string;
   displayName: string;
   email?: string;
 }

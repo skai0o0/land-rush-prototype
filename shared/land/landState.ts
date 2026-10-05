@@ -109,6 +109,8 @@ export class LandState {
   readonly height = MAP_HEIGHT;
   readonly size = MAP_WIDTH * MAP_HEIGHT;
 
+  /** One-byte Three.js/legacy display projection only. NOT authoritative Shared Knowledge;
+   * independent school presence/strength lives in WorldStore masks and sparse records. */
   owner: Uint8Array;
   combat = new Map<number, CombatTile>();
 
