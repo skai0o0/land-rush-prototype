@@ -52,6 +52,9 @@ export class RunningPointsProvider {
     if (record) {
       return record.totalPoints;
     }
+    if (process.env.ALLOW_DEV === "false") {
+      return 0;
+    }
     return 100; // Fallback 100 điểm cho sinh viên mới
   }
 

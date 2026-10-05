@@ -17,6 +17,9 @@ export interface StudentStats {
   schoolColor: string;
   points: number;
   crystals?: number;
+  aspireKeys?: number;
+  nitroKeys?: number;
+  predatorKeys?: number;
   claimedTiles: number;
   totalSchoolTiles: number;
   controlPercentage: number;
@@ -50,6 +53,9 @@ export class StatsOverlay {
       schoolColor: defaultSchool?.colorHex || "#0062FF",
       points: 500,
       crystals: 0,
+      aspireKeys: 0,
+      nitroKeys: 0,
+      predatorKeys: 0,
       claimedTiles: 0,
       totalSchoolTiles: 9,
       controlPercentage: 10.0,

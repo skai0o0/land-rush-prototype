@@ -417,7 +417,8 @@ async function bootstrap() {
 
   function handleConvertPoints(amount: number) {
     if (isSessionReplaced) return;
-    if (userPoints < amount) {
+    const curPts = colyseusClient?.currentProfile?.points !== undefined ? colyseusClient.currentProfile.points : userPoints;
+    if (curPts < amount) {
       showActionToast(`Không đủ Điểm Tri Thức! Bạn cần ít nhất ${amount} Điểm Tri Thức để quy đổi.`, "warning");
       return;
     }
@@ -447,7 +448,9 @@ async function bootstrap() {
   const landmarkModal = new LandmarkModal({
     onContributeCrystal: (landmarkId, amount) => {
       if (isSessionReplaced) return;
-      const totalAvailable = userCrystals + userPoints;
+      const curPts = colyseusClient?.currentProfile?.points !== undefined ? colyseusClient.currentProfile.points : userPoints;
+      const curCrys = colyseusClient?.currentProfile?.crystals !== undefined ? colyseusClient.currentProfile.crystals : userCrystals;
+      const totalAvailable = curCrys + curPts;
       if (totalAvailable < amount) {
         showActionToast(`Không đủ tài nguyên! Cần ${amount} Tinh thể hoặc Điểm để nạp.`, "warning");
         return;
@@ -953,6 +956,9 @@ async function bootstrap() {
           statsOverlay.updateStats({
             points: userPoints,
             crystals: userCrystals,
+            aspireKeys: colyseusClient.currentProfile.aspireKeys,
+            nitroKeys: colyseusClient.currentProfile.nitroKeys,
+            predatorKeys: colyseusClient.currentProfile.predatorKeys,
             ...(displayName ? { displayName } : {})
           });
           actionDock.updateResources(userPoints, userCrystals, {
@@ -967,6 +973,9 @@ async function bootstrap() {
           statsOverlay.updateStats({
             points: userPoints,
             crystals: userCrystals,
+            aspireKeys: player.aspireKeys,
+            nitroKeys: player.nitroKeys,
+            predatorKeys: player.predatorKeys,
             ...(displayName ? { displayName } : {})
           });
           actionDock.updateResources(userPoints, userCrystals, {
@@ -989,6 +998,9 @@ async function bootstrap() {
         statsOverlay.updateStats({
           points: userPoints,
           crystals: userCrystals,
+          aspireKeys: profile.aspireKeys,
+          nitroKeys: profile.nitroKeys,
+          predatorKeys: profile.predatorKeys,
           displayName: profile.displayName || (profile.email ? profile.email.split('@')[0] : undefined),
           studentEmail: profile.email
         });
@@ -1454,7 +1466,7 @@ async function bootstrap() {
       } else if (!isAdjacent) {
         canExecute = false;
         reasonDisabled = "Chỉ có thể khám phá các ô liền kề với trường bạn";
-      } else if (userPoints < cost) {
+      } else if ((colyseusClient?.currentProfile?.points !== undefined ? colyseusClient.currentProfile.points : userPoints) < cost) {
         canExecute = false;
         reasonDisabled = `Không đủ điểm! Cần ${cost} điểm (points) để khám phá`;
       }
@@ -1480,7 +1492,7 @@ async function bootstrap() {
         }
       }
 
-      if (userPoints < cost) {
+      if ((colyseusClient?.currentProfile?.points !== undefined ? colyseusClient.currentProfile.points : userPoints) < cost) {
         canExecute = false;
         reasonDisabled = `Không đủ điểm! Cần ${cost} điểm (points) để ôn bài`;
       }
@@ -1643,6 +1655,26 @@ async function bootstrap() {
         if (clickedChest.isOpened) {
           showActionToast(`Rương này đã được mở bởi ${clickedChest.openedBySchoolId?.toUpperCase()}!`, "warning");
         } else {
+          const tier = (clickedChest.tier || "aspire").toLowerCase();
+          const profile = colyseusClient?.currentProfile;
+          let hasKey = true;
+          let requiredKeyName = "Aspire";
+          if (profile) {
+            if (tier === "aspire" || tier === "silver") {
+              hasKey = (profile.aspireKeys || 0) >= 1;
+              requiredKeyName = "Aspire (Key - Aspire)";
+            } else if (tier === "nitro" || tier === "gold") {
+              hasKey = (profile.nitroKeys || 0) >= 1;
+              requiredKeyName = "Nitro (Key - Nitro)";
+            } else if (tier === "predator" || tier === "platinum") {
+              hasKey = (profile.predatorKeys || 0) >= 1;
+              requiredKeyName = "Predator (Key - Predator)";
+            }
+          }
+          if (!hasKey) {
+            showActionToast(`Bạn cần có Chìa khoá ${requiredKeyName} để mở rương này!`, "warning");
+            return;
+          }
           colyseusClient.openChest(clickedChest.id, x, y);
         }
         sceneManager.setSelectedTileMarker(x, y, "#f59e0b");
@@ -1747,6 +1779,25 @@ async function bootstrap() {
       statsOverlay.updateTroops(troops);
     } else {
       statsOverlay.updateStats({ points: userPoints });
+    }
+
+    if (colyseusClient.currentProfile) {
+      userPoints = colyseusClient.currentProfile.points;
+      userCrystals = colyseusClient.currentProfile.crystals;
+      statsOverlay.updateStats({
+        points: userPoints,
+        crystals: userCrystals,
+        aspireKeys: colyseusClient.currentProfile.aspireKeys,
+        nitroKeys: colyseusClient.currentProfile.nitroKeys,
+        predatorKeys: colyseusClient.currentProfile.predatorKeys,
+        displayName: colyseusClient.currentProfile.displayName || syncDisplayName,
+        studentEmail: colyseusClient.currentProfile.email
+      });
+      actionDock.updateResources(userPoints, userCrystals, {
+        aspire: colyseusClient.currentProfile.aspireKeys,
+        nitro: colyseusClient.currentProfile.nitroKeys,
+        predator: colyseusClient.currentProfile.predatorKeys
+      });
     }
 
     // Initial check for HQ coordinates
