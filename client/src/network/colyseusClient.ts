@@ -1,14 +1,16 @@
 import { Client, Room } from "colyseus.js";
+import * as THREE from "three";
 import { ChunkGridManager } from "../engine/chunkGridManager";
 import { ModelLoader } from "../engine/modelLoader";
 import { NatureGridManager } from "../engine/natureGridManager";
 import { getSchoolColor, SCHOOL_IDS } from "../../../shared/constants/schools";
 import { LANDMARK_ROSTER } from "../../../shared/constants/landmarks";
-import { PlayerRole } from "../../../shared/types";
+import { PlayerRole, ProfileSyncMessage } from "../../../shared/types";
 import {
   registerLeveledZone,
   getFootprintFoundationHeight,
-  isInsideLeveledZone
+  isInsideLeveledZone,
+  getTerrainColor
 } from "../engine/terrainNoise";
 import { expandRect, getHQRect, getLandmarkRect } from "../../../shared/constants/footprint";
 import { ClientLandSync, DirtyTileChange } from "../../../shared/land/clientSync";
@@ -63,15 +65,25 @@ export interface NetworkCallbacks {
   onLandmarkGuessed?: (data: { landmarkId: string; landmarkName: string; schoolId: string; studentEmail?: string; bonusCrystals: number }) => void;
   onLandmarkGuessResult?: (data: any) => void;
   onTreasureMapReveal?: (data: { chestId: string; x: number; z: number; tier: string }) => void;
+  onPointsConverted?: (points: number, crystals: number) => void;
+  onSharedZoneEvent?: (event: any) => void;
   onPlayerStateChange?: (player: any) => void;
+  onGameNotification?: (data: { templateId: string; vars: Record<string, any>; category?: string }) => void;
+  onStudentBotsStatus?: (data: { enabled: boolean; count: number; bots?: any[] }) => void;
+  onStudentBotAction?: (data: { botId: string; name: string; schoolId: string; x: number; y: number; actionType: string; actionText: string; points?: number; crystals?: number }) => void;
+  onProfileSync?: (profile: ProfileSyncMessage) => void;
+  onSessionReplaced?: (data: { message?: string }) => void;
 }
 
 export class ColyseusClient {
   private client: Client;
   public room?: Room;
+  public currentProfile: ProfileSyncMessage | null = null;
+  public isSessionReplaced = false;
   public territoryCounts: Record<string, number> = {};
   /** Dense ownership bytes + sparse combat overlay (no 1e6 tile objects). */
   public readonly landSync = new ClientLandSync();
+  private sharedZones = new Map<string, { isShared: boolean; sharedWithSchoolId: string; sharedExpiresAt: number }>();
   private lastJoinOptions: any = { schoolId: "hcmut" };
   private isReconnecting = false;
   private territoryDebounceTimer: any = null;
@@ -112,6 +124,7 @@ export class ColyseusClient {
     const joinOptions = typeof options === "string" ? { schoolId: options } : options;
     this.lastJoinOptions = { ...joinOptions };
     this.territoryCounts = {};
+    this.isSessionReplaced = false;
 
     while (attempt < maxRetries) {
       attempt++;
@@ -465,6 +478,74 @@ export class ColyseusClient {
       }
     });
 
+    // Listen to Tactical Events (Shared Knowledge Zones)
+    room.onMessage("tactical_event", (data: any) => {
+      if (data.type === "shared_zone_created") {
+        this.sharedZones.set(`${data.x},${data.y}`, {
+          isShared: true,
+          sharedWithSchoolId: data.sharedWithSchoolId || data.schoolId || "",
+          sharedExpiresAt: data.expiresAt || 0
+        });
+      } else if (data.type === "shared_zone_rebuffed" || data.type === "shared_zone_captured") {
+        this.sharedZones.delete(`${data.x},${data.y}`);
+      }
+      if (this.callbacks.onSharedZoneEvent) {
+        this.callbacks.onSharedZoneEvent(data);
+      }
+    });
+
+    // Listen to Initial Shared Zones Sync
+    room.onMessage("shared_zones_sync", (data: { zones: any[] }) => {
+      if (Array.isArray(data.zones)) {
+        for (const z of data.zones) {
+          this.sharedZones.set(`${z.x},${z.y}`, {
+            isShared: true,
+            sharedWithSchoolId: z.sharedWithSchoolId || "",
+            sharedExpiresAt: z.sharedExpiresAt || 0
+          });
+        }
+      }
+    });
+
+    // Listen to Points Converted Event
+    room.onMessage("points_converted", (data: { points: number; crystals: number }) => {
+      if (this.callbacks.onPointsConverted) {
+        this.callbacks.onPointsConverted(data.points, data.crystals);
+      }
+    });
+
+    // Listen to Game Notifications (In-Game Push Banners)
+    room.onMessage("game_notification", (data: { templateId: string; vars: Record<string, any>; category?: string }) => {
+      this.callbacks.onGameNotification?.(data);
+    });
+
+    // Listen to Student Bots Status (5 Simulated Bots)
+    room.onMessage("student_bots_status", (data: { enabled: boolean; count: number; bots?: any[] }) => {
+      this.callbacks.onStudentBotsStatus?.(data);
+    });
+
+    // Listen to Student Bot Realtime Action (Move, Explore, Study, etc.)
+    room.onMessage("student_bot_action", (data: any) => {
+      this.callbacks.onStudentBotAction?.(data);
+    });
+
+    // Listen to Private Profile Sync (points, crystals, keys, guess cooldowns)
+    room.onMessage("profile_sync", (profile: ProfileSyncMessage) => {
+      this.currentProfile = profile;
+      if (this.callbacks.onProfileSync) {
+        this.callbacks.onProfileSync(profile);
+      }
+    });
+
+    // Listen to Session Replaced Event (Single active session enforcement)
+    room.onMessage("session_replaced", (data: { message?: string }) => {
+      console.warn("[ColyseusClient] Session replaced from another location!", data);
+      this.isSessionReplaced = true;
+      if (this.callbacks.onSessionReplaced) {
+        this.callbacks.onSessionReplaced(data);
+      }
+    });
+
     // Listen to Player state updates (crystals, keys, troops)
     if (room.state.players && typeof room.state.players.onAdd === "function") {
       room.state.players.onAdd((player: any, key: string) => {
@@ -487,9 +568,10 @@ export class ColyseusClient {
       if (this.callbacks.onDisconnected) {
         this.callbacks.onDisconnected(code);
       }
-      if (code !== 1000 && !this.isReconnecting) {
+      if (code !== 1000 && !this.isReconnecting && !this.isSessionReplaced) {
         this.isReconnecting = true;
         setTimeout(() => {
+          if (this.isSessionReplaced) return;
           this.isReconnecting = false;
           this.connect(this.lastJoinOptions).catch((e) => console.error("[ColyseusClient] Reconnect failed:", e));
         }, 2000);
@@ -587,6 +669,18 @@ export class ColyseusClient {
     }
   }
 
+  // Opacity màu trường phủ lên nền địa hình (mặc định 65% = 0.65)
+  private territoryTintAlpha: number = 0.65;
+
+  public setTerritoryTintAlpha(alpha: number): void {
+    this.territoryTintAlpha = Math.max(0, Math.min(1, alpha));
+    this.paintAllOwnedTilesFromLand();
+  }
+
+  public getTerritoryTintAlpha(): number {
+    return this.territoryTintAlpha;
+  }
+
   private paintLandTile(change: DirtyTileChange) {
     if (change.owner === 0) {
       this.chunkGridManager.resetTerrainColor(change.x, change.y);
@@ -594,7 +688,9 @@ export class ColyseusClient {
     }
     const schoolId = SCHOOL_IDS[change.owner - 1];
     const color = getSchoolColor(schoolId || "");
-    this.chunkGridManager.setTileColor(change.x, change.y, color, this.isInitialSyncDone);
+    const baseTerrainHex = this.chunkGridManager ? this.chunkGridManager.getTerrainColor(change.x, change.y) : 0x4a7c59;
+    const blendedColor = new THREE.Color(baseTerrainHex).lerp(new THREE.Color(color), this.territoryTintAlpha).getHex();
+    this.chunkGridManager.setTileColor(change.x, change.y, blendedColor, this.isInitialSyncDone);
     const combat = this.landSync.getCombatAt(change.y * MAP_WIDTH + change.x);
     if (combat && !isInsideLeveledZone(change.x, change.y)) {
       this.chunkGridManager.setTileElevation(change.x, change.y, (combat.defenseTier || 0) * 0.15);
@@ -612,7 +708,10 @@ export class ColyseusClient {
         const o = owner[row + x];
         if (o === 0) continue;
         const schoolId = SCHOOL_IDS[o - 1];
-        this.chunkGridManager.setTileColor(x, y, getSchoolColor(schoolId || ""), false);
+        const color = getSchoolColor(schoolId || "");
+        const baseTerrainHex = this.chunkGridManager ? this.chunkGridManager.getTerrainColor(x, y) : 0x4a7c59;
+        const blendedColor = new THREE.Color(baseTerrainHex).lerp(new THREE.Color(color), this.territoryTintAlpha).getHex();
+        this.chunkGridManager.setTileColor(x, y, blendedColor, false);
         const combat = this.landSync.combat.get(row + x);
         if (combat && !isInsideLeveledZone(x, y)) {
           this.chunkGridManager.setTileElevation(x, y, (combat.defenseTier || 0) * 0.15);
@@ -669,6 +768,28 @@ export class ColyseusClient {
     const schemaTile = this.getSchemaTile(x, y);
     if (!schemaTile) return undefined;
     return { hp: schemaTile.hp, maxHp: schemaTile.maxHp, defenseTier: schemaTile.defenseTier };
+  }
+
+  /** Shared knowledge zone (Ô Tri Thức Chung) info via real-time tracker or schema fallback. */
+  public getTileSharedInfo(x: number, y: number): { isShared: boolean; sharedWithSchoolId?: string; sharedExpiresAt?: number } | undefined {
+    const key = `${x},${y}`;
+    const tracked = this.sharedZones.get(key);
+    if (tracked) {
+      if (tracked.sharedExpiresAt && Date.now() >= tracked.sharedExpiresAt) {
+        this.sharedZones.delete(key);
+        return undefined;
+      }
+      return tracked;
+    }
+    const schemaTile = this.getSchemaTile(x, y);
+    if (schemaTile && schemaTile.isShared) {
+      return {
+        isShared: true,
+        sharedWithSchoolId: schemaTile.sharedWithSchoolId,
+        sharedExpiresAt: schemaTile.sharedExpiresAt
+      };
+    }
+    return undefined;
   }
 
   /** True if any 4-neighbour is owned by schoolId (land overlay first). */
@@ -734,6 +855,10 @@ export class ColyseusClient {
     this.room?.send("toggle_bots", { enabled });
   }
 
+  public toggleStudentBots(enabled?: boolean): void {
+    this.room?.send("toggle_student_bots", enabled !== undefined ? { enabled } : {});
+  }
+
   public addPoints(amount: number) {
     this.room?.send("add_points", { amount });
   }
@@ -768,5 +893,13 @@ export class ColyseusClient {
 
   public addKeys(aspire = 5, nitro = 5, predator = 5) {
     this.room?.send("dev_add_keys", { aspire, nitro, predator });
+  }
+
+  public send(type: string, message?: any): void {
+    this.room?.send(type, message);
+  }
+
+  public convertPoints(points = 10): void {
+    this.room?.send("convert_points", { points });
   }
 }

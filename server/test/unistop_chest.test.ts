@@ -1,3 +1,4 @@
+process.env.ALLOW_DEV = "true";
 import * as assert from "assert";
 import { CampusRoom } from "../src/rooms/CampusRoom";
 import { GameState, UniStopState, ChestState, PlayerState } from "../src/schema/GameState";
@@ -88,6 +89,18 @@ async function runTests() {
     assert.strictEqual(sumTable(CHEST_LOOT_TABLES.nitro), 1000, "Chest Nitro loot table sum must be 1000");
     assert.strictEqual(sumTable(CHEST_LOOT_TABLES.predator), 1000, "Chest Predator loot table sum must be 1000");
 
+    // Verify chest loot tables have crystal_1, crystal_5, crystal_10 (1, 5, 10 crystals) and no crystal_2 or crystal_3
+    const chestTiers: ChestTier[] = ["aspire", "nitro", "predator"];
+    for (const tier of chestTiers) {
+      const table = CHEST_LOOT_TABLES[tier];
+      const itemIds = table.map((item) => item.id);
+      assert.ok(itemIds.includes("crystal_1"), `${tier} chest must contain crystal_1`);
+      assert.ok(itemIds.includes("crystal_5"), `${tier} chest must contain crystal_5`);
+      assert.ok(itemIds.includes("crystal_10"), `${tier} chest must contain crystal_10`);
+      assert.ok(!itemIds.includes("crystal_2"), `${tier} chest must NOT contain crystal_2`);
+      assert.ok(!itemIds.includes("crystal_3"), `${tier} chest must NOT contain crystal_3`);
+    }
+
     // Test Weighted RNG without weekly running points: NEVER roll real gifts
     const predatorLootTable = UNISTOP_LOOT_TABLES.predator;
     for (let i = 0; i < 500; i++) {
@@ -100,14 +113,10 @@ async function runTests() {
     }
 
     // Test Weighted RNG with weekly running points: Can roll real gifts
-    let realGiftCount = 0;
-    for (let i = 0; i < 1000; i++) {
-      const rolled = rollLoot(predatorLootTable, true);
-      if (rolled.isRealGift) {
-        realGiftCount++;
-      }
-    }
-    assert.ok(realGiftCount > 0, "Student with weekly running points must be able to roll real gifts");
+    const rolledGift = rollLoot(predatorLootTable, true, () => 0.99999);
+    assert.strictEqual(rolledGift.isRealGift, true, "Student with weekly running points must be able to roll real gifts");
+    const blockedGift = rollLoot(predatorLootTable, false, () => 0.99999);
+    assert.strictEqual(blockedGift.isRealGift || false, false, "Student without weekly running points must NEVER receive a real gift even at upper bound");
 
     // Test Carousel Generation
     const winningItem = LOOT_ITEMS.gift_tshirt;

@@ -1,19 +1,27 @@
 // client/src/ui/tileTooltip.ts
 import { Icons } from './icons';
+import { SCHOOL_ROSTER } from '../../../shared/constants/schools';
 
 export interface TileData {
   x: number;
   z: number;
   terrainType: string;
+  category?: 'scenic' | 'iconic' | string;
   landmarkName?: string | null;
   landmarkId?: string | null;
   ownerSchoolName?: string | null;
+  ownerSchoolId?: string | null;
   ownerColor?: string;
   cost: number;
   isOwnedByMe: boolean;
   isEnemyControlled?: boolean;
   isAdjacent?: boolean;
   isExchangeZone?: boolean; // Khu vực giao lưu tri thức
+  isShared?: boolean; // Ô Tri Thức Chung (Shared Knowledge Zone)
+  sharedWithSchoolId?: string | null;
+  sharedExpiresAt?: number;
+  isChallengedByMe?: boolean;
+  playerSchoolId?: string;
   retention?: number;
   maxRetention?: number;
   hp?: number;
@@ -36,6 +44,7 @@ export interface TileData {
 export class TileTooltip {
   private element: HTMLElement;
   private visible = false;
+  private countdownInterval?: number;
 
   constructor(parent?: HTMLElement) {
     this.element = document.createElement('div');
@@ -45,6 +54,11 @@ export class TileTooltip {
   }
 
   public show(tile: TileData, clientX: number, clientY: number): void {
+    if (this.countdownInterval) {
+      window.clearInterval(this.countdownInterval);
+      this.countdownInterval = undefined;
+    }
+
     this.visible = true;
     this.element.style.display = 'block';
 
@@ -53,11 +67,11 @@ export class TileTooltip {
     let left = clientX + offset;
     let top = clientY + offset;
 
-    if (left + 320 > window.innerWidth) {
-      left = clientX - 330;
+    if (left + 330 > window.innerWidth) {
+      left = clientX - 340;
     }
-    if (top + 250 > window.innerHeight) {
-      top = clientY - 260;
+    if (top + 280 > window.innerHeight) {
+      top = clientY - 290;
     }
 
     this.element.style.left = `${left}px`;
@@ -82,11 +96,11 @@ export class TileTooltip {
             <span>SƯƠNG MÙ CHE PHỦ - CẦN MỞ ĐƯỜNG ĐỂ KHÁM PHÁ</span>
           </div>
           <div class="tooltip-row" style="color: #94a3b8; font-size: 11px; line-height: 1.45; margin-bottom: 6px;">
-            <span>Khu vực bị che phủ bởi sương mù. Khai phá các ô tri thức tiếp giáp từ Trụ sở HQ hoặc Công trình Đèn hiệu tri thức để xua tan sương mù.</span>
+            <span>Khu vực bị che phủ bởi sương mù. Khám phá các ô tri thức tiếp giáp từ Trụ sở HQ hoặc Công trình để xua tan sương mù.</span>
           </div>
           <div class="tooltip-row" style="border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 6px;">
-            <span class="row-label">${Icons.point('sm')} Chi phí Khai phá Vùng Tri Thức:</span>
-            <span class="row-value"><strong style="color: #00ffe8;">${tile.cost}</strong> Điểm Tri Thức (Points)</span>
+            <span class="row-label">${Icons.point('sm')} Chi phí Khám phá Ô Tri Thức:</span>
+            <span class="row-value"><strong style="color: #00ffe8;">${tile.cost}</strong> Điểm (Points)</span>
           </div>
         </div>
       `;
@@ -94,38 +108,88 @@ export class TileTooltip {
     }
 
     const isLandmark = !!tile.landmarkName || !!tile.isLandmark;
-    const isUnclaimed = !tile.ownerSchoolName || tile.ownerSchoolName.includes('hoang sơ') || tile.ownerSchoolName.includes('Chưa có chủ');
-    const ownerName = isUnclaimed ? 'Vùng tri thức hoang sơ (Chưa khai phá)' : tile.ownerSchoolName;
+    const isUnclaimed = !tile.ownerSchoolName || tile.ownerSchoolName.includes('hoang sơ') || tile.ownerSchoolName.includes('Chưa có chủ') || tile.ownerSchoolName.includes('CHƯA CÓ CHỦ');
+    const ownerName = isUnclaimed ? 'CHƯA CÓ CHỦ' : tile.ownerSchoolName;
     const ownerColor = tile.ownerColor || '#94a3b8';
 
     const coreBadge = tile.isCore
       ? `<span style="background: #ef4444; color: #fff; font-size: 9px; font-weight: 800; padding: 2px 5px; border-radius: 4px; letter-spacing: 0.5px; margin-left: 4px;">LÕI TRI THỨC</span>`
       : '';
 
-    const exchangeBadge = tile.isExchangeZone
+    const sharedBadge = tile.isShared
+      ? `<span class="shared-zone-badge" style="background: linear-gradient(135deg, #f59e0b, #ef4444); color: #fff; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.5px; margin-left: 4px; display: inline-flex; align-items: center; gap: 3px; box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);">
+          ⚡ Ô TRI THỨC CHUNG (ĐANG ĐẾM NGƯỢC CHUYỂN GIAO)
+        </span>`
+      : '';
+
+    const exchangeBadge = (tile.isExchangeZone && !tile.isShared)
       ? `<span style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.5px; margin-left: 4px; display: inline-flex; align-items: center; gap: 3px;">
           ${Icons.sword(10)} KHU VỰC GIAO LƯU TRI THỨC
         </span>`
       : '';
 
-    // Knowledge Retention value (thay cho Máu / HP)
-    const retention = tile.retention !== undefined ? tile.retention : (tile.hp !== undefined ? tile.hp : 100);
-    const maxRetention = tile.maxRetention !== undefined ? tile.maxRetention : (tile.maxHp !== undefined ? tile.maxHp : 100);
+    // Shared Knowledge Zone Section (Ô Tri Thức Chung)
+    let sharedSection = '';
+    if (tile.isShared) {
+      const formatRemaining = (expiresAt: number): string => {
+        const sec = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+        if (sec >= 3600) {
+          const h = Math.floor(sec / 3600);
+          const m = Math.floor((sec % 3600) / 60);
+          const s = sec % 60;
+          return `${h} giờ ${m} phút ${s}s (${sec}s)`;
+        }
+        if (sec >= 60) {
+          const m = Math.floor(sec / 60);
+          const s = sec % 60;
+          return `${m} phút ${s}s (${sec}s)`;
+        }
+        return `${sec}s`;
+      };
 
-    // Cột Mốc Tri Thức (thay cho Cấp phòng thủ)
-    let knowledgeTierLabel = '';
-    if (tile.defenseTier !== undefined && tile.defenseTier > 0) {
-      knowledgeTierLabel = `(Cột Mốc Tri Thức Cấp ${tile.defenseTier})`;
+      const remainingTimeText = tile.sharedExpiresAt ? formatRemaining(tile.sharedExpiresAt) : 'Đang đếm ngược';
+      const challengerSchool = tile.sharedWithSchoolId ? SCHOOL_ROSTER[tile.sharedWithSchoolId] : null;
+      const challengerName = challengerSchool ? challengerSchool.name : (tile.sharedWithSchoolId ? tile.sharedWithSchoolId.toUpperCase() : 'Một trường học');
+      const challengerColor = challengerSchool ? challengerSchool.colorHex : '#38bdf8';
+
+      sharedSection = `
+        <div class="tooltip-shared-zone" style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.5); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 6px; color: #fbbf24; font-weight: 800; font-size: 11px; margin-bottom: 5px; text-transform: uppercase;">
+            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 6px #ef4444; animation: pulse 1.5s infinite;"></span>
+            <span>Ô TRI THỨC CHUNG (ĐANG ĐẾM NGƯỢC CHUYỂN GIAO)</span>
+          </div>
+          ${tile.sharedExpiresAt ? `
+            <div class="tooltip-row" style="color: #fef08a; font-size: 11px; margin-bottom: 4px;">
+              <span class="row-label" style="color: #fcd34d;">⏳ Thời gian còn lại:</span>
+              <span class="row-value" id="shared-countdown-val" style="font-weight: 700; color: #fef08a;">${remainingTimeText}</span>
+            </div>
+          ` : ''}
+          ${tile.sharedWithSchoolId ? `
+            <div class="tooltip-row" style="font-size: 11px; margin-bottom: 2px;">
+              <span class="row-label" style="color: #cbd5e1;">🎯 Trường thách thức:</span>
+              <span class="row-value" style="font-weight: 700; color: ${challengerColor};">${challengerName}</span>
+            </div>
+          ` : ''}
+        </div>
+      `;
+
+      // Live 1-second countdown update if expiration timestamp exists
+      if (tile.sharedExpiresAt) {
+        this.countdownInterval = window.setInterval(() => {
+          if (!this.visible) {
+            if (this.countdownInterval) {
+              window.clearInterval(this.countdownInterval);
+              this.countdownInterval = undefined;
+            }
+            return;
+          }
+          const valEl = this.element.querySelector('#shared-countdown-val');
+          if (valEl && tile.sharedExpiresAt) {
+            valEl.textContent = formatRemaining(tile.sharedExpiresAt);
+          }
+        }, 1000);
+      }
     }
-
-    const retentionRow = `
-      <div class="tooltip-row">
-        <span class="row-label">${Icons.shield('sm')} Độ bền Tri Thức (Retention):</span>
-        <span class="row-value" style="font-weight: 700; color: ${retention < maxRetention * 0.4 ? '#f87171' : '#00ffe8'};">
-          ${retention} / ${maxRetention} ${knowledgeTierLabel ? `<small style="font-size: 10px; color: #38bdf8;">${knowledgeTierLabel}</small>` : ''}
-        </span>
-      </div>
-    `;
 
     // Landmark Beacon info (thay cho Bonfire / Than củi)
     let landmarkBeaconSection = '';
@@ -135,12 +199,12 @@ export class TileTooltip {
     if (isLandmark && maxCrystals !== undefined) {
       const isLit = !!tile.isLit;
       const litSchoolText = isLit
-        ? `<strong style="color: ${tile.litBySchoolColor || '#10b981'};">Đang thắp Đèn hiệu bởi: ${tile.litBySchoolName || 'Một trường học'}</strong>`
+        ? `<strong style="color: ${tile.litBySchoolColor || '#10b981'};">Đèn hiệu đã sáng bởi: ${tile.litBySchoolName || 'Một trường học'}</strong>`
         : `<strong style="color: #00ffe8;">Chưa thắp Đèn hiệu</strong>`;
 
       landmarkBeaconSection = `
         <div class="tooltip-row" style="background: rgba(0, 255, 232, 0.08); padding: 5px 8px; border-radius: 4px; border: 1px solid rgba(0, 255, 232, 0.3); margin-bottom: 5px;">
-          <span class="row-label" style="display: flex; align-items: center; gap: 4px; color: #00ffe8;">${Icons.beacon(14)} Đèn hiệu Tri Thức:</span>
+          <span class="row-label" style="display: flex; align-items: center; gap: 4px; color: #00ffe8;">${Icons.beacon(14)} Đèn hiệu:</span>
           <span class="row-value">${litSchoolText}</span>
         </div>
         <div class="tooltip-row" style="margin-bottom: 5px;">
@@ -159,12 +223,36 @@ export class TileTooltip {
       : '';
 
     // Action Cost Label
-    let costLabel = 'Chi phí Khai phá Vùng Tri Thức:';
-    if (tile.isOwnedByMe) {
-      costLabel = 'Chi phí Ôn Bài / Củng cố:';
+    let costLabel = 'Chi phí Khám phá Ô Tri Thức:';
+    if (tile.isShared) {
+      costLabel = 'Chi phí Ôn bài:';
+    } else if (tile.isOwnedByMe) {
+      costLabel = 'Chi phí Ôn Bài:';
     } else if (tile.isEnemyControlled) {
       costLabel = 'Chi phí Giao lưu Tri Thức:';
     }
+
+    // Header Tag: "Danh lam thắng cảnh" hoặc "Công trình biểu tượng" theo category
+    let tagText = tile.terrainType;
+    if (isLandmark) {
+      if (tile.category === 'scenic') {
+        tagText = 'Danh lam thắng cảnh';
+      } else if (tile.category === 'iconic') {
+        tagText = 'Công trình biểu tượng';
+      } else {
+        tagText = 'Công trình';
+      }
+    }
+
+    // Owner Row (Không hiện dòng học viện sở hữu khi là ô chung)
+    const ownerRow = !tile.isShared
+      ? `
+        <div class="tooltip-row">
+          <span class="row-label">${Icons.school('sm')} Học viện sở hữu:</span>
+          <span class="row-value" style="color: ${ownerColor}; font-weight: 600;">${ownerName}</span>
+        </div>
+      `
+      : '';
 
     this.element.innerHTML = `
       <div class="tooltip-header" style="border-left-color: ${ownerColor};">
@@ -172,23 +260,21 @@ export class TileTooltip {
           <span class="tooltip-type-icon" style="color: ${ownerColor}; display: flex; align-items: center;">
             ${isLandmark ? Icons.landmark('sm') : Icons.tile('sm')}
           </span>
-          <h4 class="tooltip-title">${isLandmark ? tile.landmarkName : `Vùng tri thức (${tile.x}, ${tile.z})`}</h4>
+          <h4 class="tooltip-title">${isLandmark ? tile.landmarkName : `Ô tri thức (${tile.x}, ${tile.z})`}</h4>
           ${coreBadge}
+          ${sharedBadge}
           ${exchangeBadge}
         </div>
-        <span class="tooltip-terrain-tag">${tile.terrainType}</span>
+        <span class="tooltip-terrain-tag">${tagText}</span>
       </div>
 
       <div class="tooltip-body">
+        ${sharedSection}
         ${landmarkBeaconSection}
-        <div class="tooltip-row">
-          <span class="row-label">${Icons.school('sm')} Học viện sở hữu:</span>
-          <span class="row-value" style="color: ${ownerColor}; font-weight: 600;">${ownerName}</span>
-        </div>
-        ${retentionRow}
+        ${ownerRow}
         <div class="tooltip-row">
           <span class="row-label">${Icons.point('sm')} ${costLabel}</span>
-          <span class="row-value"><strong style="color: #00ffe8;">${tile.cost}</strong> Điểm Tri Thức (Points)</span>
+          <span class="row-value"><strong style="color: #00ffe8;">${tile.cost}</strong> Điểm (Points)</span>
         </div>
         ${buffRow}
       </div>
@@ -196,6 +282,10 @@ export class TileTooltip {
   }
 
   public hide(): void {
+    if (this.countdownInterval) {
+      window.clearInterval(this.countdownInterval);
+      this.countdownInterval = undefined;
+    }
     if (!this.visible) return;
     this.visible = false;
     this.element.style.display = 'none';

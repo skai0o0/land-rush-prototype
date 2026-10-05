@@ -10,23 +10,30 @@ export class TileState extends Schema {
   @type("number") retention: number = 100; // Độ bền tri thức (0 - 100)
   @type("number") maxRetention: number = 100;
   @type("number") lastStudiedAt: number = 0; // Timestamp lần cuối được sinh viên ôn bài
-  @type({ map: "number" }) studyCountBySchool = new MapSchema<number>(); // Ghi nhận độ chăm ôn bài của từng trường
+  @type({ map: "number" }) studyCountBySchool = new MapSchema<number>();
+  @type("boolean") isShared: boolean = false;
+  @type("string") sharedWithSchoolId: string = "";
+  @type("number") sharedExpiresAt: number = 0; // Ghi nhận độ chăm ôn bài của từng trường
 }
 
 export class PlayerState extends Schema {
   @type("string") id: string = "";
-  @type("string") email: string = "";
+  email: string = "";
+  @type("string") displayName: string = "";
   @type("string") schoolId: string = "hcmut";
-  @type("number") personalTroops: number = 100;
-  @type("string") currentRole: string = "assault"; // assault | fortify | support
+  points: number = 100;
+  get personalTroops(): number { return this.points; }
+  set personalTroops(val: number) { this.points = val; }
+  get currentRole(): string { return "support"; }
+  set currentRole(_: string) {} // assault | fortify | support
   @type("string") mode: string = "normal"; // normal | dev
   @type("boolean") isLockedSchool: boolean = true;
-  @type("number") crystals: number = 0;
-  @type("number") aspireKeys: number = 0;
-  @type("number") nitroKeys: number = 0;
-  @type("number") predatorKeys: number = 0;
-  @type({ map: "number" }) guessCooldowns = new MapSchema<number>();
-  @type("boolean") hasWeeklyRunningPoints: boolean = false;
+  crystals: number = 0;
+  aspireKeys: number = 0;
+  nitroKeys: number = 0;
+  predatorKeys: number = 0;
+  guessCooldowns = new MapSchema<number>();
+  hasWeeklyRunningPoints: boolean = false;
 
   get charcoal(): number { return this.crystals; }
   set charcoal(val: number) { this.crystals = val; }
@@ -54,6 +61,7 @@ export class LandmarkState extends Schema {
   @type("number") maxCrystals: number = 100; // Mặc định 100 tinh thể để thắp sáng đèn hiệu
   @type("string") litBySchoolId: string = ""; // ID trường đang thắp sáng đèn hiệu (ban đầu "")
   @type({ map: "number" }) crystalsBySchool = new MapSchema<number>(); // Tinh thể từng trường nạp
+  @type({ map: "boolean" }) guessedSchools = new MapSchema<boolean>(); // Các trường đã giải đố thành công
   @type("boolean") buffActive: boolean = false; // Kích hoạt buff khi đạt maxCrystals hoặc overtake
   @type("boolean") nameGuessed: boolean = false;
   @type("string") guessedBySchoolId: string = "";
@@ -96,7 +104,9 @@ export class GameState extends Schema {
   // and is synced via snap/own_batch/combat frames. No @type on purpose.
   claimedTiles = new MapSchema<TileState>();
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
-  @type({ map: "number" }) schoolTroops = new MapSchema<number>();
+  @type({ map: "number" }) schoolPoints = new MapSchema<number>();
+  get schoolTroops() { return this.schoolPoints; }
+  set schoolTroops(val) { this.schoolPoints = val; }
   @type({ map: HQState }) hqs = new MapSchema<HQState>();
   @type({ map: LandmarkState }) landmarks = new MapSchema<LandmarkState>();
   @type({ map: UniStopState }) unistops = new MapSchema<UniStopState>();

@@ -28,16 +28,16 @@ export const ACTION_MODES: Record<DockMode, ModeConfig> = {
     cost: 1,
     costType: 'points',
     icon: Icons.claim,
-    description: 'Khai phá và mở rộng Vùng Tri Thức hoang sơ tiếp giáp'
+    description: 'Khám phá và mở rộng ô tri thức hoang sơ tiếp giáp'
   },
   study: {
     id: 'study',
     title: 'Ôn Bài',
-    subtitle: 'Củng cố Tri Thức',
+    subtitle: 'Ôn bài Tri Thức',
     cost: 1,
     costType: 'points',
     icon: Icons.book,
-    description: 'Ôn Bài / Củng cố Tri Thức (Study / Reinforce): Tăng độ bền ô trường mình hoặc giao lưu tri thức ô đối phương tiếp giáp'
+    description: 'Ôn Bài Tri Thức (Study): Tăng độ bền ô trường mình hoặc giao lưu tri thức ô đối phương tiếp giáp'
   },
   beacon: {
     id: 'beacon',
@@ -60,13 +60,15 @@ export class StudentActionDock {
   private points: number = 500;
   private crystals: number = 0;
   private keys: KeyInventory = { aspire: 0, nitro: 0, predator: 0 };
+  public client?: { send: (type: string, message?: any) => void } | any;
 
   private onModeChangeCallback?: (mode: DockMode) => void;
   public onToggleSmart?: (enabled: boolean) => void;
   public onBeaconAction?: () => void;
   public onBonfireAction?: () => void;
 
-  constructor(parent?: HTMLElement) {
+  constructor(parent?: HTMLElement, client?: any) {
+    this.client = client;
     this.container = document.createElement('div');
     this.container.className = 'student-mode-dock';
     this.container.setAttribute('data-ui', 'true');
@@ -83,6 +85,10 @@ export class StudentActionDock {
     this.render();
     (parent || document.body).appendChild(this.container);
     this.bindEvents();
+  }
+
+  public setClient(client: any): void {
+    this.client = client;
   }
 
   public getActiveMode(): DockMode {
@@ -117,7 +123,7 @@ export class StudentActionDock {
   }
 
   /**
-   * Set student knowledge points
+   * Set student knowledge points (Điểm Tri Thức)
    */
   public setPoints(points: number): void {
     if (this.points === points) return;
@@ -132,7 +138,7 @@ export class StudentActionDock {
   }
 
   /**
-   * Set student crystals
+   * Set student crystals (Tinh Thể)
    */
   public setCrystals(crystals: number): void {
     if (this.crystals === crystals) return;
@@ -198,14 +204,14 @@ export class StudentActionDock {
         <!-- 1. Resource Bar: Điểm Tri Thức, Tinh Thể, Chìa Khóa -->
         <div class="dock-resource-bar" title="Tài nguyên sinh viên: Điểm Tri Thức, Tinh Thể và Chìa Khóa Rương">
           <!-- Điểm Tri Thức (Points) -->
-          <div class="dock-res-pill points" title="Điểm Tri Thức (Points) tích luỹ từ giải chạy để Khám phá & Ôn bài">
+          <div class="dock-res-pill points" title="Điểm Tri Thức tích luỹ từ giải chạy để Khám phá & Ôn bài">
             <span class="dock-res-icon point-glow">${Icons.point(13)}</span>
             <span class="dock-res-label">Điểm Tri Thức:</span>
             <span class="dock-res-val point-number" id="dock-res-points-val">${this.points.toLocaleString()}</span>
           </div>
 
           <!-- Tinh Thể (Crystals) -->
-          <div class="dock-res-pill crystals" title="Tinh Thể (Crystals) thu thập từ UniStop/Rương để Thắp Đèn Hiệu">
+          <div class="dock-res-pill crystals" title="Tinh Thể thu thập từ UniStop/Rương để Thắp Đèn Hiệu">
             <span class="dock-res-icon crystal-glow">${Icons.crystal(13)}</span>
             <span class="dock-res-label">Tinh Thể:</span>
             <span class="dock-res-val crystal-number" id="dock-res-crystals-val">${this.crystals.toLocaleString()}</span>

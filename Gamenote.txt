@@ -1,9 +1,10 @@
-﻿Thay đổi thuật ngữ "Chiếm đất" -> Hành trình Khám phá | Mục tiêu tối thượng: Chiếm ô đất -> Mở rộng tri thức.
+IDEA:
+Thay đổi thuật ngữ "Chiếm đất" -> Hành trình Khám phá | Mục tiêu tối thượng: Chiếm ô đất -> Mở rộng tri thức.
 Bản đồ tuỳ theo SL trường đã chốt để thiết kế lại, toàn bộ được bao phủ trong sương mù trừ headquarter của các trường và các Công trình. Mục tiêu là khám phá nhiều ô trên bản đồ nhất.
 Công trình bao gồm Danh lam thắng cảnh/Công trình biểu tượng trong đất nước VN, được gán làm mục tiêu ban đầu để mỗi trường mở đường khám phá.
 Trên đường đi sẽ gặp các trạm tiếp tế/rương -> Mục tiêu nhỏ, tránh nản khi phải khám phá map lớn.
-Khi đã mở được đường tới Công trình, sinh viên dùng điểm để quy đổi thành than củi, đủ than củi sẽ thắp lửa và buff cho trường. Buff sẽ mất tác dụng khi có trường khác thắp lửa tại Công trình đó.
-Bỏ cơ chế gia cố và tấn công đất đã có chủ, thay bằng cơ chế dùng chung tri thức: khi 2 vùng tri thức của 2 trường tiếp giáp, nơi đó sẽ trở thành khu vực giao lưu tri thức, trường nào lười ôn bài thì sau một thời gian sẽ quên và ô đó thuộc về trường chăm hơn.
+Khi tiếp cận Công trình, sinh viên dùng điểm để quy đổi thành tinh thể (hoặc nhận từ trạm tiếp tế, rương, giải đố tên công trình), đủ tinh thể sẽ thắp sáng đèn hiệu và kích hoạt buff cho trường. Buff sẽ mất tác dụng hoặc đổi chủ khi có trường khác vượt mốc tinh thể tại Công trình đó.
+Bỏ cơ chế gia cố và tấn công đất đã có chủ, thay bằng cơ chế dùng chung tri thức: khi vùng tri thức của 2 trường tiếp giáp, ô tiếp giáp có thể trở thành ô tri thức chung (khu vực giao lưu tri thức), trường nào lười ôn bài thì sau một thời gian sẽ quên và ô đó thuộc về trường chăm hơn.
 
 
 => Thay đổi về thuật ngữ/tên gọi để tránh xung đột trong quá trình chơi.
@@ -35,18 +36,25 @@ P/s:
 
 
 
-Chuẩn hoá tên gọi:
-* Ô đất: Vùng tri thức: Knowledge.
-* Công trình: Gồm Danh lam thắng cảnh và Công trình biểu tượng: Scenic Spots | Landmarks
-* Các Trường đại học: Trụ sở: Headquarters
+Chuẩn hóa tên gọi & Quy chuẩn thuật ngữ:
+* Ô tri thức vs Vùng tri thức:
+   * Ô tri thức (Knowledge Tile): Từng ô đơn lẻ trên bản đồ. HUD và Tooltip hiển thị: "Ô TRI THỨC ... ô", "ĐÃ KHÁM PHÁ ... ô".
+   * Vùng tri thức (Knowledge Territory): Chỉ dùng cho lãnh thổ toàn trường (tổng hợp các ô tri thức do một trường kiểm soát).
+   * Ô tri thức chung (Shared Knowledge Tile): Ô tiếp giáp giữa 2 trường khi sinh viên đối diện sang ôn bài giao lưu (thay thế thuật ngữ cũ "Vùng tri thức chung").
+* Khám phá vs Ôn bài:
+   * Khám phá (Explore): Hành động mở rộng sang ô hoang dã chưa có chủ (nhãn hành động chính thức: "KHÁM PHÁ", thay thế hoàn toàn các từ "Khai phá" / "Ôn bài khai phá" / "Chiếm đất").
+   * Ôn bài (Study): Hành động củng cố độ bền tri thức tại ô của trường mình hoặc giao lưu tại ô tiếp giáp (thay thế hoàn toàn "Gia cố" / "Củng cố", nút Dev Tools: "Ôn bài toàn bộ").
+* Công trình (Landmarks):
+   * Tên gọi chính thức là "Công trình" (thay thế cho "địa danh" hoặc "Công trình Đèn hiệu tri thức").
+   * Phân loại: Danh lam thắng cảnh (Scenic Spots) và Công trình biểu tượng (Iconic Landmarks).
+* Các Trường đại học: Trụ sở (Headquarters / HQ).
 * Trạm tiếp tế: UniStop - Aspire | UniStop - Nitro | UniStop - Predator.
-* Rương: Chest - Silver | Gold | Platinum
-* Chìa khoá: Key - Silver | Gold | Platinum
-* Quay hòm: CS:GO Carousel | Carousel
-* Điểm: Points
-* Nguyên liệu: Ingredients
-* Quà thật/hiện vật: Gift
-…
+* Rương: Chest - Aspire | Chest - Nitro | Chest - Predator (chuẩn hóa thay thế tên cũ Silver | Gold | Platinum).
+* Chìa khóa: Key - Aspire | Key - Nitro | Key - Predator.
+* Quay hòm: Vòng quay Carousel (CS:GO Carousel).
+* Điểm: Điểm (Points) - dùng để ôn bài, khám phá, quy đổi thành tinh thể.
+* Nguyên liệu: Tinh thể (Crystals: 1, 5, 10).
+* Quà thật / Hiện vật: Real Gift (Áo thun Predator, Móc khoá Predator Gaming, Vớ thể thao R2PL).
 
 
 Danh sách các trường đã chốt tham gia:
@@ -68,36 +76,183 @@ Tên viết tắt: DTU
 Đuôi email: @dtu.edu.vn
 
 
-3. ĐH Hải Phòng
+4. ĐH Hải Phòng
 Tên đầy đủ: Trường Đại học Hải Phòng
 Tên viết tắt: DHHP
 Đuôi email: @dhhp.edu.vn
 
 
-3. ĐH Hoa Sen
+5. ĐH Hoa Sen
 Tên đầy đủ: Trường Đại học Hoa Sen
 Tên viết tắt: HSU
 Đuôi email: @sinhvien.hoasen.edu.vn
 
 
-Các danh sách công trình bao gồm:
 
 
+Bản đồ:
+1000x1000 ô
+Object:
+* Cứ điểm trường: 20x20 ô
+* Danh lam thắng cảnh: 40x40 ô (trước đây: 50x50 ô)
+* Công trình biểu tượng: 40x40 ô (trước đây: 50x50 ô)
+* Trạm tiếp tế (Aspire/Nitro/Predator): 10x5 ô
+* Rương (Aspire/Nitro/Predator):  2x2 ô
+1. Chi tiết danh sách Danh lam/công trình:
 a. Danh lam thắng cảnh:
-- Đỉnh Fansipan
-- Vịnh Hạ Long
-- Núi Ngũ Hành Sơn
-- Động Phong Nha
-- Núi Bà Đen
-
-
+* Đỉnh Fansipan
+* Vịnh Hạ Long
+* Núi Ngũ Hành Sơn
+* Động Phong Nha
+* Núi Bà Đen
 b. Công trình biểu tượng:
-- Hoàng thành Thăng Long
-- Cảng Hải Phòng
-- Kinh Thành Huế
-- Toà nhà Bitexco
-- Chợ nổi Cái Răng
-
-
+* Hoàng thành Thăng Long
+* Cảng Hải Phòng
+* Kinh Thành Huế
+* Toà nhà Bitexco
+* Chợ nổi Cái Răng
+Item:
+* Điểm chơi game
+* Nguyên liệu: Tinh thể
+* Bản đồ kho báu (vị trí rương)
+* Chìa khóa mở rương
+* Quà thật
+Admin:
 Tính năng mới:
-- Editor mode để tinh chỉnh bản đồ (Do chưa chốt được số lượng trường.)
+- Editor mode để tinh chỉnh bản đồ bao gồm vị trí HQ, Công trình, trạm, rương, phong cách giống The Sims (Do chưa chốt được số lượng trường.)
+Cơ chế:
+* Cơ chế mở rộng tri thức (ô tri thức trên bản đồ):
+   * Sinh viên sử dụng 1 Điểm (Points) để khám phá 1 ô tri thức hoang dã liền kề chưa có chủ (nhãn hành động chính thức: "KHÁM PHÁ").
+* Cơ chế cạnh tranh tri thức:
+   * Khi trường A đã khám phá ô tri thức đến tiếp giáp ô tri thức của trường B.
+   * Sinh viên của trường A có thể sử dụng Điểm để ôn bài tại ô tiếp giáp của trường B, biến nó thành "ô tri thức chung" (khu vực giao lưu tri thức có hiệu lực 24h, dev mode: 30s).
+   * Nếu sau 24h sinh viên trường B không vào ôn bài để bảo vệ thì ô tri thức đó sẽ chuyển giao quyền sở hữu cho trường A.
+   * Cơ chế "gia cố/củng cố" hoàn toàn bị loại bỏ, thay bằng cơ chế "ôn bài" (nút dev: "Ôn bài toàn bộ").
+* Cơ chế thắp sáng công trình & Giải đố tên công trình:
+   * Giải đố tên công trình: Sương mù che phủ công trình, sinh viên dựa vào hint hình ảnh/mô tả để giải đố tên công trình.
+   * Chuẩn hóa đáp án và câu đoán: Tự động chuyển chữ thường, cắt khoảng trắng đầu/cuối, gộp khoảng trắng thừa, loại bỏ toàn bộ dấu tiếng Việt (kể cả đ/Đ -> d) cho cả câu đoán của người chơi và đáp án đúng (bao gồm alias).
+   * Độc lập theo trường: Mỗi trường được đoán đúng 1 lần cho mỗi công trình và nhận +10 tinh thể (10% tiến độ thắp sáng đèn hiệu) cho trường mình. Khi trường A đoán đúng, các trường khác (B, C, D, E) KHÔNG bị khóa, vẫn có quyền giải đố và nhận thưởng bình thường.
+   * Lưu trạng thái: Lưu danh sách trường đã giải đố qua map `guessedSchools` trong `LandmarkState`. Ngăn cùng một trường nhận thưởng 2 lần.
+   * Cooldown: Đoán sai bị cooldown 10 phút (600s), tính riêng theo từng sinh viên (sinh viên khác cùng trường hoặc khác trường không bị ảnh hưởng).
+   * Không yêu cầu điều kiện mở đường: Sinh viên ở bất kỳ đâu trên bản đồ đều có thể bấm vào công trình để giải đố mà không cần trường đã mở đường nối tới công trình.
+   * Giao diện Landmark Modal: Hiển thị thông báo "Trường bạn đã giải đố công trình này!" nếu trường người chơi đã giải đố thành công, và vẫn mở form nhập cho các trường chưa giải đố.
+   * Trường hợp 1 trường thắp sáng: Trường cần 100 tinh thể để thắp sáng đèn hiệu công trình và kích hoạt buff.
+   * Trường hợp nhiều trường thắp sáng cùng lúc: Trường nào cán mốc 100 tinh thể trước thì công trình thuộc về trường đó.
+   * Trường hợp trường A muốn chiếm lấy công trình của trường B (Overtake): Số tinh thể chênh lệch phải lớn hơn hoặc bằng 20 (delta >= 20), tức nếu trường B có 100 tinh thể thì trường A phải đạt tối thiểu 120 tinh thể để đèn hiệu chuyển sang trường A.
+* Cơ chế buff từ công trình:
+* Cơ chế gacha của điểm tiếp tế:
+   *  Sau mỗi 12h (Aspire)/24h (Nitro/Predator) sinh viên trường chiếm được trạm tiếp tiếp sẽ nhận 1 lượt gacha không cộng dồn
+   * Danh sách các item gacha ra trong trạm tiếp tế:
+      *  Điểm chơi game x1
+      * Điểm chơi game x2
+      * Điểm chơi game x3
+      * Tinh thể x1
+      * Tinh thể x2
+      * Tinh thể x4
+      * Bản đồ kho báu
+      * Chìa khóa (Key - Aspire / Nitro / Predator)
+      * Quà thật (chỉ có ở Predator với tỉ lệ 0.02%)
+Tỉ lệ
+	Aspire
+	Nitro
+	Predator
+	Điểm chơi game x1
+	32.5%
+	29.5%
+	25%
+	Điểm chơi game x2
+	10%
+	11%
+	12.5%
+	Điểm chơi game x3
+	5%
+	7%
+	10%
+	Tinh thể x1
+	32.5%
+	29.5%
+	25%
+	Tinh thể x2
+	10%
+	11%
+	12.5%
+	Tinh thể x4
+	5%
+	7%
+	10%
+	Bản đồ kho báu
+	3%
+	3%
+	3%
+	Chìa khóa
+	Aspire (2%)
+	Nitro (2%)
+	Predator (1.98%)
+[a]	
+Quà thật
+	0%
+	0%
+	0.02%
+[b]	
+ 
+* Cơ chế gacha của rương (Chest - Aspire / Nitro / Predator):
+   * Mở bằng chìa khóa tương ứng (Key - Aspire, Nitro, Predator).
+   * Danh sách item mở từ rương:
+      * Điểm chơi game x1 (points_x1) - đã bù đều phần thiếu để tổng đạt 100%
+      * Điểm chơi game x2 (points_x2)
+      * Điểm chơi game x5 (points_x5)
+      * Tinh thể x1 (crystal_1) - đã bù đều phần thiếu để tổng đạt 100%
+      * Tinh thể x5 (crystal_5) [mới: thay thế mốc crystal_2 cũ]
+      * Tinh thể x10 (crystal_10) [mới: thay thế mốc crystal_3 cũ]
+      * Quà thật (Real Gift): Vớ thể thao R2PL, Móc khoá Predator Gaming, Áo thun Predator (chỉ sinh viên có điểm chạy bộ trong tuần mới có tỉ lệ mở trúng quà thật).
+Tỉ lệ & Trọng số loot rương (chuẩn 1000 trọng số):
+	Vật phẩm                        Aspire          Nitro           Predator
+	Điểm chơi game x1 (đã bù)       31.25% (312.5)  27.1875% (271.875) 23.15% (231.5)
+	Điểm chơi game x2               13.5% (135)     15.0% (150)     16.5% (165)
+	Điểm chơi game x5               5.0% (50)       7.5% (75)       10.0% (100)
+	Tinh thể x1 (đã bù)             31.25% (312.5)  27.1875% (271.875) 23.15% (231.5)
+	Tinh thể x5                     13.5% (135)     15.0% (150)     16.5% (165)
+	Tinh thể x10                    5.0% (50)       7.5% (75)       10.0% (100)
+	Quà thật (tổng)                 0.5% (5)        0.625% (6.25)   0.7% (7) [c]
+	- Vớ thể thao R2PL              0.5% (5)        0.375% (3.75)   0.3% (3)
+	- Móc khoá Predator Gaming      0% (0)          0.25% (2.5)     0.25% (2.5)
+	- Áo thun Predator              0% (0)          0% (0)          0.15% (1.5)
+	Tổng trọng số / Tỉ lệ:          1000 (100%)     1000 (100%)     1000 (100%)
+   * Ghi chú: Tỉ lệ quà thật được cập nhật mới là Aspire: 0.5%, Nitro: 0.625%, Predator: 0.7%. Phần trăm thiếu đã được bù đều 50/50 vào Điểm chơi game x1 và Tinh thể x1 để đảm bảo tổng xác suất luôn đạt chính xác 100% (1000 trọng số).
+ 
+* Cơ chế đẩy thông báo:
+   *  Thông báo tới toàn sinh viên của trường
+      * Trường của bạn đã lên top …
+      * Trường của bạn đã bị đá xuống top …
+      * Trường của bạn còn cách trường X … để thăng hạng
+      * Trường X chỉ còn cách trường bạn … điểm
+      * Chúc mừng trường bạn đã thắp sáng thành công công trình A
+      * Công trình A của trường bạn sắp bị trường X giành lấy!!!
+   * Thông báo tới cá nhân sinh viên
+      * Bạn sắp quên đi tri thức
+      * Trạm tiếp tế Aspire/Nitro/Predator của bạn đã hồi lượt tiếp tế
+ Fix later:
+* Danh lam / công trình: 50x50 -> 40x40 [Đã hoàn thành - Đã chuẩn hóa footprint 40x40 ô trong code LANDMARK_ROSTER]
+* Ô tri thức đã được đánh dấu: giảm opacity màu của trường đó xuống 65% [Đã hoàn thành - Pha 65% màu trường + 35% màu nền đất gốc để nhìn thấy địa hình bên dưới]
+
+
+
+
+Special Đáng lưu ý!!!
+* Trường hợp có trường duyệt chiến dịch sau khi game đã khởi chạy:
+   * Hướng 1: Chừa slot sẵn trên map
+      * Dự đoán số trường sẽ confirm sau khi triển khai game
+      * Dự đoán tổng số trường sẽ tham gia = Số trường đã confirm + Dự đoán số trường sẽ confirm sau khi triển khai game
+      * Build sẵn map theo dự đoán tổng số trường sẽ tham gia và không mở rộng thêm.
+      * Tạo border cho những slot trường dự bị để các trường tham gia trước không chiếm ô tri thức ở gần khu vực trường dự bị.
+      * Khi trường mới tham gia border sẽ tồn tại thêm X ngày (bảo vệ tân thủ)
+   * Hướng 2: Mở rộng map theo tuần 1, tuần 2
+      * Tạo map dựa theo số trường đã confirm.
+      * Cuối tuần 1, xem xét thêm bao nhiêu trường đã confirm, mở rộng map ra và cho các trường mới vào khu vực mới mở rộng. Khu vực mới sẽ có border tồn tại X ngày (bảo vệ tân thủ)
+      * Cuối tuần 2, xem xét thêm bao nhiêu trường đã confirm, mở rộng map ra và cho các trường mới vào khu vực mới mở rộng. Khu vực mới sẽ có border tồn tại X ngày (bảo vệ tân thủ)
+ 
+
+
+[a]đọc comment ở dưới. dám sửa thì hãy giải thích. Hiện tại tỉ lệ của chìa Aspire là 10000:1 (sinh viên:quà). Nitro là 8000:1. Predator là xấp xỉ 3000:1. maybe tăng thời gian chờ của Predator lên 36h :))))
+[b]đọc comment ở dưới. dám sửa thì hãy giải thích. Hiện tại tỉ lệ của chìa Aspire là 10000:1 (sinh viên:quà). Nitro là 8000:1. Predator là xấp xỉ 3000:1. maybe tăng thời gian chờ của Predator lên 36h :))))
+[c]không sửa. sửa t bắt m học xác xuất thống kê. không giải thích được tau chặt chym

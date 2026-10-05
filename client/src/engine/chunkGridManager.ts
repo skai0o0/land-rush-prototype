@@ -521,4 +521,8 @@ export class ChunkGridManager {
       y: cy * CHUNK_SIZE + ly
     };
   }
+
+  public getTerrainColor(x: number, y: number): number {
+    return getTerrainColor(x, y);
+  }
 }

@@ -6,7 +6,7 @@
   "scripts": {
     "start": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "test": "ts-node --project tsconfig.json test/knowledge_bonfire.test.ts && ts-node --project tsconfig.json test/unistop_chest.test.ts"
+    "test": "ts-node --project tsconfig.json test/knowledge_bonfire.test.ts && ts-node --project tsconfig.json test/unistop_chest.test.ts && ts-node --project tsconfig.json test/student_bots_simulation.test.ts && ts-node --project tsconfig.json test/security.test.ts"
   },
   "dependencies": {
     "@colyseus/schema": "^2.0.36",

@@ -9,6 +9,7 @@ import {
   ChestState
 } from "../schema/GameState";
 import { BotManager } from "../bots/BotManager";
+import { StudentBotRunner } from "../bots/StudentBotRunner";
 import { SCHOOL_IDS, SCHOOL_ROSTER, getSchoolIdFromEmail } from "../../../shared/constants/schools";
 import { LANDMARK_IDS, LANDMARK_ROSTER } from "../../../shared/constants/landmarks";
 import {
@@ -38,29 +39,189 @@ import {
   ClientRollUniStopMessage,
   ClientOpenChestMessage,
   ClientUpdateMapLayoutMessage,
-  PlayerRole
+  PlayerRole,
+  ProfileSyncMessage
 } from "../../../shared/types";
 import { TerritoryClusterEngine } from "../../../shared/engine/territoryClusterEngine";
 import { LandDataPlane, LAND_FRAME_CHANNEL, DEFAULT_FLUSH_MS } from "../land/landDataPlane";
 import { decodeClientFrame, ClaimFrame, FortifyFrame, StudyFrame, CrystalFrame, FuelFrame } from "../../../shared/land/protocol";
+import {
+  maskEmail,
+  checkAdminKey,
+  isSafeInteger,
+  isSafeCoordinate,
+  isValidSchoolId
+} from "../security/sanitizer";
+import { RateLimiter } from "../security/rateLimiter";
+import { ProfileManager } from "../profile/ProfileManager";
+import { RunningPointsProvider } from "../profile/RunningPointsProvider";
 
+/**
+ * Chuẩn hóa chuỗi tiếng Việt cho câu đoán và đáp án Landmark:
+ * - Chuyển chữ thường .toLowerCase()
+ * - Cắt khoảng trắng đầu/cuối .trim()
+ * - Gộp khoảng trắng thừa .replace(/\s+/g, ' ')
+ * - Bỏ dấu tiếng Việt (bao gồm cả đ/Đ -> d)
+ */
+export function normalizeAnswer(str: string): string {
+  if (!str) return "";
+  return str
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d");
+}
 
 export class CampusRoom extends Room<GameState> {
   private gameInterval?: Delayed;
   private landFlushInterval?: Delayed;
   private botManager = new BotManager();
   private initialHQTiles: Map<string, { x: number; y: number; defenseTier: number; hp: number }[]> = new Map();
-  private landmarkTileMap: Map<string, { landmarkKey: string; isCore: boolean }> = new Map();
+  public landmarkTileMap: Map<string, { landmarkKey: string; isCore: boolean }> = new Map();
   private initialLandmarkTiles: Map<string, { x: number; y: number; hp: number; maxHp: number; defenseTier: number }> = new Map();
   private botsEnabled = false;
+  public studentBotsEnabled = false;
+  public studentBotRunner!: StudentBotRunner;
+  private currentLeaderSchoolId: string = "";
   public clusterEngine = new TerritoryClusterEngine(1000, 1000);
   public activeBastions: Map<string, any> = new Map();
   public activeMegaEmblems: Map<string, any> = new Map();
   /** Data-plane authority for ownership/combat (snap / own_batch / combat frames). */
   public landData = new LandDataPlane((type, payload) => this.broadcast(type, payload));
+  public rateLimiter = new RateLimiter();
+  public playerEmails = new Map<string, string>();
+  public clientAdminKeys = new Map<string, string>();
+  public profileManager = ProfileManager.getInstance();
+  public runningPointsProvider = RunningPointsProvider.getInstance();
+  public activeSessions = new Map<string, { client: Client; sessionId: string }>();
+  private profileSyncDebounce = new Map<string, NodeJS.Timeout>();
+  private lastProfileSyncTime = new Map<string, number>();
+
+  /**
+   * Đồng bộ Profile của sinh viên qua message riêng "profile_sync".
+   * Throttled tối đa 4 lần/giây (khoảng 250ms) per client khi thay đổi liên tục.
+   */
+  public syncProfile(client: Client, studentId: string, immediate: boolean = false): void {
+    if (!client || !studentId) return;
+    const cleanId = studentId.toLowerCase().trim();
+    const now = Date.now();
+    const lastTime = this.lastProfileSyncTime.get(cleanId) || 0;
+    const THROTTLE_MS = 250;
+
+    const doSend = () => {
+      try {
+        const player = this.state.players.get(client.sessionId);
+        const schoolId = player?.schoolId || "hcmut";
+        const profile = this.profileManager.getOrCreateProfile(cleanId, schoolId);
+        const totalPoints = this.runningPointsProvider.getTotalPoints(cleanId);
+        const availablePoints = Math.max(0, totalPoints - profile.pointsSpent);
+
+        const guessObj: Record<string, number> = {};
+        for (const [k, v] of profile.guessCooldowns.entries()) {
+          guessObj[k] = v;
+        }
+        const stopObj: Record<string, number> = {};
+        for (const [k, v] of profile.unistopCooldowns.entries()) {
+          stopObj[k] = v;
+        }
+
+        const payload: ProfileSyncMessage = {
+          studentId: profile.studentId,
+          points: availablePoints,
+          totalPoints,
+          pointsSpent: profile.pointsSpent,
+          crystals: profile.crystals,
+          aspireKeys: profile.aspireKeys,
+          nitroKeys: profile.nitroKeys,
+          predatorKeys: profile.predatorKeys,
+          guessCooldowns: guessObj,
+          unistopCooldowns: stopObj,
+          gifts: profile.gifts,
+          sessionId: client.sessionId,
+          email: profile.email,
+          displayName: player?.displayName || maskEmail(profile.email),
+          schoolId: player?.schoolId || profile.schoolId,
+          mode: player?.mode || "normal",
+          hasWeeklyRunningPoints: player?.hasWeeklyRunningPoints || false
+        };
+
+        if (typeof client.send === "function") {
+          client.send("profile_sync", payload);
+        }
+        this.lastProfileSyncTime.set(cleanId, Date.now());
+      } catch (err) {
+        console.warn(`[CampusRoom] Error sending profile_sync to ${cleanId}:`, err);
+      }
+    };
+
+    if (immediate || now - lastTime >= THROTTLE_MS) {
+      const existingTimer = this.profileSyncDebounce.get(cleanId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        this.profileSyncDebounce.delete(cleanId);
+      }
+      doSend();
+    } else {
+      if (!this.profileSyncDebounce.has(cleanId)) {
+        const delay = THROTTLE_MS - (now - lastTime);
+        const timer = setTimeout(() => {
+          this.profileSyncDebounce.delete(cleanId);
+          doSend();
+        }, delay);
+        this.profileSyncDebounce.set(cleanId, timer);
+      }
+    }
+  }
 
   public getSchoolNumericId(schoolId: string): number {
     return SCHOOL_IDS.indexOf(schoolId) + 1;
+  }
+
+  /**
+   * Broadcast in-game notifications to all clients or a specific client.
+   */
+  public broadcastNotification(
+    templateId: string,
+    vars: Record<string, string | number>,
+    category?: string,
+    client?: Client
+  ): void {
+    const payload = { templateId, vars, category };
+    if (client && typeof client.send === "function") {
+      client.send("game_notification", payload);
+    } else if (typeof this.broadcast === "function") {
+      this.broadcast("game_notification", payload);
+    }
+  }
+
+  /**
+   * Check if a school has overtaken 1st place in troops/points.
+   */
+  public checkLeaderboardRankLead(): void {
+    const sorted = SCHOOL_IDS.map((id) => ({
+      schoolId: id,
+      points: this.state.schoolTroops.get(id) || 0
+    })).sort((a, b) => b.points - a.points);
+
+    const newLeader = sorted[0];
+    const secondPlace = sorted[1];
+    if (newLeader && newLeader.schoolId !== this.currentLeaderSchoolId && newLeader.points > (secondPlace?.points || 0)) {
+      const delta = newLeader.points - (secondPlace ? secondPlace.points : 0);
+      const prevLeader = this.currentLeaderSchoolId;
+      this.currentLeaderSchoolId = newLeader.schoolId;
+      if (prevLeader !== "") {
+        this.broadcastNotification(
+          "rank_lead",
+          {
+            my_school: newLeader.schoolId,
+            delta_points: delta
+          },
+          "ranking"
+        );
+      }
+    }
   }
 
   /** Write-through for bots / cluster paths: LandState owner + combat. */
@@ -78,9 +239,17 @@ export class CampusRoom extends Room<GameState> {
   private roomOptions: any = {};
 
   onCreate(options: any) {
+    this.maxClients = parseInt(process.env.MAX_CLIENTS || "500", 10) || 500;
     this.roomOptions = options || {};
     this.autoDispose = false;
     this.setState(new GameState());
+
+    // Initialize 5 Student Bots runner
+    this.studentBotRunner = new StudentBotRunner(this);
+    this.studentBotsEnabled = Boolean(options?.studentBotsEnabled ?? false);
+    if (this.studentBotsEnabled) {
+      this.studentBotRunner.start();
+    }
 
     // 1. Spawn 5 School HQs (distance > 200 tiles)
     this.spawnHQs();
@@ -523,6 +692,11 @@ export class CampusRoom extends Room<GameState> {
     if (this.botsEnabled) {
       this.botManager.processBots(this.state, this);
     }
+
+    // Run Student Bots simulation (only if enabled)
+    if (this.studentBotsEnabled) {
+      this.studentBotRunner.tick();
+    }
   }
 
   private sendLandAck(client: Client, op: string, x: number, y: number, ok: boolean, reason?: string) {
@@ -562,7 +736,7 @@ export class CampusRoom extends Room<GameState> {
    * Cũ: tấn công trừ HP đất đã có chủ.
    * Mới: Bỏ cơ chế gia cố và tấn công trừ HP. Đất có chủ phải dùng 'Ôn bài' (Giao lưu tri thức).
    */
-  private handleClaimAction(client: Client, data: { x: number; y: number }, op: string = "claim") {
+  public handleClaimAction(client: Client, data: { x: number; y: number }, op: string = "claim") {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
 
@@ -611,7 +785,9 @@ export class CampusRoom extends Room<GameState> {
 
     // 1. Wild tile (chưa có chủ)
     if (!existing || existing.ownerId === "") {
-      if (player.email && player.personalTroops < 1) {
+      const studentId = (player.email || client.sessionId).toLowerCase().trim();
+      const availablePoints = this.profileManager.getAvailablePoints(studentId);
+      if (availablePoints < 1) {
         client.send("error", { message: "Không đủ Điểm! Cần 1 Điểm để mở rộng vùng tri thức." });
         this.sendLandAck(client, op, x, y, false, "not_enough_personal");
         return;
@@ -623,9 +799,13 @@ export class CampusRoom extends Room<GameState> {
         return;
       }
 
-      if (player.email) {
-        player.personalTroops -= 1;
+      if (!this.profileManager.deductPoints(studentId, 1)) {
+        client.send("error", { message: "Không đủ Điểm! Cần 1 Điểm để mở rộng vùng tri thức." });
+        this.sendLandAck(client, op, x, y, false, "not_enough_personal");
+        return;
       }
+      player.personalTroops = this.profileManager.getAvailablePoints(studentId);
+      this.syncProfile(client, studentId);
       this.state.schoolTroops.set(player.schoolId, schoolTroops - 1);
 
       const newTile = new TileState();
@@ -643,7 +823,9 @@ export class CampusRoom extends Room<GameState> {
       this.state.claimedTiles.set(key, newTile);
       if (!this.landData.writeTile(x, y, player.schoolId, newTile.hp, newTile.maxHp, newTile.defenseTier)) {
         this.state.claimedTiles.delete(key);
-        if (player.email) player.personalTroops += 1;
+        this.profileManager.refundPoints(studentId, 1);
+        player.personalTroops = this.profileManager.getAvailablePoints(studentId);
+        this.syncProfile(client, studentId);
         this.state.schoolTroops.set(player.schoolId, schoolTroops);
         this.sendLandAck(client, op, x, y, false, "out_of_bounds");
         return;
@@ -652,6 +834,16 @@ export class CampusRoom extends Room<GameState> {
       this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
       this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), newTile.defenseTier, newTile.hp);
       this.handleClusterUpdate(player.schoolId, x, y);
+      this.broadcastNotification(
+        "terr_captured",
+        {
+          student_name: player.displayName || (player.email ? maskEmail(player.email) : client.sessionId),
+          my_school: player.schoolId,
+          x,
+          y
+        },
+        "territory"
+      );
       this.sendLandAck(client, op, x, y, true);
       return;
     }
@@ -720,8 +912,10 @@ export class CampusRoom extends Room<GameState> {
 
     const points = Math.max(1, Math.floor(data.points || 1));
     const schoolTroops = this.state.schoolTroops.get(player.schoolId) || 0;
+    const studentId = (player.email || client.sessionId).toLowerCase().trim();
+    const available = this.profileManager.getAvailablePoints(studentId);
 
-    if (player.email && player.personalTroops < points) {
+    if (available < points) {
       client.send("error", { message: `Không đủ Điểm! Cần ${points} Điểm để ôn bài.` });
       this.sendLandAck(client, op, x, y, false, "not_enough_personal");
       return;
@@ -733,10 +927,13 @@ export class CampusRoom extends Room<GameState> {
       return;
     }
 
-    // Deduct points
-    if (player.email) {
-      player.personalTroops -= points;
+    if (!this.profileManager.deductPoints(studentId, points)) {
+      client.send("error", { message: `Không đủ Điểm! Cần ${points} Điểm để ôn bài.` });
+      this.sendLandAck(client, op, x, y, false, "not_enough_personal");
+      return;
     }
+    player.personalTroops = this.profileManager.getAvailablePoints(studentId);
+    this.syncProfile(client, studentId);
     this.state.schoolTroops.set(player.schoolId, schoolTroops - points);
 
     // Wild tile case: claiming by studying
@@ -759,6 +956,17 @@ export class CampusRoom extends Room<GameState> {
       this.clusterEngine.setTile(x, y, this.getSchoolNumericId(player.schoolId), newTile.defenseTier, newTile.hp);
       this.handleClusterUpdate(player.schoolId, x, y);
 
+      this.broadcastNotification(
+        "terr_captured",
+        {
+          student_name: player.displayName || (player.email ? maskEmail(player.email) : client.sessionId),
+          my_school: player.schoolId,
+          x,
+          y
+        },
+        "territory"
+      );
+
       this.sendLandAck(client, op, x, y, true);
       client.send("tile_studied", {
         x,
@@ -778,7 +986,26 @@ export class CampusRoom extends Room<GameState> {
       existing.studyCountBySchool.set(player.schoolId, prevStudy + points);
       existing.hp = existing.retention;
 
+      if (existing.isShared) {
+        existing.isShared = false;
+        existing.sharedWithSchoolId = "";
+        existing.sharedExpiresAt = 0;
+        this.broadcast("tactical_event", { type: "shared_zone_rebuffed", x, y });
+      }
+
       this.landData.setCombat(x, y, existing.hp, existing.maxHp, existing.defenseTier);
+
+      this.broadcastNotification(
+        "terr_studied",
+        {
+          student_name: player.displayName || (player.email ? maskEmail(player.email) : client.sessionId),
+          my_school: player.schoolId,
+          x,
+          y
+        },
+        "territory"
+      );
+
       this.sendLandAck(client, op, x, y, true);
       client.send("tile_studied", {
         x,
@@ -791,27 +1018,33 @@ export class CampusRoom extends Room<GameState> {
     }
 
     // Overlap tile of another school (Khu vực giao lưu tri thức)
-    const prevEnemyStudy = existing.studyCountBySchool.get(player.schoolId) || 0;
-    existing.studyCountBySchool.set(player.schoolId, prevEnemyStudy + points);
+    const isDev = this.roomOptions?.mode === "dev" || this.roomOptions?.isDev === true || player.mode === "dev";
+    if (!existing.isShared) {
+      existing.isShared = true;
+      existing.sharedWithSchoolId = player.schoolId;
+      existing.sharedExpiresAt = Date.now() + (isDev ? 30000 : 24 * 3600 * 1000);
+      this.broadcast("tactical_event", { 
+        type: "shared_zone_created", 
+        x, 
+        y, 
+        expiresAt: existing.sharedExpiresAt,
+        sharedWithSchoolId: player.schoolId 
+      });
 
-    // Diligent study challenges the neglected retention
-    existing.retention = Math.max(0, existing.retention - points * 10);
-    existing.hp = existing.retention;
-    this.landData.setCombat(x, y, existing.hp, existing.maxHp, existing.defenseTier);
+      this.broadcastNotification(
+        "terr_shared_start",
+        {
+          x,
+          y,
+          enemy_school: player.schoolId
+        },
+        "territory"
+      );
 
-    if (existing.retention <= 0) {
-      // Diligent study succeeds! Transfer ownership to challenger
-      this.transferTileOwnership(existing, player.schoolId, "study_contest");
+      this.sendLandAck(client, op, x, y, true, "shared_zone_initiated");
+    } else {
+      this.sendLandAck(client, op, x, y, false, "already_shared");
     }
-
-    this.sendLandAck(client, op, x, y, true);
-    client.send("tile_studied", {
-      x,
-      y,
-      schoolId: player.schoolId,
-      retention: existing.retention,
-      lastStudiedAt: existing.lastStudiedAt
-    });
   }
 
   /**
@@ -852,15 +1085,19 @@ export class CampusRoom extends Room<GameState> {
     }
 
     const amount = Math.max(1, Math.floor(data.crystals || data.amount || data.points || 1));
-    const availableCrystals = player.crystals || 0;
+    const studentId = (player.email || client.sessionId).toLowerCase().trim();
+    const profile = this.profileManager.getOrCreateProfile(studentId, player.schoolId);
+    const availableCrystals = profile.crystals || 0;
 
     if (availableCrystals >= amount) {
-      player.crystals -= amount;
+      this.profileManager.deductCrystals(studentId, amount);
+      player.crystals = profile.crystals;
     } else {
       const neededPoints = amount - availableCrystals;
       const schoolTroops = this.state.schoolTroops.get(player.schoolId) || 0;
+      const availablePoints = this.profileManager.getAvailablePoints(studentId);
 
-      if (player.email && player.personalTroops < neededPoints) {
+      if (availablePoints < neededPoints) {
         client.send("error", {
           message: `Không đủ Tinh thể hoặc Điểm! Bạn có ${availableCrystals} Tinh thể, cần thêm ${neededPoints} Điểm để nạp đủ ${amount} Tinh thể.`
         });
@@ -872,12 +1109,15 @@ export class CampusRoom extends Room<GameState> {
         return;
       }
 
-      player.crystals = 0;
-      if (player.email) {
-        player.personalTroops -= neededPoints;
+      if (availableCrystals > 0) {
+        this.profileManager.deductCrystals(studentId, availableCrystals);
       }
+      this.profileManager.deductPoints(studentId, neededPoints);
+      player.crystals = profile.crystals;
+      player.personalTroops = this.profileManager.getAvailablePoints(studentId);
       this.state.schoolTroops.set(player.schoolId, schoolTroops - neededPoints);
     }
+    this.syncProfile(client, studentId);
 
     const curSchoolCrystals = (lm.crystalsBySchool.get(player.schoolId) || 0) + amount;
     lm.crystalsBySchool.set(player.schoolId, curSchoolCrystals);
@@ -914,8 +1154,19 @@ export class CampusRoom extends Room<GameState> {
       lm.currentCrystals = maxC;
     }
 
+    const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
+    if (prevSchool && prevSchool !== player.schoolId) {
+      this.broadcastNotification(
+        "lm_under_attack",
+        {
+          enemy_school: player.schoolId,
+          landmark_name: config?.name || lm.id
+        },
+        "landmark"
+      );
+    }
+
     if (litChanged) {
-      const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
       if (config) {
         for (let dx = 0; dx < config.footprint.width; dx++) {
           for (let dy = 0; dy < config.footprint.height; dy++) {
@@ -945,6 +1196,15 @@ export class CampusRoom extends Room<GameState> {
         crystals: curSchoolCrystals,
         fuel: curSchoolCrystals
       });
+
+      this.broadcastNotification(
+        "lm_lit_buff",
+        {
+          landmark_name: config?.name || lm.id,
+          my_school: player.schoolId
+        },
+        "landmark"
+      );
 
       console.log(
         `[CampusRoom] Landmark ${lm.landmarkKey || lm.id} BEACON LIT by ${player.schoolId} (${curSchoolCrystals}/${lm.maxCrystals} crystals)!`
@@ -979,10 +1239,10 @@ export class CampusRoom extends Room<GameState> {
 
   /**
    * Hành động Giải đố Tên Công trình (guessLandmark):
-   * - Cooldown 10 phút (600,000 ms) mỗi lần đoán sai.
-   * - So sánh lowercase trim với tên chính thức trong LANDMARK_ROSTER.
-   * - Nếu đúng: thưởng +10 Tinh thể cho trường, đánh dấu nameGuessed = true, broadcast landmark_guessed.
-   * - Nếu sai: kích hoạt cooldown 10 phút cho người chơi.
+   * - Chuẩn hóa cả câu đoán và đáp án (bỏ dấu tiếng Việt, lowercase, trim, khoảng trắng thừa).
+   * - Mỗi trường được đoán đúng 1 lần cho mỗi công trình và nhận +10 tinh thể một lần.
+   * - Trường khác KHÔNG bị khóa (nếu trường A đoán đúng rồi, trường B vẫn có quyền đoán).
+   * - Cooldown 10 phút (600,000 ms) mỗi lần đoán sai tính theo từng sinh viên.
    */
   public handleGuessLandmark(
     client: Client,
@@ -1012,15 +1272,16 @@ export class CampusRoom extends Room<GameState> {
       return;
     }
 
-    if (lm.nameGuessed) {
+    if (lm.guessedSchools.get(player.schoolId)) {
       client.send("error", {
-        message: `Tên Công trình này đã được giải đố bởi trường ${lm.guessedBySchoolId.toUpperCase()}!`
+        message: `Trường của bạn (${player.schoolId.toUpperCase()}) đã giải đố thành công Công trình này rồi!`
       });
       return;
     }
 
     const now = Date.now();
-    const cd = player.guessCooldowns.get(lm.id) || 0;
+    const studentId = (player.email || client.sessionId).toLowerCase().trim();
+    const cd = this.profileManager.getGuessCooldown(studentId, lm.id) || (player.guessCooldowns.get(lm.id) || 0);
     if (now < cd) {
       const remainingSec = Math.ceil((cd - now) / 1000);
       client.send("error", {
@@ -1035,15 +1296,21 @@ export class CampusRoom extends Room<GameState> {
       return;
     }
 
-    const normGuess = (data.guess || "").toLowerCase().trim();
-    const normTarget = config.name.toLowerCase().trim();
+    const normGuess = normalizeAnswer(data.guess || "");
+    const aliases = Array.isArray((config as any).aliases) ? (config as any).aliases : [];
+    const validTargets = [config.name, ...aliases];
+    const isCorrect = validTargets.some((target) => normalizeAnswer(target) === normGuess);
 
-    if (normGuess === normTarget) {
+    if (isCorrect) {
+      lm.guessedSchools.set(player.schoolId, true);
       lm.nameGuessed = true;
-      lm.guessedBySchoolId = player.schoolId;
+      if (!lm.guessedBySchoolId) {
+        lm.guessedBySchoolId = player.schoolId;
+      }
 
       // School gets +10 crystals (10% progress)
-      const curSchoolCrystals = (lm.crystalsBySchool.get(player.schoolId) || 0) + 10;
+      const currentCrystals = lm.crystalsBySchool.get(player.schoolId) || 0;
+      const curSchoolCrystals = currentCrystals + 10;
       lm.crystalsBySchool.set(player.schoolId, curSchoolCrystals);
 
       let litChanged = false;
@@ -1072,7 +1339,7 @@ export class CampusRoom extends Room<GameState> {
         lm.crystalsBySchool.forEach((c) => {
           if (c > maxC) maxC = c;
         });
-        lm.currentCrystals = maxC;
+        lm.currentCrystals = Math.min(lm.maxCrystals, maxC);
       }
 
       if (litChanged) {
@@ -1103,15 +1370,39 @@ export class CampusRoom extends Room<GameState> {
           crystals: curSchoolCrystals,
           fuel: curSchoolCrystals
         });
+
+        this.broadcastNotification(
+          "lm_lit_buff",
+          {
+            landmark_name: config.name,
+            my_school: player.schoolId
+          },
+          "landmark"
+        );
       }
 
       this.broadcast("landmark_guessed", {
         landmarkId: lm.id,
         landmarkName: config.name,
         schoolId: player.schoolId,
-        studentEmail: player.email,
+        studentEmail: maskEmail(player.email) || client.sessionId,
+        displayName: player.displayName || maskEmail(player.email) || client.sessionId,
         bonusCrystals: 10
       });
+
+      this.broadcastNotification(
+        "lm_guessed",
+        {
+          student_name: player.displayName || (player.email ? maskEmail(player.email) : client.sessionId),
+          landmark_name: config.name,
+          my_school: player.schoolId
+        },
+        "landmark"
+      );
+
+      this.profileManager.addCrystals(studentId, 10);
+      player.crystals = (player.crystals || 0) + 10;
+      this.syncProfile(client, studentId);
 
       client.send("landmark_guess_result", {
         success: true,
@@ -1122,7 +1413,9 @@ export class CampusRoom extends Room<GameState> {
       });
     } else {
       const cooldownEnd = Date.now() + 600000;
+      this.profileManager.setGuessCooldown(studentId, lm.id, cooldownEnd);
       player.guessCooldowns.set(lm.id, cooldownEnd);
+      this.syncProfile(client, studentId);
 
       client.send("error", {
         message: "Câu trả lời chưa chính xác! Thời gian chờ đoán lại là 10 phút.",
@@ -1160,8 +1453,12 @@ export class CampusRoom extends Room<GameState> {
     }
 
     const now = Date.now();
-    if (stop.cooldownUntil && now < stop.cooldownUntil) {
-      const remainingSec = Math.ceil((stop.cooldownUntil - now) / 1000);
+    const studentId = (player.email || client.sessionId).toLowerCase().trim();
+    const studentCd = this.profileManager.getUniStopCooldown(studentId, stop.id);
+    const effectiveCd = stop.cooldownUntil === 0 ? 0 : studentCd;
+
+    if (effectiveCd && now < effectiveCd) {
+      const remainingSec = Math.ceil((effectiveCd - now) / 1000);
       client.send("error", {
         message: `Trạm tiếp tế đang trong thời gian hồi chiêu! Vui lòng quay lại sau ${remainingSec}s.`
       });
@@ -1185,26 +1482,28 @@ export class CampusRoom extends Room<GameState> {
     const lootTable = UNISTOP_LOOT_TABLES[tier] || UNISTOP_LOOT_TABLES.aspire;
     const winningItem = rollLoot(lootTable, player.hasWeeklyRunningPoints);
 
-    // Kích hoạt thời gian hồi chiêu
-    stop.cooldownUntil = now + cfg.cooldownMs;
+    // Kích hoạt thời gian hồi chiêu per-student
+    const cdUntil = now + cfg.cooldownMs;
+    this.profileManager.setUniStopCooldown(studentId, stop.id, cdUntil);
+    stop.cooldownUntil = cdUntil;
 
     // Cộng phần thưởng cho người chơi
     if (winningItem.type === "points") {
       const pts = winningItem.amount || 1;
-      player.personalTroops += pts;
+      const curTotal = this.runningPointsProvider.getTotalPoints(studentId);
+      this.runningPointsProvider.setTotalPoints(studentId, curTotal + pts);
+      player.personalTroops = this.profileManager.getAvailablePoints(studentId);
       const curTroops = this.state.schoolTroops.get(player.schoolId) || 0;
       this.state.schoolTroops.set(player.schoolId, curTroops + pts);
     } else if (winningItem.type === "crystal" || winningItem.type === ("charcoal" as any)) {
       const cry = winningItem.amount || 1;
-      player.crystals = (player.crystals || 0) + cry;
+      player.crystals = this.profileManager.addCrystals(studentId, cry);
     } else if (winningItem.type === "key") {
-      if (winningItem.keyTier === "aspire" || (winningItem.keyTier as any) === "silver") {
-        player.aspireKeys = (player.aspireKeys || 0) + 1;
-      } else if (winningItem.keyTier === "nitro" || (winningItem.keyTier as any) === "gold") {
-        player.nitroKeys = (player.nitroKeys || 0) + 1;
-      } else if (winningItem.keyTier === "predator" || (winningItem.keyTier as any) === "platinum") {
-        player.predatorKeys = (player.predatorKeys || 0) + 1;
-      }
+      this.profileManager.addKeys(studentId, winningItem.keyTier as any, 1);
+      const profile = this.profileManager.getOrCreateProfile(studentId, player.schoolId);
+      player.aspireKeys = profile.aspireKeys;
+      player.nitroKeys = profile.nitroKeys;
+      player.predatorKeys = profile.predatorKeys;
     } else if (winningItem.type === "treasure_map") {
       const unopenedChests = Array.from(this.state.chests.values()).filter((c) => !c.isOpened);
       if (unopenedChests.length > 0) {
@@ -1220,16 +1519,36 @@ export class CampusRoom extends Room<GameState> {
 
     if (winningItem.isRealGift) {
       this.broadcast("real_gift_won", {
-        studentEmail: player.email || client.sessionId,
+        studentEmail: maskEmail(player.email) || client.sessionId,
+        displayName: player.displayName || maskEmail(player.email) || client.sessionId,
         schoolId: player.schoolId,
         item: winningItem,
         source: "unistop",
         sourceId: stop.id
       });
+      this.broadcastNotification(
+        "chest_real_gift",
+        {
+          student_name: player.displayName || (player.email ? maskEmail(player.email) : client.sessionId),
+          gift_name: winningItem.name,
+          my_school: player.schoolId
+        },
+        "chest"
+      );
       console.log(
-        `[CampusRoom] 🎁 Real Gift won by ${player.email || client.sessionId} (${player.schoolId}): ${winningItem.name}`
+        `[CampusRoom] 🎁 Real Gift won by ${player.displayName || maskEmail(player.email) || client.sessionId} (${player.schoolId}): ${winningItem.name}`
       );
     }
+
+    this.broadcastNotification(
+      "unistop_ready",
+      {
+        chest_tier: stop.tier,
+        time_left: "Ngay bây giờ"
+      },
+      "chest",
+      client
+    );
 
     const carouselItems = generateCarouselItems(winningItem, lootTable, 30, 24);
 
@@ -1352,14 +1671,40 @@ export class CampusRoom extends Room<GameState> {
 
     if (winningItem.isRealGift) {
       this.broadcast("real_gift_won", {
-        studentEmail: player.email || client.sessionId,
+        studentEmail: maskEmail(player.email) || client.sessionId,
+        displayName: player.displayName || maskEmail(player.email) || client.sessionId,
         schoolId: player.schoolId,
         item: winningItem,
         source: "chest",
         sourceId: chest.id
       });
+      this.broadcastNotification(
+        "chest_real_gift",
+        {
+          student_name: player.displayName || (player.email ? maskEmail(player.email) : client.sessionId),
+          gift_name: winningItem.name,
+          my_school: player.schoolId
+        },
+        "chest"
+      );
       console.log(
-        `[CampusRoom] 🎁 Real Gift won from Chest by ${player.email || client.sessionId} (${player.schoolId}): ${winningItem.name}`
+        `[CampusRoom] 🎁 Real Gift won from Chest by ${player.displayName || maskEmail(player.email) || client.sessionId} (${player.schoolId}): ${winningItem.name}`
+      );
+    }
+
+    if (
+      winningItem.rarity === "epic" ||
+      winningItem.rarity === "legendary" ||
+      (winningItem.type === "crystal" && (winningItem.amount || 0) >= 10)
+    ) {
+      this.broadcastNotification(
+        "chest_opened_big",
+        {
+          student_name: player.displayName || (player.email ? maskEmail(player.email) : client.sessionId),
+          chest_tier: chest.tier,
+          gift_name: winningItem.name || "Gói Tinh Thể Khủng"
+        },
+        "chest"
       );
     }
 
@@ -1395,6 +1740,9 @@ export class CampusRoom extends Room<GameState> {
    * Nhận tọa độ mới của HQs, Landmarks, UniStops, Chests từ Map Editor và áp dụng ngay vào GameState.
    */
   public handleUpdateMapLayout(client: Client, data: ClientUpdateMapLayoutMessage) {
+    if (!this.isDevCommandAllowed(client, "update_map_layout", data)) {
+      return;
+    }
     if (!data) return;
 
     let hqsUpdated = 0;
@@ -1522,76 +1870,43 @@ export class CampusRoom extends Room<GameState> {
   public processKnowledgeDecay() {
     const now = Date.now();
     let isDev = this.roomOptions?.mode === "dev" || this.roomOptions?.isDev === true;
-    if (!isDev) {
-      for (const [_, p] of this.state.players) {
-        if (p.mode === "dev") {
-          isDev = true;
-          break;
-        }
+    for (const [_, p] of this.state.players) {
+      if (p.mode === "dev") {
+        isDev = true;
+        break;
       }
     }
     const DECAY_NEGLECT_THRESHOLD_MS = isDev ? 30 * 1000 : 12 * 3600 * 1000;
-    const DECAY_RETENTION_RATE = 10; // Giảm 10 retention mỗi chu kỳ heartbeat
+    const DECAY_RETENTION_RATE = 10;
 
     for (const [_, tile] of this.state.claimedTiles) {
       if (!tile.ownerId) continue;
 
-      const x = tile.x;
-      const y = tile.y;
-      const neighbors = [
-        [x + 1, y],
-        [x - 1, y],
-        [x, y + 1],
-        [x, y - 1]
-      ];
-
-      const enemyNeighbors: { schoolId: string; x: number; y: number }[] = [];
-      for (const [nx, ny] of neighbors) {
-        if (nx < 0 || nx >= 1000 || ny < 0 || ny >= 1000) continue;
-        const n = this.state.claimedTiles.get(`${nx},${ny}`);
-        if (n && n.ownerId && n.ownerId !== tile.ownerId) {
-          enemyNeighbors.push({ schoolId: n.ownerId, x: nx, y: ny });
-        }
+      if (tile.isShared && now >= tile.sharedExpiresAt) {
+        const prevOwner = tile.ownerId;
+        tile.ownerId = tile.sharedWithSchoolId;
+        tile.isShared = false;
+        tile.sharedWithSchoolId = "";
+        tile.sharedExpiresAt = 0;
+        tile.retention = 60;
+        this.landData.setOwner(tile.x, tile.y, tile.ownerId);
+        this.broadcast("tactical_event", { type: "shared_zone_captured", x: tile.x, y: tile.y, newOwner: tile.ownerId });
+        this.broadcastNotification(
+          "terr_enemy_stolen",
+          {
+            enemy_school: tile.ownerId,
+            my_school: prevOwner,
+            x: tile.x,
+            y: tile.y
+          },
+          "territory"
+        );
+        continue;
       }
 
-      // Chỉ ô tiếp giáp giao lưu tri thức mới bị quên bài khi bỏ bê
-      if (enemyNeighbors.length === 0) continue;
-
-      const timeSinceStudied = now - (tile.lastStudiedAt || 0);
-      if (timeSinceStudied < DECAY_NEGLECT_THRESHOLD_MS) continue;
-
-      tile.retention = Math.max(0, tile.retention - DECAY_RETENTION_RATE);
-      tile.hp = tile.retention;
-      this.landData.setCombat(x, y, tile.hp, tile.maxHp, tile.defenseTier);
-
-      if (tile.retention <= 0) {
-        let bestCandidate = "";
-        let bestScore = -1;
-
-        for (const enemy of enemyNeighbors) {
-          const studyAtTile = tile.studyCountBySchool.get(enemy.schoolId) || 0;
-          const neighborTile = this.state.claimedTiles.get(`${enemy.x},${enemy.y}`);
-          const neighborRetention = neighborTile ? neighborTile.retention : 50;
-          const score = studyAtTile * 10 + neighborRetention;
-
-          if (score > bestScore) {
-            bestScore = score;
-            bestCandidate = enemy.schoolId;
-          }
-        }
-
-        if (bestCandidate) {
-          this.transferTileOwnership(tile, bestCandidate, "decay_diligent");
-        } else {
-          // Trở thành ô trung lập nếu không có trường nào chăm hơn
-          const oldOwner = tile.ownerId;
-          this.botManager.removeOwnedTile(oldOwner, x, y, this.state);
-          this.clusterEngine.setTile(x, y, 0, 0, 0);
-          tile.ownerId = "";
-          tile.retention = 0;
-          tile.hp = 0;
-          this.landData.writeTile(x, y, "", 0, tile.maxHp, tile.defenseTier);
-        }
+      const timeSinceStudy = now - tile.lastStudiedAt;
+      if (timeSinceStudy > DECAY_NEGLECT_THRESHOLD_MS) {
+        tile.retention = Math.max(0, tile.retention - DECAY_RETENTION_RATE);
       }
     }
   }
@@ -1771,96 +2086,209 @@ export class CampusRoom extends Room<GameState> {
     });
   }
 
+  /**
+   * Kiểm tra quyền thực thi lệnh nhà phát triển / quản trị viên.
+   * - Nếu ALLOW_DEV=true: cho phép toàn bộ lệnh.
+   * - Nếu ALLOW_DEV tắt: chặn các lệnh dev/reset/toggles/bulk,
+   *   ngoại trừ soft_reset và updateMapLayout nếu có ADMIN_KEY hợp lệ.
+   */
+  public isDevCommandAllowed(client: Client, command: string, data?: any): boolean {
+    if (process.env.ALLOW_DEV === "true") {
+      return true;
+    }
+
+    // Ngoại lệ: update_map_layout và soft_reset được phép nếu có adminKey chính xác
+    if (command === "soft_reset" || command === "update_map_layout" || command === "updateMapLayout") {
+      const providedKey = (data && data.adminKey) || (client ? this.clientAdminKeys.get(client.sessionId) : undefined);
+      if (checkAdminKey(providedKey)) {
+        return true;
+      }
+    }
+
+    const isDevCmd =
+      command.startsWith("dev_") ||
+      command === "soft_reset" ||
+      command === "add_points" ||
+      command === "set_simulation_speed" ||
+      command === "toggle_bots" ||
+      command === "toggle_student_bots" ||
+      command === "get_student_bots_status" ||
+      command === "bulk_dispatch" ||
+      command === "set_role" ||
+      command === "login_student" ||
+      command === "update_map_layout" ||
+      command === "updateMapLayout";
+
+    if (isDevCmd) {
+      if (client && typeof client.send === "function") {
+        client.send("error", { message: "Lệnh nhà phát triển bị vô hiệu hóa!" });
+      }
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Wrapper đăng ký message handler với kiểm soát bảo mật đa tầng:
+   * 1. Rate Limiting (Token Bucket 20 msg/s, burst 40, sensitive 1 msg/s, disconnect khi >= 5 vi phạm)
+   * 2. Dev Command Gate (ALLOW_DEV switch & ADMIN_KEY)
+   * 3. Input Coordinate Sanitization
+   * 4. Error Boundary Try/Catch bảo vệ server không bị sập
+   */
+  private registerHandler<T = any>(
+    messageType: string,
+    handler: (client: Client, data: T) => void,
+    options?: { validateCoords?: boolean }
+  ) {
+    this.onMessage(messageType, (client: Client, data: T) => {
+      try {
+        if (client && client.sessionId) {
+          const rateCheck = this.rateLimiter.check(client.sessionId, messageType);
+          if (!rateCheck.allowed) {
+            if (rateCheck.disconnect) {
+              console.warn(`[CampusRoom] Disconnecting ${client.sessionId}: ${rateCheck.reason}`);
+              try {
+                client.leave(4000, rateCheck.reason);
+              } catch (_) {}
+            } else {
+              client.send("error", { message: "Thao tác quá nhanh, vui lòng thử lại sau ít giây!" });
+            }
+            return;
+          }
+        }
+
+        if (client && !this.isDevCommandAllowed(client, messageType, data)) {
+          return;
+        }
+
+        if (options?.validateCoords && data && typeof data === "object") {
+          const d = data as any;
+          if (d.x !== undefined && !isSafeCoordinate(d.x)) {
+            client.send("error", { message: "Tọa độ X không hợp lệ!" });
+            return;
+          }
+          if (d.y !== undefined && !isSafeCoordinate(d.y)) {
+            client.send("error", { message: "Tọa độ Y không hợp lệ!" });
+            return;
+          }
+          if (d.z !== undefined && !isSafeCoordinate(d.z)) {
+            client.send("error", { message: "Tọa độ Z không hợp lệ!" });
+            return;
+          }
+        }
+
+        handler(client, data);
+      } catch (err) {
+        console.error(`[CampusRoom] Error in message '${messageType}' from ${client?.sessionId}:`, err);
+        try {
+          client?.send("error", { message: "Có lỗi xảy ra khi xử lý yêu cầu!" });
+        } catch (_) {}
+      }
+    });
+  }
 
   private registerMessages() {
     // 1. claim_tile (legacy name kept for old clients) + protocol "claim" frame
-    this.onMessage("claim_tile", (client, data: ClientClaimMessage) => {
+    this.registerHandler("claim_tile", (client, data: ClientClaimMessage) => {
       this.handleClaimAction(client, data || { x: NaN, y: NaN }, "claim_tile");
+    }, { validateCoords: true });
+    this.registerHandler("convert_points", (client, data) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const amount = data?.points || 0;
+      if (!isSafeInteger(amount, 1, 1000000) || player.points < amount) {
+        client.send("error", { message: "Không đủ điểm để chuyển đổi!" });
+        return;
+      }
+      player.points -= amount;
+      player.crystals += amount;
+      client.send("points_converted", { points: amount, crystals: amount });
     });
-    this.onMessage("claim", (client, data: ClaimFrame | ClientClaimMessage) => {
+    this.registerHandler("claim", (client, data: ClaimFrame | ClientClaimMessage) => {
       const frame = decodeClientFrame(data) || data;
       this.handleClaimAction(client, { x: (frame as any).x, y: (frame as any).y }, "claim");
-    });
+    }, { validateCoords: true });
 
     // 1b. studyTile / study_tile / protocol "study"
-    this.onMessage("studyTile", (client, data: ClientStudyTileMessage) => {
+    this.registerHandler("studyTile", (client, data: ClientStudyTileMessage) => {
       this.handleStudyAction(client, data || { x: NaN, y: NaN }, "studyTile");
-    });
-    this.onMessage("study_tile", (client, data: ClientStudyTileMessage) => {
+    }, { validateCoords: true });
+    this.registerHandler("study_tile", (client, data: ClientStudyTileMessage) => {
       this.handleStudyAction(client, data || { x: NaN, y: NaN }, "study_tile");
-    });
-    this.onMessage("study", (client, data: any) => {
+    }, { validateCoords: true });
+    this.registerHandler("study", (client, data: any) => {
       const frame = decodeClientFrame(data) || data;
       this.handleStudyAction(client, frame, "study");
-    });
+    }, { validateCoords: true });
 
     // 1c. contributeCrystal / contribute_crystal / contributeFuel / contribute_fuel / burnCharcoal / burn_charcoal
-    this.onMessage("contributeCrystal", (client, data: ClientContributeCrystalMessage) => {
+    this.registerHandler("contributeCrystal", (client, data: ClientContributeCrystalMessage) => {
       this.handleContributeCrystalAction(client, data || { landmarkId: "" });
     });
-    this.onMessage("contribute_crystal", (client, data: ClientContributeCrystalMessage) => {
+    this.registerHandler("contribute_crystal", (client, data: ClientContributeCrystalMessage) => {
       this.handleContributeCrystalAction(client, data || { landmarkId: "" });
     });
-    this.onMessage("contributeFuel", (client, data: ClientContributeFuelMessage) => {
+    this.registerHandler("contributeFuel", (client, data: ClientContributeFuelMessage) => {
       console.warn("[CampusRoom] 'contributeFuel' message is deprecated. Use 'contributeCrystal' instead.");
       this.handleContributeCrystalAction(client, data || { landmarkId: "" });
     });
-    this.onMessage("contribute_fuel", (client, data: ClientContributeFuelMessage) => {
+    this.registerHandler("contribute_fuel", (client, data: ClientContributeFuelMessage) => {
       console.warn("[CampusRoom] 'contribute_fuel' message is deprecated. Use 'contribute_crystal' instead.");
       this.handleContributeCrystalAction(client, data || { landmarkId: "" });
     });
-    this.onMessage("burnCharcoal", (client, data: ClientContributeFuelMessage) => {
+    this.registerHandler("burnCharcoal", (client, data: ClientContributeFuelMessage) => {
       console.warn("[CampusRoom] 'burnCharcoal' message is deprecated. Use 'contributeCrystal' instead.");
       this.handleContributeCrystalAction(client, data || { landmarkId: "" });
     });
-    this.onMessage("burn_charcoal", (client, data: ClientContributeFuelMessage) => {
+    this.registerHandler("burn_charcoal", (client, data: ClientContributeFuelMessage) => {
       console.warn("[CampusRoom] 'burn_charcoal' message is deprecated. Use 'contribute_crystal' instead.");
       this.handleContributeCrystalAction(client, data || { landmarkId: "" });
     });
 
     // 1c2. guessLandmark / guess_landmark
-    this.onMessage("guessLandmark", (client, data: ClientGuessLandmarkMessage) => {
+    this.registerHandler("guessLandmark", (client, data: ClientGuessLandmarkMessage) => {
       this.handleGuessLandmark(client, data || { landmarkId: "", guess: "" });
     });
-    this.onMessage("guess_landmark", (client, data: ClientGuessLandmarkMessage) => {
+    this.registerHandler("guess_landmark", (client, data: ClientGuessLandmarkMessage) => {
       this.handleGuessLandmark(client, data || { landmarkId: "", guess: "" });
     });
 
     // 1d. rollUniStop / roll_unistop
-    this.onMessage("rollUniStop", (client, data: ClientRollUniStopMessage) => {
+    this.registerHandler("rollUniStop", (client, data: ClientRollUniStopMessage) => {
       this.handleRollUniStop(client, data || { stopId: "" });
-    });
-    this.onMessage("roll_unistop", (client, data: ClientRollUniStopMessage) => {
+    }, { validateCoords: true });
+    this.registerHandler("roll_unistop", (client, data: ClientRollUniStopMessage) => {
       this.handleRollUniStop(client, data || { stopId: "" });
-    });
+    }, { validateCoords: true });
 
     // 1e. openChest / open_chest
-    this.onMessage("openChest", (client, data: ClientOpenChestMessage) => {
+    this.registerHandler("openChest", (client, data: ClientOpenChestMessage) => {
       this.handleOpenChest(client, data || { chestId: "" });
-    });
-    this.onMessage("open_chest", (client, data: ClientOpenChestMessage) => {
+    }, { validateCoords: true });
+    this.registerHandler("open_chest", (client, data: ClientOpenChestMessage) => {
       this.handleOpenChest(client, data || { chestId: "" });
-    });
+    }, { validateCoords: true });
 
     // 1f. updateMapLayout / update_map_layout
-    this.onMessage("updateMapLayout", (client, data: ClientUpdateMapLayoutMessage) => {
+    this.registerHandler("updateMapLayout", (client, data: ClientUpdateMapLayoutMessage) => {
       this.handleUpdateMapLayout(client, data || {});
     });
-    this.onMessage("update_map_layout", (client, data: ClientUpdateMapLayoutMessage) => {
+    this.registerHandler("update_map_layout", (client, data: ClientUpdateMapLayoutMessage) => {
       this.handleUpdateMapLayout(client, data || {});
     });
 
     // 2. fortify_tile (backward-compatibility bridge) + protocol "fortify" frame
-    this.onMessage("fortify_tile", (client, data: ClientFortifyMessage) => {
+    this.registerHandler("fortify_tile", (client, data: ClientFortifyMessage) => {
       this.handleFortifyAction(client, data || { x: NaN, y: NaN }, "fortify_tile");
-    });
-    this.onMessage("fortify", (client, data: FortifyFrame | ClientFortifyMessage) => {
+    }, { validateCoords: true });
+    this.registerHandler("fortify", (client, data: FortifyFrame | ClientFortifyMessage) => {
       const frame = decodeClientFrame(data) || data;
       this.handleFortifyAction(client, { x: (frame as any).x, y: (frame as any).y }, "fortify");
-    });
+    }, { validateCoords: true });
 
     // 2b. protocol frames on the land channel (t: claim | fortify | study | crystal | fuel)
-    this.onMessage(LAND_FRAME_CHANNEL, (client, data: any) => {
+    this.registerHandler(LAND_FRAME_CHANNEL, (client, data: any) => {
       const frame = decodeClientFrame(data);
       if (!frame) return; // unknown / non-client frame: ignore
       if (frame.t === "claim") {
@@ -1875,14 +2303,14 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 3. set_simulation_speed
-    this.onMessage("set_simulation_speed", (client, data: ClientSetSpeedMessage) => {
-      const speed = data.speed || 1;
+    this.registerHandler("set_simulation_speed", (client, data: ClientSetSpeedMessage) => {
+      const speed = isSafeInteger(data?.speed, 1, 100) ? data.speed : 1;
       this.setSimulationSpeed(speed);
     });
 
     // 4. bulk_dispatch (troops only — control plane; no tile writes)
-    this.onMessage("bulk_dispatch", (client, data: ClientBulkDispatchMessage) => {
-      const amount = data.amount || 500;
+    this.registerHandler("bulk_dispatch", (client, data: ClientBulkDispatchMessage) => {
+      const amount = isSafeInteger(data?.amount, 1, 100000) ? data.amount : 500;
       for (const schoolId of SCHOOL_IDS) {
         const cur = this.state.schoolTroops.get(schoolId) || 0;
         this.state.schoolTroops.set(schoolId, cur + amount);
@@ -1890,7 +2318,7 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 5. soft_reset — full land reload: reset LandState, rebuild tiles, bump epoch + resend snap
-    this.onMessage("soft_reset", () => {
+    this.registerHandler("soft_reset", () => {
       // Clear all claimed tiles
       this.state.claimedTiles.clear();
       this.landData.reset();
@@ -1948,6 +2376,7 @@ export class CampusRoom extends Room<GameState> {
         lm.nameGuessed = false;
         lm.guessedBySchoolId = "";
         lm.crystalsBySchool.clear();
+        lm.guessedSchools.clear();
       });
 
       // Reset UniStop cooldowns & Chest status
@@ -1969,25 +2398,27 @@ export class CampusRoom extends Room<GameState> {
 
 
     // 6. select_school
-    this.onMessage("select_school", (client, data: ClientSelectSchoolMessage) => {
+    this.registerHandler("select_school", (client, data: ClientSelectSchoolMessage) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
 
       if (player.mode === "normal" && player.isLockedSchool) {
         client.send("error", {
-          message: `Tài khoản sinh viên (${player.email || "định danh"}) đã được cố định theo trường, không thể chuyển sang trường khác!`
+          message: `Tài khoản sinh viên (${player.displayName || "định danh"}) đã được cố định theo trường, không thể chuyển sang trường khác!`
         });
         return;
       }
 
-      if (SCHOOL_ROSTER[data.schoolId]) {
+      if (isValidSchoolId(data?.schoolId)) {
         player.schoolId = data.schoolId;
         console.log(`[CampusRoom] Player ${client.sessionId} switched to school: ${data.schoolId}`);
+      } else {
+        client.send("error", { message: "Mã trường không hợp lệ!" });
       }
     });
 
     // 6b. login_student
-    this.onMessage("login_student", (client, data: {
+    this.registerHandler("login_student", (client, data: {
       email: string;
       schoolId: string;
       points: number;
@@ -2005,11 +2436,17 @@ export class CampusRoom extends Room<GameState> {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
 
-      player.email = (data.email || "").trim();
-      if (SCHOOL_ROSTER[data.schoolId]) {
+      const email = (data.email || "").trim();
+      player.email = email;
+      player.displayName = maskEmail(email);
+      if (email) {
+        this.playerEmails.set(client.sessionId, email);
+      }
+
+      if (isValidSchoolId(data.schoolId)) {
         player.schoolId = data.schoolId;
       }
-      if (typeof data.points === "number" && data.points >= 0) {
+      if (isSafeInteger(data.points, 0, 10000000)) {
         player.personalTroops = data.points;
       }
       if (data.mode) {
@@ -2029,12 +2466,12 @@ export class CampusRoom extends Room<GameState> {
       else if (typeof data.platinumKeys === "number") player.predatorKeys = data.platinumKeys;
 
       console.log(
-        `[CampusRoom] Player ${client.sessionId} logged in as student: ${player.email} [${player.schoolId.toUpperCase()}] - ${player.personalTroops} pts (WeeklyPoints: ${player.hasWeeklyRunningPoints}, Mode: ${player.mode}, Locked: ${player.isLockedSchool})`
+        `[CampusRoom] Player ${client.sessionId} logged in as student: ${player.displayName} [${player.schoolId.toUpperCase()}] - ${player.personalTroops} pts (WeeklyPoints: ${player.hasWeeklyRunningPoints}, Mode: ${player.mode}, Locked: ${player.isLockedSchool})`
       );
     });
 
     // 7. set_role
-    this.onMessage("set_role", (client, data: ClientSetRoleMessage) => {
+    this.registerHandler("set_role", (client, data: ClientSetRoleMessage) => {
       const player = this.state.players.get(client.sessionId);
       if (player && ["assault", "fortify", "support"].includes(data.role)) {
         player.currentRole = data.role;
@@ -2042,23 +2479,24 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 8. toggle_bots
-    this.onMessage("toggle_bots", (client, data: { enabled: boolean }) => {
+    this.registerHandler("toggle_bots", (client, data: { enabled: boolean }) => {
       this.botsEnabled = !!data.enabled;
       console.log(`[CampusRoom] Bot simulation enabled: ${this.botsEnabled}`);
     });
 
     // 9. add_points
-    this.onMessage("add_points", (client, data: { amount: number }) => {
+    this.registerHandler("add_points", (client, data: { amount: number }) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
-        player.personalTroops += (data.amount || 100);
+        const added = isSafeInteger(data?.amount, 1, 1000000) ? data.amount : 100;
+        player.personalTroops += added;
         const cur = this.state.schoolTroops.get(player.schoolId) || 0;
-        this.state.schoolTroops.set(player.schoolId, cur + (data.amount || 100));
+        this.state.schoolTroops.set(player.schoolId, cur + added);
       }
     });
 
     // 10. dev_spawn_bastion
-    this.onMessage("dev_spawn_bastion", (client, data: { schoolId?: string, x?: number, y?: number }) => {
+    this.registerHandler("dev_spawn_bastion", (client, data: { schoolId?: string, x?: number, y?: number }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       const schoolId = data.schoolId || player.schoolId;
@@ -2091,10 +2529,10 @@ export class CampusRoom extends Room<GameState> {
         }
       }
       this.handleClusterUpdate(schoolId, startX, startY);
-    });
+    }, { validateCoords: true });
 
     // 11. dev_spawn_mega_emblem
-    this.onMessage("dev_spawn_mega_emblem", (client, data: { schoolId?: string, x?: number, y?: number }) => {
+    this.registerHandler("dev_spawn_mega_emblem", (client, data: { schoolId?: string, x?: number, y?: number }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       const schoolId = data.schoolId || player.schoolId;
@@ -2127,10 +2565,10 @@ export class CampusRoom extends Room<GameState> {
         }
       }
       this.handleClusterUpdate(schoolId, startX, startY);
-    });
+    }, { validateCoords: true });
 
     // 12. dev_breach_cluster
-    this.onMessage("dev_breach_cluster", (client, data: { schoolId?: string }) => {
+    this.registerHandler("dev_breach_cluster", (client, data: { schoolId?: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       const schoolId = data.schoolId || player.schoolId;
@@ -2213,7 +2651,7 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 13. dev_max_fortify_all
-    this.onMessage("dev_max_fortify_all", (client, data: { schoolId?: string }) => {
+    this.registerHandler("dev_max_fortify_all", (client, data: { schoolId?: string }) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       const schoolId = data.schoolId || player.schoolId;
@@ -2237,7 +2675,7 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 14. dev_add_keys
-    this.onMessage("dev_add_keys", (client, data: {
+    this.registerHandler("dev_add_keys", (client, data: {
       aspire?: number; nitro?: number; predator?: number;
       silver?: number; gold?: number; platinum?: number;
     }) => {
@@ -2253,7 +2691,7 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 14b. dev_add_crystals
-    this.onMessage("dev_add_crystals", (client, data: { amount?: number }) => {
+    this.registerHandler("dev_add_crystals", (client, data: { amount?: number }) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
         player.crystals = (player.crystals || 0) + (data.amount || 10);
@@ -2261,7 +2699,7 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 15. dev_reset_unistop_cooldown
-    this.onMessage("dev_reset_unistop_cooldown", (client, data: { stopId: string }) => {
+    this.registerHandler("dev_reset_unistop_cooldown", (client, data: { stopId: string }) => {
       const stop = this.state.unistops.get(data.stopId);
       if (stop) {
         stop.cooldownUntil = 0;
@@ -2269,7 +2707,7 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 15b. dev_reset_cooldowns (clears player guessCooldowns and all unistop cooldowns)
-    this.onMessage("dev_reset_cooldowns", (client) => {
+    this.registerHandler("dev_reset_cooldowns", (client) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
         player.guessCooldowns.clear();
@@ -2281,22 +2719,54 @@ export class CampusRoom extends Room<GameState> {
     });
 
     // 16. dev_set_weekly_points
-    this.onMessage("dev_set_weekly_points", (client, data: { hasWeeklyRunningPoints: boolean }) => {
+    this.registerHandler("dev_set_weekly_points", (client, data: { hasWeeklyRunningPoints: boolean }) => {
       const player = this.state.players.get(client.sessionId);
       if (player) {
         player.hasWeeklyRunningPoints = Boolean(data.hasWeeklyRunningPoints);
       }
     });
+
+    // 17. toggle_student_bots
+    this.registerHandler("toggle_student_bots", (client, data: { enabled?: boolean }) => {
+      if (data && typeof data.enabled === "boolean") {
+        this.studentBotsEnabled = data.enabled;
+      } else {
+        this.studentBotsEnabled = !this.studentBotsEnabled;
+      }
+      if (this.studentBotsEnabled) {
+        this.studentBotRunner.start();
+      } else {
+        this.studentBotRunner.stop();
+      }
+      const status = this.studentBotRunner.getStatus();
+      this.broadcast("student_bots_status", status);
+      client.send("student_bots_toggled", status);
+    });
+
+    // 17b. get_student_bots_status
+    this.registerHandler("get_student_bots_status", (client) => {
+      client.send("student_bots_status", this.studentBotRunner.getStatus());
+    });
   }
 
   onJoin(client: Client, options: any) {
+    const isDevAllowed = process.env.ALLOW_DEV === "true";
     const player = new PlayerState();
     player.id = client.sessionId;
 
-    const email = (options.email || "").trim();
-    const mode = options.mode === "dev" ? "dev" : (email ? "normal" : (options.mode || "dev"));
+    const email = (options?.email || "").trim();
+    if (email) {
+      this.playerEmails.set(client.sessionId, email);
+    }
+    if (options?.adminKey) {
+      this.clientAdminKeys.set(client.sessionId, String(options.adminKey));
+    }
+
+    const mode = isDevAllowed
+      ? (options?.mode === "dev" ? "dev" : (email ? "normal" : (options?.mode || "dev")))
+      : "normal";
     const emailSchool = email ? getSchoolIdFromEmail(email) : null;
-    const requestedSchool = options.schoolId;
+    const requestedSchool = options?.schoolId;
 
     let targetSchool = "hcmut";
     if (emailSchool && SCHOOL_ROSTER[emailSchool]) {
@@ -2306,38 +2776,54 @@ export class CampusRoom extends Room<GameState> {
     }
 
     player.email = email;
+    player.displayName = maskEmail(email);
     player.schoolId = targetSchool;
     player.mode = mode;
     player.isLockedSchool = mode === "normal" && !!emailSchool;
 
     // Running points: 1 km = 1 point
-    const initialPoints = typeof options.points === "number" && options.points >= 0
-      ? options.points
-      : (typeof options.km === "number" && options.km >= 0 ? options.km : 500);
+    // When ALLOW_DEV is disabled (default), ignores client-supplied starting points, crystals, keys
+    let initialPoints = 0;
+    if (isDevAllowed) {
+      initialPoints = typeof options?.points === "number" && options.points >= 0
+        ? options.points
+        : (typeof options?.km === "number" && options.km >= 0 ? options.km : 500);
+    } else {
+      initialPoints = 0;
+    }
 
     player.personalTroops = initialPoints;
-    player.currentRole = (options.role && ["assault", "fortify", "support"].includes(options.role))
+    player.currentRole = (options?.role && ["assault", "fortify", "support"].includes(options.role))
       ? options.role
       : "assault";
 
-    const hasWeeklyPoints = Boolean(
-      options.hasWeeklyRunningPoints !== undefined
-        ? options.hasWeeklyRunningPoints
-        : (typeof options.weeklyPoints === "number" && options.weeklyPoints > 0) ||
-          (typeof options.weeklyKm === "number" && options.weeklyKm > 0) ||
-          (typeof options.points === "number" && options.points > 0) ||
-          (typeof options.km === "number" && options.km > 0)
-    );
+    const hasWeeklyPoints = isDevAllowed
+      ? Boolean(
+          options?.hasWeeklyRunningPoints !== undefined
+            ? options.hasWeeklyRunningPoints
+            : (typeof options?.weeklyPoints === "number" && options.weeklyPoints > 0) ||
+              (typeof options?.weeklyKm === "number" && options.weeklyKm > 0) ||
+              (typeof options?.points === "number" && options.points > 0) ||
+              (typeof options?.km === "number" && options.km > 0)
+        )
+      : false;
     player.hasWeeklyRunningPoints = hasWeeklyPoints;
 
-    if (typeof options.crystals === "number") player.crystals = options.crystals;
-    else if (typeof options.charcoal === "number") player.crystals = options.charcoal;
-    if (typeof options.aspireKeys === "number") player.aspireKeys = options.aspireKeys;
-    else if (typeof options.silverKeys === "number") player.aspireKeys = options.silverKeys;
-    if (typeof options.nitroKeys === "number") player.nitroKeys = options.nitroKeys;
-    else if (typeof options.goldKeys === "number") player.nitroKeys = options.goldKeys;
-    if (typeof options.predatorKeys === "number") player.predatorKeys = options.predatorKeys;
-    else if (typeof options.platinumKeys === "number") player.predatorKeys = options.platinumKeys;
+    if (isDevAllowed) {
+      if (typeof options?.crystals === "number") player.crystals = options.crystals;
+      else if (typeof options?.charcoal === "number") player.crystals = options.charcoal;
+      if (typeof options?.aspireKeys === "number") player.aspireKeys = options.aspireKeys;
+      else if (typeof options?.silverKeys === "number") player.aspireKeys = options.silverKeys;
+      if (typeof options?.nitroKeys === "number") player.nitroKeys = options.nitroKeys;
+      else if (typeof options?.goldKeys === "number") player.nitroKeys = options.goldKeys;
+      if (typeof options?.predatorKeys === "number") player.predatorKeys = options.predatorKeys;
+      else if (typeof options?.platinumKeys === "number") player.predatorKeys = options.platinumKeys;
+    } else {
+      player.crystals = 0;
+      player.aspireKeys = 0;
+      player.nitroKeys = 0;
+      player.predatorKeys = 0;
+    }
 
     this.state.players.set(client.sessionId, player);
 
@@ -2355,17 +2841,40 @@ export class CampusRoom extends Room<GameState> {
       megaEmblems: Array.from(this.activeMegaEmblems.values())
     });
 
+    const activeSharedZones: any[] = [];
+    for (const [_, tile] of this.state.claimedTiles) {
+      if (tile.isShared && tile.sharedExpiresAt > Date.now()) {
+        activeSharedZones.push({
+          x: tile.x,
+          y: tile.y,
+          sharedWithSchoolId: tile.sharedWithSchoolId,
+          sharedExpiresAt: tile.sharedExpiresAt
+        });
+      }
+    }
+    if (activeSharedZones.length > 0) {
+      client.send("shared_zones_sync", { zones: activeSharedZones });
+    }
+
+    if (this.studentBotRunner) {
+      client.send("student_bots_status", this.studentBotRunner.getStatus());
+    }
+
     console.log(
-      `[CampusRoom] Player joined: ${client.sessionId} | School: ${player.schoolId} | Mode: ${player.mode} | Locked: ${player.isLockedSchool} | Points: ${player.personalTroops} | Email: ${player.email || "Guest"}`
+      `[CampusRoom] Player joined: ${client.sessionId} | School: ${player.schoolId} | Mode: ${player.mode} | Locked: ${player.isLockedSchool} | Points: ${player.personalTroops} | Name: ${player.displayName}`
     );
   }
 
   onLeave(client: Client, consented: boolean) {
+    this.playerEmails.delete(client.sessionId);
+    this.clientAdminKeys.delete(client.sessionId);
+    this.rateLimiter.removeClient(client.sessionId);
     this.state.players.delete(client.sessionId);
     console.log(`[CampusRoom] Player left: ${client.sessionId} (consented: ${consented})`);
   }
 
   onDispose() {
+    this.studentBotRunner?.stop();
     if (this.gameInterval) {
       this.gameInterval.clear();
     }

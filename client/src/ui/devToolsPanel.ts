@@ -27,6 +27,9 @@ export interface DevPanelCallbacks {
   onDevResetCooldowns?: () => void;
   onDevAddCrystals?: (amount?: number) => void;
   onDevAddKeys?: (aspire?: number, nitro?: number, predator?: number) => void;
+  onSetTerritoryOpacity?: (opacity: number) => void;
+  onOpenNotificationStudio?: () => void;
+  onToggleStudentBots?: () => void;
 }
 
 export class DevToolsPanel {
@@ -42,6 +45,7 @@ export class DevToolsPanel {
   private currentFogColor = "#cfd8e3";
   private currentEdgeSoftness: number = 1.5;
   private currentMeltDuration: number = 1.0;
+  private currentTerritoryOpacity: number = 0.65;
   private callbacks: DevPanelCallbacks;
 
   constructor(callbacks: DevPanelCallbacks, parent?: HTMLElement, initialMode: "normal" | "dev" = "dev", initialEmail?: string) {
@@ -51,6 +55,10 @@ export class DevToolsPanel {
     this.currentTier = isMobile ? 'performance' : 'balanced';
     if (initialEmail) {
       this.selectedMockEmail = initialEmail;
+    }
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("dev") === "open" || urlParams.get("devMenu") === "open") {
+      this.isOpen = true;
     }
     this.container = document.createElement('div');
     this.container.className = 'dev-dropdown-container';
@@ -234,10 +242,10 @@ export class DevToolsPanel {
           </div>
         </div>
 
-        <!-- 8. GIẢ LẬP VÙNG TRI THỨC & CỦNG CỐ -->
+        <!-- 8. GIẢ LẬP VÙNG TRI THỨC & ÔN BÀI -->
         <div class="dev-menu-section">
           <div class="section-title" style="color: #00ffe8; display: flex; align-items: center; gap: 6px;">
-            ⚡ GIẢ LẬP VÙNG TRI THỨC & CỦNG CỐ
+            ⚡ GIẢ LẬP VÙNG TRI THỨC & ÔN BÀI
           </div>
           <div class="dev-btn-group" style="grid-template-columns: 1fr;">
             <button class="btn-dev-action" id="btn-spawn-bastion" style="background: rgba(0, 255, 232, 0.08); border-color: rgba(0, 255, 232, 0.3); justify-content: flex-start; text-align: left;" title="Tạo cụm 10x10 Max Tier 3, tự động kích hoạt cắm cờ Predator & Buff Tier 4">
@@ -249,9 +257,16 @@ export class DevToolsPanel {
             <button class="btn-dev-action" id="btn-breach-cluster" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); justify-content: flex-start; text-align: left;" title="Giả lập đối thủ giao lưu tri thức tại 1 ô lõi, kiểm tra cập nhật cờ/logo và hạ Tier">
               <span style="font-size: 16px; margin-right: 8px;">💥</span> Giao Lưu Kiểm Tra Cụm (Breach)
             </button>
-            <button class="btn-dev-action" id="btn-max-fortify" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); justify-content: flex-start; text-align: left;" title="Nâng toàn bộ Vùng tri thức đang sở hữu lên Cấp 3">
-              <span style="font-size: 16px; margin-right: 8px;">🛡️</span> Max Củng Cố Toàn Bộ Vùng Tri Thức
+            <button class="btn-dev-action" id="btn-max-fortify" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); justify-content: flex-start; text-align: left;" title="Ôn bài tối đa toàn bộ Vùng tri thức đang sở hữu lên Cấp 3">
+              <span style="font-size: 16px; margin-right: 8px;">🛡️</span> Ôn bài toàn bộ
             </button>
+          </div>
+          <div style="margin-top: 10px; padding: 8px 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(0, 255, 232, 0.2); border-radius: 4px;">
+            <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;">
+              <span style="color: #cbd5e1;">Độ đậm màu trường (Lãnh thổ):</span>
+              <span id="territory-opacity-val" style="font-weight: 700; color: #00ffe8;">${Math.round(this.currentTerritoryOpacity * 100)}%</span>
+            </div>
+            <input type="range" id="territory-opacity-slider" min="0" max="100" value="${Math.round(this.currentTerritoryOpacity * 100)}" style="width: 100%; accent-color: #00ffe8; margin-top: 4px;" />
           </div>
         </div>
 
@@ -261,7 +276,7 @@ export class DevToolsPanel {
             🎁 TIẾP TẾ & VẬT PHẨM (TESTING)
           </div>
           <div class="dev-btn-group" style="grid-template-columns: 1fr;">
-            <button class="btn-dev-action" id="btn-dev-reset-cds" style="background: rgba(0, 255, 232, 0.08); border-color: rgba(0, 255, 232, 0.3); justify-content: flex-start; text-align: left;" title="Xóa bỏ thời gian hồi chiêu tất cả trạm UniStop và thử đoán lại địa danh">
+            <button class="btn-dev-action" id="btn-dev-reset-cds" style="background: rgba(0, 255, 232, 0.08); border-color: rgba(0, 255, 232, 0.3); justify-content: flex-start; text-align: left;" title="Xóa bỏ thời gian hồi chiêu tất cả trạm UniStop và thử đoán lại công trình">
               <span style="font-size: 15px; margin-right: 8px;">⏱️</span> Reset Cooldowns UniStop
             </button>
             <button class="btn-dev-action" id="btn-dev-add-crystals" style="background: rgba(0, 180, 216, 0.12); border-color: rgba(0, 180, 216, 0.35); justify-content: flex-start; text-align: left;" title="Cộng ngay +100 Tinh thể để thắp sáng Đèn hiệu">
@@ -269,6 +284,21 @@ export class DevToolsPanel {
             </button>
             <button class="btn-dev-action" id="btn-dev-add-keys" style="background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35); justify-content: flex-start; text-align: left;" title="Nhận Chìa khóa: Aspire, Nitro, Predator">
               <span style="font-size: 15px; margin-right: 8px;">🔑</span> +Chìa khóa (Aspire/Nitro/Predator)
+            </button>
+          </div>
+        </div>
+
+        <!-- 10. THÔNG BÁO & NOTIFICATION STUDIO -->
+        <div class="dev-menu-section">
+          <div class="section-title" style="color: #00ffe8; display: flex; align-items: center; gap: 6px;">
+            📢 NOTIFICATION STUDIO & 5 BOTS
+          </div>
+          <div class="dev-btn-group" style="grid-template-columns: 1fr;">
+            <button class="btn-dev-action" id="btn-open-notification-studio" style="background: rgba(0, 255, 232, 0.15); border-color: rgba(0, 255, 232, 0.45); color: #00ffe8; font-weight: 700;">
+              <span style="font-size: 15px; margin-right: 8px;">🔔</span> Notification Studio (Viết & Bắn thử)
+            </button>
+            <button class="btn-dev-action" id="btn-toggle-student-bots" style="background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.4); color: #10b981; font-weight: 700;" title="Bật/Tắt 5 Bots Sinh Viên (1 bot/trường) cày cuốc, giải đố, rương và bắn thông báo">
+              <span style="font-size: 15px; margin-right: 8px;">🤖</span> 5 Bots Simulation (BẬT / TẮT)
             </button>
           </div>
         </div>
@@ -294,6 +324,13 @@ export class DevToolsPanel {
         this.bindEvents();
       }
     });
+
+    // Tự động cuộn đến phần tử nếu có query param
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("scroll") === "territory" || urlParams.get("scrollTo") === "territory") {
+      const slider = this.container.querySelector('#territory-opacity-slider');
+      slider?.scrollIntoView({ block: 'center' });
+    }
 
     // Toggle Chế độ Dev / Normal
     this.container.querySelector('#mode-toggle-btn')?.addEventListener('click', (e) => {
@@ -455,7 +492,7 @@ export class DevToolsPanel {
       ((window as any).fogOfWarManager || FogOfWarManager.instance)?.setFogColor(val);
     });
 
-    // Giả lập Lãnh thổ & Gia cố
+    // Giả lập Lãnh thổ & Ôn bài
     this.container.querySelector('#btn-spawn-bastion')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.callbacks.onDevSpawnBastion?.();
@@ -484,6 +521,34 @@ export class DevToolsPanel {
       e.stopPropagation();
       this.callbacks.onDevAddKeys?.(5, 5, 5);
     });
+
+    this.container.querySelector('#btn-open-notification-studio')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onOpenNotificationStudio?.();
+    });
+
+    this.container.querySelector('#btn-toggle-student-bots')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onToggleStudentBots?.();
+    });
+
+    const opacitySlider = this.container.querySelector('#territory-opacity-slider') as HTMLInputElement | null;
+    const opacityVal = this.container.querySelector('#territory-opacity-val');
+    opacitySlider?.addEventListener('input', (e) => {
+      e.stopPropagation();
+      const val = Number(opacitySlider.value);
+      if (opacityVal) opacityVal.textContent = `${val}%`;
+      this.currentTerritoryOpacity = val / 100;
+      this.callbacks.onSetTerritoryOpacity?.(this.currentTerritoryOpacity);
+    });
+  }
+
+  public setTerritoryOpacity(opacity: number): void {
+    this.currentTerritoryOpacity = Math.max(0, Math.min(1, opacity));
+    const opacitySlider = this.container.querySelector('#territory-opacity-slider') as HTMLInputElement | null;
+    const opacityVal = this.container.querySelector('#territory-opacity-val');
+    if (opacitySlider) opacitySlider.value = String(Math.round(this.currentTerritoryOpacity * 100));
+    if (opacityVal) opacityVal.textContent = `${Math.round(this.currentTerritoryOpacity * 100)}%`;
   }
 
   public setFogAlpha(alpha: number): void {

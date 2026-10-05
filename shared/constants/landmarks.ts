@@ -2,11 +2,13 @@ export interface LandmarkConfig {
   id: string;
   name: string;
   category: 'scenic' | 'iconic';
-  footprint: { width: number; height: number }; // Đơn vị ô tiles (Scale 50x50 ô)
+  footprint: { width: number; height: number }; // Đơn vị ô tiles (Scale 40x40 ô)
   requiredTroops: number;
+  requiredCrystals?: number;
   buffDescription: string;
   gameplayRole: string;
   troopBonus?: number;
+  pointBonus?: number;
   modelFileName?: string;
   tileHp: number;
   coreHp: number;
@@ -21,7 +23,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "fansipan",
     name: "Đỉnh Fansipan",
     category: "scenic",
-    footprint: { width: 50, height: 50 },
+    footprint: { width: 40, height: 40 },
     requiredTroops: 2500,
     tileHp: 600,
     coreHp: 3000,
@@ -37,7 +39,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "halong",
     name: "Vịnh Hạ Long",
     category: "scenic",
-    footprint: { width: 50, height: 50 },
+    footprint: { width: 40, height: 40 },
     requiredTroops: 2000,
     tileHp: 550,
     coreHp: 2600,
@@ -53,7 +55,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "nguhanhson",
     name: "Núi Ngũ Hành Sơn",
     category: "scenic",
-    footprint: { width: 50, height: 50 },
+    footprint: { width: 40, height: 40 },
     requiredTroops: 1400,
     tileHp: 450,
     coreHp: 1800,
@@ -69,7 +71,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "phongnha",
     name: "Động Phong Nha",
     category: "scenic",
-    footprint: { width: 50, height: 50 },
+    footprint: { width: 40, height: 40 },
     requiredTroops: 1200,
     tileHp: 400,
     coreHp: 1600,
@@ -85,7 +87,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "nuibaden",
     name: "Núi Bà Đen",
     category: "scenic",
-    footprint: { width: 50, height: 50 },
+    footprint: { width: 40, height: 40 },
     requiredTroops: 1800,
     tileHp: 500,
     coreHp: 2200,
@@ -103,7 +105,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "thanglong",
     name: "Hoàng thành Thăng Long",
     category: "iconic",
-    footprint: { width: 50, height: 50 },
+    footprint: { width: 40, height: 40 },
     requiredTroops: 2600,
     tileHp: 650,
     coreHp: 3200,
@@ -119,7 +121,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "canghaiphong",
     name: "Cảng Hải Phòng",
     category: "iconic",
-    footprint: { width: 50, height: 50 },
+    footprint: { width: 40, height: 40 },
     requiredTroops: 1600,
     tileHp: 480,
     coreHp: 2000,
@@ -135,7 +137,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "kinhthanhhue",
     name: "Kinh Thành Huế",
     category: "iconic",
-    footprint: { width: 50, height: 50 },
+    footprint: { width: 40, height: 40 },
     requiredTroops: 2000,
     tileHp: 550,
     coreHp: 2400,
@@ -151,7 +153,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "bitexco",
     name: "Toà nhà Bitexco",
     category: "iconic",
-    footprint: { width: 50, height: 50 },
+    footprint: { width: 40, height: 40 },
     requiredTroops: 2200,
     tileHp: 500,
     coreHp: 2200,
@@ -167,7 +169,7 @@ export const LANDMARK_ROSTER: Record<string, LandmarkConfig> = {
     id: "cairang",
     name: "Chợ nổi Cái Răng",
     category: "iconic",
-    footprint: { width: 50, height: 50 },
+    footprint: { width: 40, height: 40 },
     requiredTroops: 1400,
     tileHp: 420,
     coreHp: 1600,

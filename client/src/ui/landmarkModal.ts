@@ -23,6 +23,7 @@ export interface LandmarkModalData {
   hasPath?: boolean;
   nameGuessed?: boolean;
   guessedBySchoolId?: string;
+  guessedSchools?: any;
   guessCooldownUntil?: number;
   // Aliases for compatibility
   currentFuel?: number;
@@ -35,6 +36,7 @@ export interface LandmarkModalCallbacks {
   onContributeFuel?: (landmarkId: string, amount: number) => void;
   onGuessLandmark?: (landmarkId: string, guess: string) => void;
   onFocusLandmark?: (x: number, y: number) => void;
+  onConvertPoints?: (amount: number) => void;
 }
 
 export class LandmarkModal {
@@ -44,6 +46,7 @@ export class LandmarkModal {
   private currentData: LandmarkModalData | null = null;
   private isOpen = false;
   private countdownTimer: any = null;
+  public onConvertPoints?: (amount: number) => void;
 
   constructor(callbacks: LandmarkModalCallbacks) {
     this.callbacks = callbacks;
@@ -115,6 +118,10 @@ export class LandmarkModal {
     this.overlay.style.display = 'flex';
     this.render();
     this.startCooldownTimer();
+  }
+
+  public show(data: LandmarkModalData): void {
+    this.open(data);
   }
 
   public update(data: LandmarkModalData): void {
@@ -240,6 +247,23 @@ export class LandmarkModal {
     const mm = String(Math.floor(remainingSec / 60)).padStart(2, '0');
     const ss = String(remainingSec % 60).padStart(2, '0');
 
+    // Check if player's school has solved this landmark
+    const mySchoolId = data.playerSchoolId || '';
+    let mySchoolGuessed = false;
+
+    if (mySchoolId && data.guessedSchools) {
+      if (typeof (data.guessedSchools as any).get === 'function') {
+        mySchoolGuessed = !!(data.guessedSchools as any).get(mySchoolId);
+      } else if (typeof data.guessedSchools === 'object') {
+        mySchoolGuessed = !!(data.guessedSchools as any)[mySchoolId];
+      }
+    }
+
+    // Fallback if guessedSchools is not populated but guessedBySchoolId equals mySchoolId and nameGuessed is true
+    if (!mySchoolGuessed && mySchoolId && data.guessedBySchoolId === mySchoolId && data.nameGuessed) {
+      mySchoolGuessed = true;
+    }
+
     const nameGuessed = !!data.nameGuessed;
     const guessedSchool = data.guessedBySchoolId ? SCHOOL_ROSTER[data.guessedBySchoolId] : null;
     const guessedSchoolName = guessedSchool ? guessedSchool.name : (data.guessedBySchoolId ? data.guessedBySchoolId.toUpperCase() : '');
@@ -330,7 +354,7 @@ export class LandmarkModal {
               ${data.buffDescription}
             </div>
             <div class="lm-buff-foot">
-              <span>Quy mô footprint: <strong>${data.footprint.width} × ${data.footprint.height} ô tiles</strong></span>
+              <span>Quy mô footprint: <strong>${data.footprint?.width || 40} × ${data.footprint?.height || 40} ô tiles</strong></span>
               <span>Vị trí: <strong>(${data.x}, ${data.y})</strong></span>
             </div>
           </div>
@@ -339,26 +363,35 @@ export class LandmarkModal {
           <div class="lm-guessing-card">
             <div class="lm-guess-header">
               <span class="lm-guess-icon">${Icons.target(16)}</span>
-              <span class="lm-guess-title">ĐOÁN TÊN ĐỊA DANH (NHẬN 10% TIẾN ĐỘ = 10 TINH THỂ)</span>
+              <span class="lm-guess-title">ĐOÁN TÊN CÔNG TRÌNH (NHẬN 10% TIẾN ĐỘ = 10 TINH THỂ)</span>
             </div>
 
-            ${nameGuessed
+            ${mySchoolGuessed
               ? `
                 <div class="lm-guess-solved-box">
                   <span class="lm-guess-solved-icon">${Icons.check(16)}</span>
                   <div class="lm-guess-solved-text">
-                    Địa danh này đã được giải đố thành công bởi trường <strong>${guessedSchoolName}</strong>! (+10 Tinh thể đã được cộng vào tiến độ Đèn hiệu).
+                    Trường bạn đã giải đố công trình này! (+10 Tinh thể đã được cộng vào tiến độ Đèn hiệu).
                   </div>
                 </div>
               `
               : `
                 <div class="lm-guess-form">
+                  ${(data.guessedBySchoolId && data.guessedBySchoolId !== mySchoolId && nameGuessed)
+                    ? `
+                      <div class="lm-guess-other-notice" style="margin-bottom: 8px; font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 5px;">
+                        ${Icons.sparkles(12)}
+                        <span>Trường <strong>${guessedSchoolName}</strong> đã giải đố trước đó. Trường bạn vẫn có thể gửi dự đoán để nhận +10 Tinh thể!</span>
+                      </div>
+                    `
+                    : ''
+                  }
                   <div class="lm-guess-input-wrap">
                     <input 
                       type="text" 
                       id="lm-guess-input" 
                       class="lm-guess-input ${isUnderCooldown ? 'is-disabled' : ''}" 
-                      placeholder="Nhập tên địa danh viết thường..." 
+                      placeholder="Nhập tên công trình viết thường..." 
                       ${isUnderCooldown ? 'disabled' : ''}
                       autocomplete="off"
                     />
@@ -373,7 +406,7 @@ export class LandmarkModal {
                   </div>
                   ${isUnderCooldown
                     ? `<div class="lm-guess-timer" id="lm-guess-timer-text">Thời gian chờ thử lại: ${mm}:${ss}</div>`
-                    : `<div class="lm-guess-hint">Mỗi lần đoán sai sẽ áp dụng thời gian chờ thử lại là 10 phút. Tên địa danh không phân biệt hoa thường.</div>`
+                    : `<div class="lm-guess-hint">Mỗi lần đoán sai sẽ áp dụng thời gian chờ thử lại là 10 phút. Tên công trình không phân biệt hoa thường.</div>`
                   }
                 </div>
               `
@@ -416,7 +449,7 @@ export class LandmarkModal {
             </div>
           </div>
 
-          <!-- 6. Contribution Actions: Nạp Tinh Thể (+10, +20, +50) -->
+          <!-- 6. Contribution Actions: Nạp Tinh Thể (+10, +20, +50) & Quy đổi Điểm Tri Thức -->
           <div class="lm-contribution-card">
             <div class="lm-contrib-header">
               <div class="lm-contrib-title">
@@ -442,9 +475,76 @@ export class LandmarkModal {
             </div>
 
             <div class="lm-contrib-info">
-              Sử dụng Tinh thể thu thập từ UniStop/Rương, hoặc tự động quy đổi Điểm Tri Thức nếu thiếu (1 Điểm Tri Thức = 1 Tinh thể để thắp Đèn hiệu).
+              Sử dụng Tinh thể thu thập từ UniStop/Rương để nạp vào Đèn hiệu công trình. Đèn hiệu cần nạp đủ Tinh thể để kích hoạt đặc quyền tri thức toàn trường.
             </div>
 
+            <!-- Compact, Sleek Conversion Panel: Point -> Crystal (1-way for Beacon) -->
+            <div class="lm-convert-box">
+              <div class="lm-convert-bar-top">
+                <div class="lm-convert-label-wrap">
+                  <span class="lm-convert-flash">⚡</span>
+                  <span class="lm-convert-main-title">QUY ĐỔI ĐIỂM SANG TINH THỂ</span>
+                  <span class="lm-convert-sub-tag">1 chiều để thắp đèn</span>
+                </div>
+                <span class="lm-convert-rate-badge">1 Điểm = 1 Tinh thể</span>
+              </div>
+              
+              <div class="lm-convert-btn-row">
+                <button 
+                  class="lm-convert-pill ${userPoints >= 10 ? 'can-convert' : 'disabled'}" 
+                  data-convert="10" 
+                  ${userPoints >= 10 ? '' : 'disabled'}
+                  title="${userPoints >= 10 ? 'Đổi 10 Điểm Tri Thức thành 10 Tinh Thể' : 'Không đủ Điểm Tri Thức (cần ít nhất 10 Điểm)'}"
+                >
+                  <span class="conv-btn-pts">10 Điểm</span>
+                  <span class="conv-arrow">➔</span>
+                  <span class="conv-btn-cry">${Icons.crystal(13)} 10 Tinh Thể</span>
+                </button>
+
+                <button 
+                  class="lm-convert-pill ${userPoints >= 20 ? 'can-convert' : 'disabled'}" 
+                  data-convert="20" 
+                  ${userPoints >= 20 ? '' : 'disabled'}
+                  title="${userPoints >= 20 ? 'Đổi 20 Điểm Tri Thức thành 20 Tinh Thể' : 'Không đủ Điểm Tri Thức (cần ít nhất 20 Điểm)'}"
+                >
+                  <span class="conv-btn-pts">20 Điểm</span>
+                  <span class="conv-arrow">➔</span>
+                  <span class="conv-btn-cry">${Icons.crystal(13)} 20 Tinh Thể</span>
+                </button>
+
+                <button 
+                  class="lm-convert-pill ${userPoints >= 50 ? 'can-convert' : 'disabled'}" 
+                  data-convert="50" 
+                  ${userPoints >= 50 ? '' : 'disabled'}
+                  title="${userPoints >= 50 ? 'Đổi 50 Điểm Tri Thức thành 50 Tinh Thể' : 'Không đủ Điểm Tri Thức (cần ít nhất 50 Điểm)'}"
+                >
+                  <span class="conv-btn-pts">50 Điểm</span>
+                  <span class="conv-arrow">➔</span>
+                  <span class="conv-btn-cry">${Icons.crystal(13)} 50 Tinh Thể</span>
+                </button>
+
+                ${(() => {
+                  const neededToFill = Math.max(0, maxCrystals - curCrystals);
+                  if (neededToFill > 0 && neededToFill !== 10 && neededToFill !== 20 && neededToFill !== 50 && userPoints >= neededToFill) {
+                    return `
+                      <button 
+                        class="lm-convert-pill highlight can-convert" 
+                        data-convert="${neededToFill}"
+                        title="Đổi vừa đủ ${neededToFill} Điểm Tri Thức để thắp sáng hoàn toàn Đèn hiệu này"
+                      >
+                        <span class="conv-btn-pts">Đổi đủ thắp đèn</span>
+                        <span class="conv-arrow">➔</span>
+                        <span class="conv-btn-cry">${Icons.crystal(13)} +${neededToFill}</span>
+                      </button>
+                    `;
+                  }
+                  return '';
+                })()}
+              </div>
+            </div>
+
+            <!-- Nạp Tinh Thể buttons -->
+            <div class="lm-deposit-label">Nạp Tinh thể vào Đèn hiệu công trình:</div>
             <div class="lm-contrib-buttons">
               ${[10, 20, 50].map((amt) => {
                 const canAfford = totalResource >= amt;
@@ -454,12 +554,12 @@ export class LandmarkModal {
                 let btnActionText = `Nạp <strong>+${amt}</strong> Tinh Thể`;
                 let btnSubText = `-${amt} Tinh thể`;
                 if (!hasEnoughCrystals && canAfford) {
-                  btnActionText = `Quy đổi Điểm sang Tinh Thể`;
+                  btnActionText = `Nạp <strong>+${amt}</strong> Tinh Thể`;
                   btnSubText = userCrystals > 0 
-                    ? `-${userCrystals} Crystal, -${missingCrystals} Điểm` 
-                    : `Quy đổi -${amt} Điểm`;
+                    ? `-${userCrystals} Tinh thể, tự đổi -${missingCrystals} Điểm` 
+                    : `Tự đổi -${amt} Điểm`;
                 } else if (!canAfford) {
-                  btnSubText = `Cần ${amt} Tinh thể/Điểm`;
+                  btnSubText = `Cần ${amt} Tinh thể / Điểm`;
                 }
 
                 return `
@@ -467,7 +567,7 @@ export class LandmarkModal {
                     class="lm-fuel-btn lm-crystal-btn ${canAfford ? 'can-afford' : 'cannot-afford'}" 
                     data-amount="${amt}"
                     ${!canAfford ? 'disabled' : ''}
-                    title="${canAfford ? (hasEnoughCrystals ? `Nạp ${amt} Tinh thể vào Công trình` : `Quy đổi ${missingCrystals} Điểm sang Tinh thể để thắp Đèn hiệu`) : `Không đủ tài nguyên! Cần ${amt} Tinh thể hoặc Điểm`}"
+                    title="${canAfford ? (hasEnoughCrystals ? `Nạp ${amt} Tinh thể vào Công trình` : `Sử dụng ${userCrystals} Tinh thể và tự động quy đổi ${missingCrystals} Điểm`) : `Không đủ tài nguyên! Cần ${amt} Tinh thể hoặc Điểm`}"
                   >
                     <span class="lm-btn-icon">${Icons.crystal(16)}</span>
                     <span class="lm-btn-text">${btnActionText}</span>
@@ -501,6 +601,25 @@ export class LandmarkModal {
 
     const footerCloseBtn = this.overlay.querySelector('#lm-btn-footer-close');
     footerCloseBtn?.addEventListener('click', () => this.close());
+
+    // Quick Point -> Crystal conversion buttons inside Beacon modal
+    const convertBtns = this.overlay.querySelectorAll('.lm-convert-pill.can-convert');
+    convertBtns.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const amtStr = btn.getAttribute('data-convert');
+        if (amtStr) {
+          const amount = parseInt(amtStr, 10);
+          if (amount > 0) {
+            if (this.onConvertPoints) {
+              this.onConvertPoints(amount);
+            } else if (this.callbacks.onConvertPoints) {
+              this.callbacks.onConvertPoints(amount);
+            }
+          }
+        }
+      });
+    });
 
     // Nạp Tinh thể buttons
     const crystalBtns = this.overlay.querySelectorAll('.lm-fuel-btn.can-afford, .lm-crystal-btn.can-afford');

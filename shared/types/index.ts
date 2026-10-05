@@ -23,6 +23,9 @@ export interface TileData {
   maxHp: number;
   defenseTier: number;
   retention?: number;
+  isShared?: boolean;
+  sharedWithSchoolId?: string;
+  sharedExpiresAt?: number;
   maxRetention?: number;
   lastStudiedAt?: number;
 }
@@ -31,6 +34,7 @@ export interface PlayerData {
   id: string;
   schoolId: string;
   personalTroops: number;
+  points?: number;
   currentRole: PlayerRole;
 }
 
@@ -151,3 +155,24 @@ export interface ClientUpdateMapLayoutMessage {
   chests?: MapChestPlacement[];
 }
 
+
+
+export interface ProfileSyncMessage {
+  studentId: string;
+  points: number;       // điểm khả dụng (availablePoints)
+  totalPoints: number;  // tổng điểm từ running provider
+  pointsSpent: number;
+  crystals: number;
+  aspireKeys: number;
+  nitroKeys: number;
+  predatorKeys: number;
+  guessCooldowns: Record<string, number>;
+  unistopCooldowns: Record<string, number>;
+  gifts: any[];
+  sessionId?: string;
+  email?: string;
+  displayName?: string;
+  schoolId?: string;
+  mode?: string;
+  hasWeeklyRunningPoints?: boolean;
+}

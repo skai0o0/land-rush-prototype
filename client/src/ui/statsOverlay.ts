@@ -2,9 +2,16 @@
 import { Icons } from './icons';
 import { SCHOOL_ROSTER, SCHOOL_IDS } from '../../../shared/constants/schools';
 
+export interface SchoolRankingEntry {
+  schoolId: string;
+  points: number;
+  tiles?: number;
+}
+
 export interface StudentStats {
   studentName: string;
   studentEmail?: string;
+  displayName?: string;
   schoolId: string;
   schoolName: string;
   schoolColor: string;
@@ -19,19 +26,25 @@ export interface StudentStats {
   mode: "normal" | "dev";
   isLocked: boolean;
   litLandmarksCount?: number;
+  schoolRankings?: SchoolRankingEntry[];
 }
 
 export class StatsOverlay {
   public element: HTMLElement;
   private stats: StudentStats;
+  private schoolPointsMap = new Map<string, number>();
+  private schoolRankingsList: SchoolRankingEntry[] = [];
+  private showRankingPopover = false;
 
   public onFlyToHQRequested?: () => void;
   public onSchoolChange?: (schoolId: string) => void;
 
   constructor(parent?: HTMLElement, initialStats?: Partial<StudentStats>) {
     const defaultSchool = SCHOOL_ROSTER["hcmut"];
+    const defaultDisplayName = initialStats?.displayName || (initialStats?.studentEmail ? initialStats.studentEmail.split('@')[0] : "Sinh viên Khám phá");
     this.stats = {
-      studentName: "Sinh viên Khám phá",
+      studentName: defaultDisplayName,
+      displayName: defaultDisplayName,
       schoolId: "hcmut",
       schoolName: defaultSchool?.name || "HCMUT",
       schoolColor: defaultSchool?.colorHex || "#0062FF",
@@ -49,6 +62,11 @@ export class StatsOverlay {
       ...initialStats
     };
 
+    // Initialize default points map
+    for (const sId of SCHOOL_IDS) {
+      this.schoolPointsMap.set(sId, sId === this.stats.schoolId ? this.stats.points : 0);
+    }
+
     this.element = document.createElement('header');
     this.element.className = 'stats-top-hud';
     this.element.setAttribute('data-ui', 'true');
@@ -58,26 +76,107 @@ export class StatsOverlay {
 
   public updateStats(newStats: Partial<StudentStats>): void {
     this.stats = { ...this.stats, ...newStats };
+    if (newStats.points !== undefined) {
+      this.schoolPointsMap.set(this.stats.schoolId, newStats.points);
+      this.recalculateRankings();
+    }
     this.render();
   }
 
   /**
-   * Cập nhật Điểm Tri Thức (thay cho Quân lực)
+   * Cập nhật Điểm Tri Thức (Points)
    */
   public updatePoints(points: number): void {
     if (this.stats.points === points) return;
     this.stats.points = points;
+    this.schoolPointsMap.set(this.stats.schoolId, points);
+    this.recalculateRankings();
+
     const pointEl = this.element.querySelector('.stat-points .stat-value');
     if (pointEl) {
       pointEl.textContent = points.toLocaleString();
     } else {
       this.render();
     }
+    this.updateRankDisplay();
   }
 
-  // Backward-compatibility alias
+  /**
+   * Backward-compatibility alias for updatePoints
+   */
   public updateTroops(points: number): void {
     this.updatePoints(points);
+  }
+
+  /**
+   * Cập nhật Bảng xếp hạng Điểm Tri Thức các trường (School Ranking)
+   * Hiển thị đơn vị "Điểm" (Points) thay vì "Quân" (Troops).
+   */
+  public updateSchoolRankings(rankings: SchoolRankingEntry[] | Record<string, number>): void {
+    if (Array.isArray(rankings)) {
+      this.schoolRankingsList = rankings.map(r => ({
+        schoolId: r.schoolId,
+        points: r.points !== undefined ? r.points : ((r as any).troops || 0),
+        tiles: r.tiles
+      }));
+      for (const r of this.schoolRankingsList) {
+        this.schoolPointsMap.set(r.schoolId, r.points);
+      }
+    } else if (typeof rankings === 'object' && rankings !== null) {
+      this.schoolRankingsList = Object.entries(rankings).map(([schoolId, pts]) => ({
+        schoolId,
+        points: pts
+      }));
+      for (const [sId, pts] of Object.entries(rankings)) {
+        this.schoolPointsMap.set(sId, pts);
+      }
+    }
+    this.schoolRankingsList.sort((a, b) => b.points - a.points);
+    this.updateRankDisplay();
+  }
+
+  /**
+   * Cập nhật Điểm Tri Thức cho 1 trường học cụ thể
+   */
+  public updateSchoolPoints(schoolId: string, points: number): void {
+    this.schoolPointsMap.set(schoolId, points);
+    this.recalculateRankings();
+    this.updateRankDisplay();
+  }
+
+  private recalculateRankings(): void {
+    const list: SchoolRankingEntry[] = [];
+    for (const id of SCHOOL_IDS) {
+      list.push({
+        schoolId: id,
+        points: this.schoolPointsMap.get(id) || 0
+      });
+    }
+    list.sort((a, b) => b.points - a.points);
+    this.schoolRankingsList = list;
+  }
+
+  private getSchoolRankText(): string {
+    if (this.schoolRankingsList.length === 0) {
+      this.recalculateRankings();
+    }
+    const idx = this.schoolRankingsList.findIndex(r => r.schoolId === this.stats.schoolId);
+    if (idx === -1) {
+      return `Hạng #1 (Điểm)`;
+    }
+    const myEntry = this.schoolRankingsList[idx];
+    return `#${idx + 1} (${myEntry.points.toLocaleString()} Điểm)`;
+  }
+
+  private updateRankDisplay(): void {
+    const rankEl = this.element.querySelector('#stat-school-rank-text');
+    if (rankEl) {
+      rankEl.textContent = this.getSchoolRankText();
+    }
+    const popoverBody = this.element.querySelector('#school-ranking-rows-container');
+    if (popoverBody) {
+      popoverBody.innerHTML = this.renderRankingRows();
+    }
   }
 
   public updateCrystals(crystals: number): void {
@@ -133,7 +232,7 @@ export class StatsOverlay {
 
     const terrValEl = this.element.querySelector('.stat-territory .stat-value');
     if (terrValEl) {
-      terrValEl.innerHTML = `${myTiles} <small style="font-size:11px; color:var(--text-secondary);">vùng (${pct}%)</small>`;
+      terrValEl.innerHTML = `${myTiles} <small style="font-size:11px; color:var(--text-secondary);">ô (${pct}%)</small>`;
     } else {
       this.render();
     }
@@ -155,6 +254,32 @@ export class StatsOverlay {
     }
   }
 
+  private renderRankingRows(): string {
+    if (this.schoolRankingsList.length === 0) {
+      this.recalculateRankings();
+    }
+    return this.schoolRankingsList.map((entry, idx) => {
+      const sc = SCHOOL_ROSTER[entry.schoolId];
+      const isMe = entry.schoolId === this.stats.schoolId;
+      const color = sc?.colorHex || '#94a3b8';
+      const name = sc?.name || entry.schoolId.toUpperCase();
+      const rankColor = idx === 0 ? '#fbbf24' : (idx === 1 ? '#cbd5e1' : (idx === 2 ? '#b45309' : '#64748b'));
+
+      return `
+        <div class="ranking-row ${isMe ? 'is-my-school' : ''}" style="display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; border-radius: 4px; background: ${isMe ? 'rgba(0, 255, 232, 0.12)' : 'rgba(255,255,255,0.03)'}; margin-bottom: 4px; border-left: 3px solid ${color};">
+          <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
+            <span style="font-weight: 800; font-size: 11px; color: ${rankColor}; width: 22px;">#${idx + 1}</span>
+            <span style="font-weight: 700; font-size: 11px; color: ${color}; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${name}</span>
+            ${isMe ? `<span style="font-size: 9px; font-weight: 700; background: rgba(0, 255, 232, 0.2); color: #00ffe8; padding: 1px 4px; border-radius: 2px; white-space: nowrap;">Trường bạn</span>` : ''}
+          </div>
+          <div style="font-weight: 800; font-size: 11px; color: #fbbf24; white-space: nowrap; margin-left: 8px;">
+            ${entry.points.toLocaleString()} <span style="font-weight: 600; font-size: 10px; color: var(--text-secondary);">Điểm</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
   private render(): void {
     this.element.innerHTML = `
       <div class="hud-left">
@@ -172,10 +297,10 @@ export class StatsOverlay {
             <div class="school-title-row">
               <span class="school-code">${this.stats.schoolId.toUpperCase()}</span>
               ${
-                this.stats.studentEmail
-                  ? `<span class="school-locked-pill" title="Tài khoản sinh viên: ${this.stats.studentEmail}">
+                (this.stats.displayName || this.stats.studentEmail)
+                  ? `<span class="school-locked-pill" title="Tài khoản sinh viên: ${this.stats.displayName || this.stats.studentEmail}">
                       ${Icons.lock(11)}
-                      <span class="locked-email-text">${this.stats.studentEmail.split('@')[0]}</span>
+                      <span class="locked-email-text">${this.stats.displayName || (this.stats.studentEmail ? this.stats.studentEmail.split('@')[0] : '')}</span>
                     </span>`
                   : `<span class="school-hq-jump-hint" title="Chạm để bay về Trụ sở Headquarters">${Icons.crosshair(11)} HQ</span>`
               }
@@ -191,7 +316,7 @@ export class StatsOverlay {
       </div>
 
       <div class="hud-center">
-        <!-- Điểm Tri Thức tích luỹ hiện có (thay cho Quân lực) -->
+        <!-- Điểm Tri Thức tích luỹ hiện có (Points) -->
         <div class="stat-badge stat-points" title="Điểm Tri Thức (Points) tích luỹ từ hoạt động chạy bộ">
           <div class="stat-icon-box point-glow">
             ${Icons.star(16)}
@@ -202,7 +327,7 @@ export class StatsOverlay {
           </div>
         </div>
 
-        <!-- Tinh thể cá nhân -->
+        <!-- Tinh thể cá nhân (Crystals) -->
         <div class="stat-badge stat-crystals" title="Tinh thể (Crystals) thu thập từ UniStop/Rương để thắp sáng Đèn hiệu">
           <div class="stat-icon-box crystal-glow" style="color: #00ffe8;">
             ${Icons.crystal(16)}
@@ -213,19 +338,19 @@ export class StatsOverlay {
           </div>
         </div>
 
-        <!-- Vùng tri thức trường đang kiểm soát -->
-        <div class="stat-badge stat-territory" title="Vùng tri thức trường đang kiểm soát">
+        <!-- Ô tri thức trường đang kiểm soát -->
+        <div class="stat-badge stat-territory" title="Ô tri thức trường đang kiểm soát">
           <div class="stat-icon-box">
             ${Icons.tile('md')}
           </div>
           <div class="stat-content">
-            <span class="stat-label">VÙNG TRI THỨC</span>
-            <span class="stat-value">${this.stats.totalSchoolTiles} <small class="territory-pct-text">(${this.stats.controlPercentage}%)</small></span>
+            <span class="stat-label">Ô TRI THỨC</span>
+            <span class="stat-value">${this.stats.totalSchoolTiles} <small class="territory-pct-text">ô (${this.stats.controlPercentage}%)</small></span>
           </div>
         </div>
 
         <!-- Tiến độ khám phá bản đồ toàn cục (Xua tan sương mù) -->
-        <div class="stat-badge stat-exploration" title="Tiến độ khám phá toàn bản đồ (Khai phá ô đất để xua tan sương mù)">
+        <div class="stat-badge stat-exploration" title="Tiến độ khám phá toàn bản đồ (Khám phá ô đất để xua tan sương mù)">
           <div class="stat-icon-box exploration-glow">
             ${Icons.compass('md')}
           </div>
@@ -236,7 +361,18 @@ export class StatsOverlay {
         </div>
       </div>
 
-      <div class="hud-right">
+      <div class="hud-right" style="position: relative;">
+        <!-- Bảng xếp hạng Điểm Tri Thức các trường (School Points Ranking) -->
+        <div class="stat-badge stat-school-rank" id="btnSchoolRankPopover" style="cursor: pointer;" title="Bảng xếp hạng Điểm Tri Thức các trường học [Nhấp để xem chi tiết]">
+          <div class="stat-icon-box" style="color: #fbbf24;">
+            ${Icons.trophy('md')}
+          </div>
+          <div class="stat-content">
+            <span class="stat-label">XẾP HẠNG ĐIỂM</span>
+            <span class="stat-value" id="stat-school-rank-text" style="color: #fbbf24;">${this.getSchoolRankText()}</span>
+          </div>
+        </div>
+
         <!-- Thống kê Công trình đã Thắp Đèn Hiệu -->
         <div class="stat-badge stat-beacons" title="Số lượng Công trình Tri Thức trường đã Thắp Đèn Hiệu">
           <div class="stat-icon-box beacon-glow" style="color: #00ffe8;">
@@ -248,14 +384,28 @@ export class StatsOverlay {
           </div>
         </div>
 
-        <!-- Vùng tri thức sinh viên đã khai phá (thay cho Chiếm đóng) -->
-        <div class="stat-badge stat-rank" title="Số vùng tri thức sinh viên đã khai phá">
+        <!-- Ô tri thức sinh viên đã khám phá -->
+        <div class="stat-badge stat-rank" title="Số ô tri thức sinh viên đã khám phá">
           <div class="stat-icon-box">
-            ${Icons.trophy('md')}
+            ${Icons.tile('md')}
           </div>
           <div class="stat-content">
-            <span class="stat-label">ĐÃ KHAI PHÁ</span>
-            <span class="stat-value">${this.stats.claimedTiles} vùng</span>
+            <span class="stat-label">ĐÃ KHÁM PHÁ</span>
+            <span class="stat-value">${this.stats.claimedTiles} ô</span>
+          </div>
+        </div>
+
+        <!-- Popover Bảng xếp hạng Điểm Tri Thức Các Trường -->
+        <div class="school-ranking-popover" id="school-ranking-popover" style="display: ${this.showRankingPopover ? 'block' : 'none'};">
+          <div class="ranking-popover-header">
+            <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; color: #fbbf24;">
+              ${Icons.trophy('sm')}
+              <span>BẢNG XẾP HẠNG TRI THỨC (POINTS)</span>
+            </div>
+            <button class="ranking-popover-close" id="btn-close-ranking-popover">&times;</button>
+          </div>
+          <div class="ranking-popover-body" id="school-ranking-rows-container" style="max-height: 280px; overflow-y: auto;">
+            ${this.renderRankingRows()}
           </div>
         </div>
       </div>
@@ -266,7 +416,7 @@ export class StatsOverlay {
 
   private bindEvents(): void {
     const stopProp = (e: Event) => e.stopPropagation();
-    const interactiveElements = this.element.querySelectorAll('.school-pill, .stat-badge');
+    const interactiveElements = this.element.querySelectorAll('.school-pill, .stat-badge, .school-ranking-popover');
     interactiveElements.forEach((el) => {
       el.addEventListener('pointerdown', stopProp);
       el.addEventListener('mousedown', stopProp);
@@ -277,6 +427,36 @@ export class StatsOverlay {
     pill?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.onFlyToHQRequested?.();
+    });
+
+    // Toggle Ranking Popover
+    const rankBadge = this.element.querySelector('#btnSchoolRankPopover');
+    const popover = this.element.querySelector('#school-ranking-popover') as HTMLElement;
+    rankBadge?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.showRankingPopover = !this.showRankingPopover;
+      if (popover) {
+        popover.style.display = this.showRankingPopover ? 'block' : 'none';
+      }
+    });
+
+    const closeBtn = this.element.querySelector('#btn-close-ranking-popover');
+    closeBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.showRankingPopover = false;
+      if (popover) {
+        popover.style.display = 'none';
+      }
+    });
+
+    // Close popover when clicking outside
+    document.addEventListener('click', () => {
+      if (this.showRankingPopover) {
+        this.showRankingPopover = false;
+        if (popover) {
+          popover.style.display = 'none';
+        }
+      }
     });
   }
 }

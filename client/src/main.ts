@@ -7,6 +7,7 @@ import { BorderFlagManager } from "./engine/borderFlagManager";
 import { SupplyDropManager } from "./engine/supplyDropManager";
 import { MegaEmblemManager } from "./engine/megaEmblemManager";
 import { FogOfWarManager } from "./engine/fogOfWarManager";
+import { BotVisualManager } from "./engine/botVisualManager";
 import { ColyseusClient } from "./network/colyseusClient";
 import { StatsOverlay } from "./ui/statsOverlay";
 import { StudentActionDock, ACTION_MODES, ActionMode } from "./ui/studentActionDock";
@@ -16,6 +17,9 @@ import { DevToolsPanel } from "./ui/devToolsPanel";
 import { DatabaseModal } from "./ui/databaseModal";
 import { LandmarkModal, LandmarkModalData } from "./ui/landmarkModal";
 import { CarouselModal } from "./ui/carouselModal";
+import { NotificationBanner } from "./ui/notificationBanner";
+import { NotificationStudioModal } from "./ui/notificationStudioModal";
+import { DEFAULT_NOTIFICATIONS, formatNotificationText, getNotificationTemplate } from "../../shared/constants/notifications";
 import { RunningDatabase } from "./services/runningDatabase";
 import { PlayerRole, GameMode } from "../../shared/types";
 import { LANDMARK_ROSTER } from "../../shared/constants/landmarks";
@@ -116,6 +120,7 @@ async function bootstrap() {
   natureGridManager.buildProps();
 
   let isBotSimulationRunning = false;
+  let isSessionReplaced = false;
 
   // Toast notification helper (100% no emojis)
   function showActionToast(message: string, type: "success" | "error" | "warning" = "success") {
@@ -139,6 +144,7 @@ async function bootstrap() {
     crystals: userCrystals,
     mode: currentGameMode,
     studentEmail: playerEmail,
+    displayName: playerEmail ? playerEmail.split('@')[0] : undefined,
     isLocked: currentGameMode === "normal"
   });
   const actionDock = new StudentActionDock(appEl);
@@ -196,6 +202,7 @@ async function bootstrap() {
 
   // Fly to Player HQ handler (Click card, click button or press [H] / [Space])
   function flyToPlayerHQ() {
+    if (isSessionReplaced) return;
     clearSelectedTile();
     updateHQMapFromRoom();
     let target = schoolHQMap.get(playerSchoolId) || null;
@@ -225,6 +232,7 @@ async function bootstrap() {
   let devTools: DevToolsPanel;
 
   function loginAsStudent(email: string, schoolId?: string, km?: number) {
+    if (isSessionReplaced) return;
     clearSelectedTile();
     playerEmail = email.trim();
     const resolvedSchool = (schoolId && SCHOOL_ROSTER[schoolId])
@@ -241,6 +249,7 @@ async function bootstrap() {
     statsOverlay.setSchool(playerSchoolId);
     statsOverlay.updateStats({
       studentEmail: playerEmail,
+      displayName: playerEmail ? playerEmail.split('@')[0] : undefined,
       points: userPoints,
       isLocked: currentGameMode === "normal"
     });
@@ -273,9 +282,11 @@ async function bootstrap() {
   // Initialize Database Modal
   const databaseModal = new DatabaseModal({
     onSelectStudent: (student) => {
+      if (isSessionReplaced) return;
       loginAsStudent(student.email, student.schoolId, student.km);
     },
     onOpenNewTab: (schoolId, email, km) => {
+      if (isSessionReplaced) return;
       const url = new URL(window.location.href);
       url.searchParams.set("school", schoolId);
       if (email) url.searchParams.set("email", email);
@@ -285,6 +296,7 @@ async function bootstrap() {
       showActionToast(`Đang mở phiên mới cho ${schoolId.toUpperCase()} trong tab mới...`);
     },
     onStudentUpdated: (student) => {
+      if (isSessionReplaced) return;
       if (playerEmail && student.email.toLowerCase() === playerEmail.toLowerCase()) {
         userPoints = RunningDatabase.getStudentBalance(playerEmail);
         statsOverlay.updateStats({ points: userPoints });
@@ -295,6 +307,7 @@ async function bootstrap() {
 
   // Helper to open Landmark Beacon Modal for a specific landmark
   function openLandmarkModalFor(landmarkId: string) {
+    if (isSessionReplaced) return;
     if (!colyseusClient?.room?.state?.landmarks) return;
 
     let targetLM: any = colyseusClient.room.state.landmarks.get(landmarkId);
@@ -315,7 +328,7 @@ async function bootstrap() {
     const config = LANDMARK_ROSTER[lmKey] || LANDMARK_ROSTER[lmKey.replace(/^landmark_/, "")];
     const name = config?.name || lmKey;
     const category = config?.category || 'scenic';
-    const footprint = config?.footprint || { width: 14, height: 12 };
+    const footprint = config?.footprint || { width: 40, height: 40 };
     const buffDescription = config?.buffDescription || "Tăng cường năng lực tri thức cho học viện kiểm soát.";
     const gameplayRole = config?.gameplayRole || "strategic_monument";
 
@@ -337,10 +350,24 @@ async function bootstrap() {
     const maxCrystals = targetLM.maxCrystals || 100;
 
     let guessCooldownUntil = 0;
-    const player = colyseusClient?.room?.sessionId ? colyseusClient.room.state.players?.get(colyseusClient.room.sessionId) : null;
-    if (player?.guessCooldowns) {
-      guessCooldownUntil = player.guessCooldowns.get(targetLM.id || lmKey) || 0;
+    const targetKey = targetLM.id || lmKey;
+    const profileCd = colyseusClient?.currentProfile?.guessCooldowns;
+    if (profileCd) {
+      if (typeof (profileCd as any).get === "function") {
+        guessCooldownUntil = (profileCd as any).get(targetKey) || (profileCd as any).get(lmKey) || 0;
+      } else {
+        guessCooldownUntil = profileCd[targetKey] || profileCd[lmKey] || 0;
+      }
     }
+    if (!guessCooldownUntil) {
+      const player = colyseusClient?.room?.sessionId ? colyseusClient.room.state.players?.get?.(colyseusClient.room.sessionId) : null;
+      if (player?.guessCooldowns) {
+        guessCooldownUntil = player.guessCooldowns.get ? (player.guessCooldowns.get(targetKey) || player.guessCooldowns.get(lmKey) || 0) : (player.guessCooldowns[targetKey] || 0);
+      }
+    }
+
+    const currentPoints = colyseusClient?.currentProfile?.points !== undefined ? colyseusClient.currentProfile.points : userPoints;
+    const currentCrystals = colyseusClient?.currentProfile?.crystals !== undefined ? colyseusClient.currentProfile.crystals : userCrystals;
 
     const data: LandmarkModalData = {
       landmarkId: targetLM.id || lmKey,
@@ -357,18 +384,19 @@ async function bootstrap() {
       litBySchoolId: targetLM.litBySchoolId || "",
       buffActive: targetLM.buffActive || false,
       crystalsBySchool,
-      userPoints,
-      userCrystals,
+      userPoints: currentPoints,
+      userCrystals: currentCrystals,
       playerSchoolId,
       nameGuessed: !!targetLM.nameGuessed,
       guessedBySchoolId: targetLM.guessedBySchoolId || "",
+      guessedSchools: targetLM.guessedSchools,
       guessCooldownUntil,
       currentFuel: curCrystals,
       maxFuel: maxCrystals,
       fuelBySchool: crystalsBySchool
     };
 
-    landmarkModal.open(data);
+    landmarkModal.show(data);
   }
 
   // Find nearest landmark to current camera center
@@ -387,9 +415,38 @@ async function bootstrap() {
     return nearest;
   }
 
+  function handleConvertPoints(amount: number) {
+    if (isSessionReplaced) return;
+    if (userPoints < amount) {
+      showActionToast(`Không đủ Điểm Tri Thức! Bạn cần ít nhất ${amount} Điểm Tri Thức để quy đổi.`, "warning");
+      return;
+    }
+    colyseusClient.send("convert_points", { points: amount });
+    if (playerEmail) {
+      RunningDatabase.deductPoints(playerEmail, amount);
+      userPoints = RunningDatabase.getStudentBalance(playerEmail);
+    } else {
+      userPoints = Math.max(0, userPoints - amount);
+    }
+    userCrystals += amount;
+    if (colyseusClient?.currentProfile) {
+      colyseusClient.currentProfile.points = userPoints;
+      colyseusClient.currentProfile.crystals = userCrystals;
+    }
+    statsOverlay.updateStats({ points: userPoints, crystals: userCrystals });
+    actionDock.updateResources(userPoints, userCrystals);
+
+    const activeLmId = landmarkModal.getCurrentLandmarkId();
+    if (landmarkModal.isVisible() && activeLmId) {
+      openLandmarkModalFor(activeLmId);
+    }
+    showActionToast(`Đã quy đổi: ${amount} Điểm Tri Thức ➔ +${amount} Tinh Thể thành công!`, "success");
+  }
+
   // Initialize Landmark Beacon Modal
   const landmarkModal = new LandmarkModal({
     onContributeCrystal: (landmarkId, amount) => {
+      if (isSessionReplaced) return;
       const totalAvailable = userCrystals + userPoints;
       if (totalAvailable < amount) {
         showActionToast(`Không đủ tài nguyên! Cần ${amount} Tinh thể hoặc Điểm để nạp.`, "warning");
@@ -408,7 +465,12 @@ async function bootstrap() {
           userPoints -= neededPoints;
         }
       }
+      if (colyseusClient?.currentProfile) {
+        colyseusClient.currentProfile.points = userPoints;
+        colyseusClient.currentProfile.crystals = userCrystals;
+      }
       statsOverlay.updateStats({ points: userPoints, crystals: userCrystals });
+      actionDock.updateResources(userPoints, userCrystals);
 
       colyseusClient.contributeCrystal(landmarkId, amount);
 
@@ -421,16 +483,129 @@ async function bootstrap() {
       }, 80);
     },
     onContributeFuel: (landmarkId, amount) => {
+      if (isSessionReplaced) return;
       colyseusClient.contributeCrystal(landmarkId, amount);
     },
     onGuessLandmark: (landmarkId, guess) => {
+      if (isSessionReplaced) return;
       colyseusClient.guessLandmark(landmarkId, guess);
-      showActionToast(`Đang gửi dự đoán tên địa danh: "${guess}"...`);
+      showActionToast(`Đang gửi dự đoán tên công trình: "${guess}"...`);
     },
     onFocusLandmark: (x, y) => {
+      if (isSessionReplaced) return;
       sceneManager.panTo(x, y, { duration: 1.0, zoom: 0.8 });
+    },
+    onConvertPoints: (amount: number) => {
+      if (isSessionReplaced) return;
+      handleConvertPoints(amount);
     }
   });
+
+  landmarkModal.onConvertPoints = (amount: number) => {
+    if (isSessionReplaced) return;
+    handleConvertPoints(amount);
+  };
+
+  function showSessionReplacedModal(customMessage?: string) {
+    isSessionReplaced = true;
+    if (colyseusClient) {
+      colyseusClient.isSessionReplaced = true;
+    }
+
+    if (landmarkModal.isVisible()) {
+      landmarkModal.close();
+    }
+    if (carouselModal.isOpen()) {
+      carouselModal.close();
+    }
+
+    let modalEl = document.getElementById("session-replaced-modal");
+    if (!modalEl) {
+      modalEl = document.createElement("div");
+      modalEl.id = "session-replaced-modal";
+      modalEl.className = "session-replaced-overlay";
+      modalEl.setAttribute("data-ui", "true");
+      modalEl.innerHTML = `
+        <div class="session-replaced-card">
+          <div class="session-replaced-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <h2 class="session-replaced-title">Tài khoản đã đăng nhập ở nơi khác</h2>
+          <p class="session-replaced-desc" id="session-replaced-desc-text"></p>
+          <div class="session-replaced-actions">
+            <button type="button" class="session-replaced-reload-btn" id="session-replaced-reload-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              Tải lại trang
+            </button>
+          </div>
+        </div>
+      `;
+
+      const stopProp = (e: Event) => e.stopPropagation();
+      modalEl.addEventListener("pointerdown", stopProp);
+      modalEl.addEventListener("pointerup", stopProp);
+      modalEl.addEventListener("mousedown", stopProp);
+      modalEl.addEventListener("mouseup", stopProp);
+      modalEl.addEventListener("touchstart", stopProp);
+      modalEl.addEventListener("touchend", stopProp);
+      modalEl.addEventListener("click", stopProp);
+
+      document.body.appendChild(modalEl);
+
+      const reloadBtn = modalEl.querySelector("#session-replaced-reload-btn");
+      if (reloadBtn) {
+        reloadBtn.addEventListener("click", () => {
+          window.location.reload();
+        });
+      }
+    }
+
+    const descEl = modalEl.querySelector("#session-replaced-desc-text");
+    if (descEl) {
+      descEl.textContent = customMessage || "Phiên làm việc của tài khoản này đã được bắt đầu trên một tab hoặc thiết bị khác. Vui lòng tải lại trang để tiếp tục trải nghiệm trên phiên này.";
+    }
+  }
+
+  // Initialize Notification Studio Modal
+  const notificationStudioModal = new NotificationStudioModal();
+  (window as any).NotificationBanner = NotificationBanner;
+  (window as any).notificationStudioModal = notificationStudioModal;
+
+  // Initialize 3D Student Bot Visual Manager & Spectator Strip HUD
+  const botVisualManager = new BotVisualManager(sceneManager, appEl);
+  (window as any).botVisualManager = botVisualManager;
+
+  const isBotsLive = urlParams.get("botsLive") === "1" || urlParams.get("bots") === "live" || urlParams.get("bots") === "1";
+  if (isBotsLive) {
+    botVisualManager.setVisible(true);
+  }
+
+  if (urlParams.get("notifStudio") === "open" || urlParams.get("studio") === "open") {
+    notificationStudioModal.open();
+  }
+  if (urlParams.get("pushBanner") === "test" || urlParams.get("banner") === "test") {
+    NotificationBanner.show({
+      title: "CẢNH BÁO: Ô TRI THỨC SẮP MẤT! 🔥",
+      body: "ĐH Kinh Tế (UEH) đang rình mò cướp ô tri thức (45, 82). Mau vào ôn bài trước khi mất ô vào tay đối thủ!",
+      category: "territory",
+      durationMs: 60000
+    });
+  }
+  if (isBotsLive) {
+    NotificationBanner.show({
+      title: "Ô TRI THỨC MỚI ĐƯỢC KHÁM PHÁ! 🚩",
+      body: "Khoa_HCMUT (ĐH Bách Khoa) vừa mở rộng ô tri thức mới tại (45, 82)! +1 ô lãnh thổ cho Bách Khoa.",
+      category: "territory",
+      durationMs: 60000
+    });
+  }
 
   // 3. Initialize DevTools Dropdown
   devTools = new DevToolsPanel(
@@ -461,7 +636,7 @@ async function bootstrap() {
       },
       onToggleGrid: (show) => {
         chunkGridManager.group.visible = show;
-        showActionToast(show ? "Đã hiển thị lưới Vùng tri thức" : "Đã ẩn lưới Vùng tri thức");
+        showActionToast(show ? "Đã hiển thị lưới Ô tri thức" : "Đã ẩn lưới Ô tri thức");
       },
       onToggleFog: (show) => {
         fogOfWarManager.setMistVisible(show);
@@ -472,7 +647,8 @@ async function bootstrap() {
         statsOverlay.updateStats({
           mode: currentGameMode,
           isLocked: currentGameMode === "normal",
-          studentEmail: playerEmail
+          studentEmail: playerEmail,
+          displayName: playerEmail ? playerEmail.split('@')[0] : undefined
         });
         if (playerEmail) {
           colyseusClient?.loginStudent(playerEmail, playerSchoolId, userPoints, currentGameMode);
@@ -521,12 +697,12 @@ async function bootstrap() {
       onDevMaxFortifyAll: () => {
         if (colyseusClient?.room) {
           colyseusClient.room.send("dev_max_fortify_all", { schoolId: playerSchoolId });
-          showActionToast(`Đang giả lập Max Củng Cố Toàn Bộ Vùng Tri Thức cho ${playerSchoolId}...`);
+          showActionToast(`Đang giả lập Ôn bài toàn bộ Vùng Tri Thức cho ${playerSchoolId}...`);
         }
       },
       onDevResetCooldowns: () => {
         colyseusClient?.resetCooldowns();
-        showActionToast("Đã reset cooldown UniStop & thử lại đoán địa danh!");
+        showActionToast("Đã reset cooldown UniStop & thử lại đoán công trình!");
       },
       onDevAddCrystals: (amount = 100) => {
         userCrystals += amount;
@@ -539,7 +715,17 @@ async function bootstrap() {
         showActionToast("Đã cộng chìa khóa kiểm thử (5 Aspire, 5 Nitro, 5 Predator)!");
       },
       onSetFogAlpha: (alpha) => fogOfWarManager.setFogAlpha(alpha),
-      onSetFogColor: (color) => fogOfWarManager.setFogColor(color)
+      onSetFogColor: (color) => fogOfWarManager.setFogColor(color),
+      onSetTerritoryOpacity: (alpha) => {
+        colyseusClient?.setTerritoryTintAlpha(alpha);
+      },
+      onOpenNotificationStudio: () => {
+        notificationStudioModal.open();
+      },
+      onToggleStudentBots: () => {
+        colyseusClient?.toggleStudentBots();
+        showActionToast("Đã gửi lệnh bật/tắt 5 Bots Giả Lập!");
+      }
     },
     appEl,
     currentGameMode,
@@ -553,6 +739,7 @@ async function bootstrap() {
     modelLoader.update(delta);
     supplyDropManager.update(delta);
     fogOfWarManager.update(delta, now);
+    botVisualManager.update(delta, now);
   };
 
   // Helper to immediately reveal all 5 HQs and all 10 Landmarks
@@ -602,6 +789,12 @@ async function bootstrap() {
     natureGridManager,
     {
       onConnected: (room) => {
+        (window as any).colyseusClient = colyseusClient;
+        if (urlParams.get("bots") === "1" || urlParams.get("bots") === "start") {
+          setTimeout(() => {
+            colyseusClient.toggleStudentBots();
+          }, 300);
+        }
         console.log(`[App] Joined room: ${room.name}`);
         updateHQMapFromRoom();
         updateMiniMapStatic();
@@ -732,6 +925,15 @@ async function bootstrap() {
           showActionToast("Câu trả lời chưa chính xác! Thời gian chờ đoán lại là 10 phút.", "warning");
           if (data.cooldownUntil) {
             landmarkModal.setGuessCooldown(data.cooldownUntil);
+            if (colyseusClient?.currentProfile) {
+              if (!colyseusClient.currentProfile.guessCooldowns) {
+                colyseusClient.currentProfile.guessCooldowns = {};
+              }
+              const lmId = landmarkModal.getCurrentLandmarkId();
+              if (lmId) {
+                colyseusClient.currentProfile.guessCooldowns[lmId] = data.cooldownUntil;
+              }
+            }
           }
         }
         if (landmarkModal.isVisible() && landmarkModal.getCurrentLandmarkId() === data.landmarkId) {
@@ -744,17 +946,64 @@ async function bootstrap() {
         fogOfWarManager.revealCircle(data.x, data.z, 14);
       },
       onPlayerStateChange: (player) => {
-        if (player.crystals !== undefined) userCrystals = player.crystals;
-        if (player.personalTroops !== undefined && !playerEmail) userPoints = player.personalTroops;
-        statsOverlay.updateStats({ points: userPoints, crystals: userCrystals });
-        actionDock.updateResources(userPoints, userCrystals, {
-          aspire: player.aspireKeys,
-          nitro: player.nitroKeys,
-          predator: player.predatorKeys
-        });
+        if (colyseusClient.currentProfile) {
+          userPoints = colyseusClient.currentProfile.points;
+          userCrystals = colyseusClient.currentProfile.crystals;
+          const displayName = colyseusClient.currentProfile.displayName || player.displayName || player.email;
+          statsOverlay.updateStats({
+            points: userPoints,
+            crystals: userCrystals,
+            ...(displayName ? { displayName } : {})
+          });
+          actionDock.updateResources(userPoints, userCrystals, {
+            aspire: colyseusClient.currentProfile.aspireKeys,
+            nitro: colyseusClient.currentProfile.nitroKeys,
+            predator: colyseusClient.currentProfile.predatorKeys
+          });
+        } else {
+          if (player.crystals !== undefined) userCrystals = player.crystals;
+          if (player.personalTroops !== undefined && !playerEmail) userPoints = player.personalTroops;
+          const displayName = player.displayName || player.email;
+          statsOverlay.updateStats({
+            points: userPoints,
+            crystals: userCrystals,
+            ...(displayName ? { displayName } : {})
+          });
+          actionDock.updateResources(userPoints, userCrystals, {
+            aspire: player.aspireKeys,
+            nitro: player.nitroKeys,
+            predator: player.predatorKeys
+          });
+        }
         if (landmarkModal.isVisible() && landmarkModal.getCurrentLandmarkId()) {
           openLandmarkModalFor(landmarkModal.getCurrentLandmarkId()!);
         }
+      },
+      onProfileSync: (profile) => {
+        userPoints = profile.points;
+        userCrystals = profile.crystals;
+        if (profile.schoolId && profile.schoolId !== playerSchoolId && currentGameMode !== "normal") {
+          playerSchoolId = profile.schoolId;
+          statsOverlay.setSchool(playerSchoolId);
+        }
+        statsOverlay.updateStats({
+          points: userPoints,
+          crystals: userCrystals,
+          displayName: profile.displayName || (profile.email ? profile.email.split('@')[0] : undefined),
+          studentEmail: profile.email
+        });
+        actionDock.updateResources(userPoints, userCrystals, {
+          aspire: profile.aspireKeys,
+          nitro: profile.nitroKeys,
+          predator: profile.predatorKeys
+        });
+        const activeLmId = landmarkModal.getCurrentLandmarkId();
+        if (landmarkModal.isVisible() && activeLmId) {
+          openLandmarkModalFor(activeLmId);
+        }
+      },
+      onSessionReplaced: (data) => {
+        showSessionReplacedModal(data?.message);
       },
       onUniStopAdded: (stop) => {
         supplyDropManager.addUniStop(stop);
@@ -769,9 +1018,16 @@ async function bootstrap() {
         supplyDropManager.updateChest(chest.id, chest);
       },
       onUniStopRolled: (data) => {
-        if (data.playerPoints !== undefined) userPoints = data.playerPoints;
-        if (data.playerCrystals !== undefined) userCrystals = data.playerCrystals;
+        if (data.playerPoints !== undefined) {
+          userPoints = data.playerPoints;
+          if (colyseusClient?.currentProfile) colyseusClient.currentProfile.points = userPoints;
+        }
+        if (data.playerCrystals !== undefined) {
+          userCrystals = data.playerCrystals;
+          if (colyseusClient?.currentProfile) colyseusClient.currentProfile.crystals = userCrystals;
+        }
         statsOverlay.updateStats({ points: userPoints, crystals: userCrystals });
+        actionDock.updateResources(userPoints, userCrystals);
         carouselModal.spin({
           title: `UniStop - ${data.tier?.toUpperCase() || 'ASPIRE'}`,
           subtitle: 'TRẠM TIẾP TẾ TRI THỨC',
@@ -786,9 +1042,16 @@ async function bootstrap() {
         });
       },
       onChestOpened: (data) => {
-        if (data.playerPoints !== undefined) userPoints = data.playerPoints;
-        if (data.playerCrystals !== undefined) userCrystals = data.playerCrystals;
+        if (data.playerPoints !== undefined) {
+          userPoints = data.playerPoints;
+          if (colyseusClient?.currentProfile) colyseusClient.currentProfile.points = userPoints;
+        }
+        if (data.playerCrystals !== undefined) {
+          userCrystals = data.playerCrystals;
+          if (colyseusClient?.currentProfile) colyseusClient.currentProfile.crystals = userCrystals;
+        }
         statsOverlay.updateStats({ points: userPoints, crystals: userCrystals });
+        actionDock.updateResources(userPoints, userCrystals);
         carouselModal.spin({
           title: `Rương Kho Báu - ${data.tier?.toUpperCase() || 'ASPIRE'}`,
           subtitle: 'KHO BÁU PREDATOR GAMING',
@@ -807,7 +1070,7 @@ async function bootstrap() {
         showActionToast(`📦 Trường ${sc ? sc.shortName : data.schoolId.toUpperCase()} đã mở một Rương ${data.tier?.toUpperCase()}!`);
       },
       onRealGiftWon: (data) => {
-        showActionToast(`🎁 Chúc mừng ${data.studentEmail || data.schoolId.toUpperCase()} vừa trúng QUÀ THẬT: ${data.item?.name}!`, "success");
+        showActionToast(`🎁 Chúc mừng ${data.displayName || data.studentEmail || data.schoolId.toUpperCase()} vừa trúng QUÀ THẬT: ${data.item?.name}!`, "success");
       },
       onLandmarkChange: (lm) => {
         const lmId = lm.id || lm.landmarkKey;
@@ -820,7 +1083,23 @@ async function bootstrap() {
           showActionToast(`Đã ôn bài thành công tại (${data.x}, ${data.y})! Độ bền tri thức: ${data.retention}/100`);
         }
       },
+      onPointsConverted: (pts, crystals) => {
+        showActionToast(`Quy đổi thành công: ${pts} Điểm Tri Thức ➔ +${crystals} Tinh Thể!`, "success");
+      },
+      onSharedZoneEvent: (event) => {
+        if (event.type === "shared_zone_created") {
+          const isMe = event.sharedWithSchoolId === playerSchoolId;
+          const sc = SCHOOL_ROSTER[event.sharedWithSchoolId];
+          const name = sc?.shortName || event.sharedWithSchoolId?.toUpperCase();
+          showActionToast(`⚠️ Ô tri thức chung (${event.x}, ${event.y}) bắt đầu đếm ngược chuyển giao cho ${name}!`, isMe ? "success" : "warning");
+        } else if (event.type === "shared_zone_rebuffed") {
+          showActionToast(`🛡️ Ô tri thức (${event.x}, ${event.y}) đã được trường sở hữu ôn bài an toàn!`, "success");
+        } else if (event.type === "shared_zone_captured") {
+          showActionToast(`🏆 Ô tri thức (${event.x}, ${event.y}) đã hết hạn và chuyển giao quyền kiểm soát!`, "warning");
+        }
+      },
       onSchoolTroopsChange: (schoolId, troops) => {
+        statsOverlay.updateSchoolPoints(schoolId, troops);
         // Sinh viên không nhận điểm tự động theo thời gian, điểm lấy từ database giải chạy!
         if (playerEmail || currentGameMode === "normal") {
           return;
@@ -861,6 +1140,40 @@ async function bootstrap() {
       },
       onDisconnected: (_code) => {
         showActionToast("Mất kết nối server. Đang tự động kết nối lại...", "warning");
+      },
+      onGameNotification: (data: { templateId: string; vars: Record<string, any>; category?: string }) => {
+        // Priority 1: Check active template in notificationStudioModal (LocalStorage)
+        let tpl = notificationStudioModal.getTemplate(data.templateId);
+        // Priority 2: Fallback to shared constants
+        if (!tpl) {
+          tpl = getNotificationTemplate(data.templateId) || DEFAULT_NOTIFICATIONS.find((t) => t.id === data.templateId);
+        }
+        if (!tpl) {
+          console.warn("[App] Notification template not found for id:", data.templateId);
+          return;
+        }
+
+        const title = formatNotificationText(tpl.titleTemplate, data.vars || {});
+        const body = formatNotificationText(tpl.bodyTemplate, data.vars || {});
+
+        NotificationBanner.show({
+          title,
+          body,
+          icon: tpl.icon,
+          category: (data.category as any) || tpl.category,
+          durationMs: 5000
+        });
+      },
+      onStudentBotsStatus: (data: { enabled: boolean; count: number; bots?: any[] }) => {
+        botVisualManager.handleBotsStatus(data);
+        showActionToast(
+          data.enabled
+            ? `[Bots Live] Đã bật ${data.count} Bots Sinh Viên giả lập!`
+            : `[Bots Live] Đã tắt toàn bộ Bots Sinh Viên giả lập!`
+        );
+      },
+      onStudentBotAction: (data) => {
+        botVisualManager.handleBotAction(data);
       }
     }
   );
@@ -882,6 +1195,7 @@ async function bootstrap() {
 
   // 5. Connect UI callbacks
   statsOverlay.onSchoolChange = (schoolId) => {
+    if (isSessionReplaced) return;
     if (currentGameMode === "normal") {
       showActionToast("Tài khoản sinh viên đã được định danh cố định theo trường!", "warning");
       return;
@@ -1038,6 +1352,12 @@ async function bootstrap() {
       }
     }
 
+    const sharedInfo = colyseusClient.getTileSharedInfo(x, y);
+    const isShared = !!sharedInfo?.isShared;
+    const sharedWithSchoolId = sharedInfo?.sharedWithSchoolId || null;
+    const sharedExpiresAt = sharedInfo?.sharedExpiresAt;
+    const isChallengedByMe = sharedWithSchoolId === playerSchoolId;
+
     const isMobile = window.innerWidth <= 768;
     if (!isMobile) {
       tileTooltip.show(
@@ -1053,6 +1373,11 @@ async function bootstrap() {
           isEnemyControlled,
           isAdjacent,
           isExchangeZone,
+          isShared,
+          sharedWithSchoolId,
+          sharedExpiresAt,
+          isChallengedByMe,
+          playerSchoolId,
           retention: hp,
           maxRetention: maxHp,
           hp,
@@ -1060,6 +1385,7 @@ async function bootstrap() {
           defenseTier,
           isCore,
           buffDescription: landmarkConfig?.buffDescription,
+          category: landmarkConfig?.category,
           isFogCovered: !isRevealed,
           isLandmark: !!landmarkName,
           litBySchoolName,
@@ -1091,7 +1417,7 @@ async function bootstrap() {
     const landmarkId = lm?.landmarkId;
 
     const ownerConfig = ownerSchool ? SCHOOL_ROSTER[ownerSchool] : null;
-    const ownerName = ownerConfig ? ownerConfig.name : (landmarkName ? "Vùng tri thức chưa khám phá" : "Vùng tri thức chưa khám phá");
+    const ownerName = ownerConfig ? ownerConfig.name : (landmarkName ? "Ô tri thức chưa khám phá" : "Ô tri thức chưa khám phá");
     const ownerColor = ownerConfig ? ownerConfig.colorHex : "#94a3b8";
 
     // Auto infer mode if not overridden
@@ -1110,7 +1436,7 @@ async function bootstrap() {
     let cost = 1;
     let title = "Khám phá tri thức";
     let actionTitle = "XÁC NHẬN KHÁM PHÁ";
-    let description = "Khám phá mở rộng Vùng tri thức hoang sơ tiếp giáp";
+    let description = "Khám phá ô tri thức hoang sơ tiếp giáp";
     let canExecute = true;
     let reasonDisabled: string | undefined;
 
@@ -1118,13 +1444,13 @@ async function bootstrap() {
       cost = ACTION_MODES.explore.cost;
       title = "Khám phá tri thức";
       actionTitle = landmarkName ? `KHÁM PHÁ ${landmarkName.toUpperCase()} (${cost}đ)` : `XÁC NHẬN KHÁM PHÁ (${cost}đ)`;
-      description = landmarkName ? `Hành trình mở đường tới ${landmarkName}` : "Khám phá mở rộng Vùng tri thức hoang sơ tiếp giáp";
+      description = landmarkName ? `Hành trình mở đường tới ${landmarkName}` : "Khám phá ô tri thức hoang sơ tiếp giáp";
       if (isOwnedByMe) {
         canExecute = false;
-        reasonDisabled = "Vùng này đã thuộc quyền kiểm soát của trường bạn";
+        reasonDisabled = "Ô này đã thuộc quyền kiểm soát của trường bạn";
       } else if (isEnemyControlled) {
         canExecute = false;
-        reasonDisabled = "Vùng này đang thuộc trường khác, hãy dùng chế độ ÔN BÀI để giao lưu tri thức";
+        reasonDisabled = "Ô này đang thuộc trường khác, hãy dùng chế độ ÔN BÀI để giao lưu tri thức";
       } else if (!isAdjacent) {
         canExecute = false;
         reasonDisabled = "Chỉ có thể khám phá các ô liền kề với trường bạn";
@@ -1136,7 +1462,7 @@ async function bootstrap() {
       cost = ACTION_MODES.study.cost;
       title = "Ôn bài & Giao lưu tri thức";
       if (isOwnedByMe) {
-        actionTitle = `ÔN BÀI CỦNG CỐ (${cost}đ)`;
+        actionTitle = `ÔN BÀI (${cost}đ)`;
         description = "Ôn bài tăng Độ bền tri thức (Retention) cho ô trường bạn";
       } else if (isEnemyControlled) {
         actionTitle = `GIAO LƯU TRI THỨC (${cost}đ)`;
@@ -1146,8 +1472,8 @@ async function bootstrap() {
           reasonDisabled = "Chỉ có thể giao lưu tại các ô tiếp giáp với trường bạn";
         }
       } else {
-        actionTitle = `ÔN BÀI KHAI PHÁ (${cost}đ)`;
-        description = "Ôn bài khai phá vùng tri thức hoang sơ tiếp giáp";
+        actionTitle = `KHÁM PHÁ (${cost}đ)`;
+        description = "Khám phá ô tri thức hoang sơ tiếp giáp";
         if (!isAdjacent) {
           canExecute = false;
           reasonDisabled = "Chỉ có thể ôn bài tại các ô tiếp giáp với trường bạn";
@@ -1162,7 +1488,7 @@ async function bootstrap() {
       cost = ACTION_MODES.beacon.cost;
       title = "Thắp Đèn hiệu Công trình";
       actionTitle = landmarkName ? `THẮP ĐÈN HIỆU ${landmarkName.toUpperCase()}` : "THẮP ĐÈN HIỆU";
-      description = "Mở giao diện nạp Tinh thể và giải đố địa danh để thắp sáng Đèn hiệu";
+      description = "Mở giao diện nạp Tinh thể và giải đố công trình để thắp sáng Đèn hiệu";
       canExecute = true;
     }
 
@@ -1185,6 +1511,7 @@ async function bootstrap() {
 
   // Execute validated action on a tile
   function executeTileAction(ctx: ReturnType<typeof evaluateTileContext>) {
+    if (isSessionReplaced) return;
     if (!ctx.canExecute) {
       if (ctx.reasonDisabled) {
         showActionToast(ctx.reasonDisabled, "warning");
@@ -1211,25 +1538,29 @@ async function bootstrap() {
     } else {
       userPoints -= ctx.cost;
     }
+    if (colyseusClient?.currentProfile) {
+      colyseusClient.currentProfile.points = userPoints;
+    }
     statsOverlay.updateStats({ points: userPoints });
+    actionDock.setPoints(userPoints);
 
     if (mode === "explore") {
       colyseusClient.claimTile(x, y);
       showActionToast(
         landmarkName
           ? `Đã mở đường khám phá ${landmarkName}! -${cost} điểm (points)`
-          : `Đã khai phá thành công Vùng tri thức (${x}, ${y})! -${cost} điểm (points)`
+          : `Đã khám phá ô tri thức tại (${x}, ${y})! -${cost} điểm (points)`
       );
     } else if (mode === "study") {
       colyseusClient.studyTile(x, y, 1);
       const isOwnedByMe = colyseusClient.getTileOwnerSchoolId(x, y) === playerSchoolId;
       const isOwnedByEnemy = !!colyseusClient.getTileOwnerSchoolId(x, y) && !isOwnedByMe;
       if (isOwnedByMe) {
-        showActionToast(`Đã ôn bài củng cố tri thức tại (${x}, ${y})! -${cost} điểm (points)`);
+        showActionToast(`Đã ôn bài tri thức tại (${x}, ${y})! -${cost} điểm (points)`);
       } else if (isOwnedByEnemy) {
         showActionToast(`Đã giao lưu tri thức tại (${x}, ${y})! -${cost} điểm (points)`);
       } else {
-        showActionToast(`Đã ôn bài khai phá tri thức tại (${x}, ${y})! -${cost} điểm (points)`);
+        showActionToast(`Đã khám phá ô tri thức tại (${x}, ${y})! -${cost} điểm (points)`);
       }
     }
   }
@@ -1243,6 +1574,7 @@ async function bootstrap() {
   };
 
   actionDock.onBeaconAction = () => {
+    if (isSessionReplaced) return;
     const nearest = getNearestLandmark();
     if (nearest) {
       openLandmarkModalFor(nearest.id || nearest.landmarkKey);
@@ -1253,6 +1585,8 @@ async function bootstrap() {
   };
   actionDock.onBonfireAction = actionDock.onBeaconAction;
 
+  actionDock.setClient(colyseusClient);
+
   sceneManager.onMissClick = () => {
     if (selectedMobileTile) {
       clearSelectedTile();
@@ -1261,7 +1595,16 @@ async function bootstrap() {
 
   // 6. Action Execution Handler: Desktop 1-Click vs Mobile 1-Tap Select -> 2-Tap Execute
   sceneManager.onTileClick = (event: TileClickEvent) => {
+    if (isSessionReplaced) return;
     const { x, y } = event;
+
+    // Direct click on any 3D Student Bot focuses and spectates that bot!
+    const nearbyBot = botVisualManager.getAllBots().find((b) => Math.hypot(b.x - x, b.y - y) <= 2.5);
+    if (nearbyBot) {
+      botVisualManager.spectateBot(nearbyBot.config.id);
+      showActionToast(`Đang quan sát [${nearbyBot.config.shortName}] ${nearbyBot.config.name} tại (${nearbyBot.x}, ${nearbyBot.y})!`);
+      return;
+    }
 
     // Direct click on any Landmark footprint opens the LandmarkModal immediately!
     const lm = getLandmarkAt(x, y);
@@ -1376,11 +1719,26 @@ async function bootstrap() {
       points: userPoints
     });
     revealAllHQsAndLandmarks(room.state);
+    if (room.state.hqs) {
+      botVisualManager.syncHQs(room.state.hqs);
+    }
+    const myPlayer = room.state.players?.get ? room.state.players.get(room.sessionId) : (room.state.players ? room.state.players[room.sessionId] : null);
+    const syncDisplayName = myPlayer?.displayName || (playerEmail ? playerEmail.split('@')[0] : undefined);
+    if (syncDisplayName) {
+      statsOverlay.updateStats({ displayName: syncDisplayName });
+    }
     showActionToast(
       currentGameMode === "normal"
         ? `Đã đăng nhập: ${playerEmail} [${playerSchoolId.toUpperCase()}] - ${userPoints} điểm giải chạy`
         : `Đã kết nối Colyseus Server [Dev Mode: ${playerSchoolId.toUpperCase()}]`
     );
+
+    // Initialize school rankings by Points
+    if (room.state.schoolTroops) {
+      room.state.schoolTroops.forEach((pts: number, sId: string) => {
+        statsOverlay.updateSchoolPoints(sId, pts);
+      });
+    }
 
     // Update initial troop points (Only if NOT logged in as a student)
     if (!playerEmail && currentGameMode === "dev") {
@@ -1395,6 +1753,19 @@ async function bootstrap() {
     setTimeout(() => {
       flyToPlayerHQ();
     }, 200);
+
+    // If bots live simulation is requested via URL, activate simulation and spectate HCMUT bot
+    if (isBotsLive) {
+      isBotSimulationRunning = true;
+      colyseusClient.toggleBots(true);
+      colyseusClient.toggleStudentBots(true);
+      if (room.state.hqs) {
+        botVisualManager.syncHQs(room.state.hqs);
+      }
+      setTimeout(() => {
+        botVisualManager.spectateBot("bot_hcmut");
+      }, 300);
+    }
   } catch (err) {
     console.error("[App] Could not connect to Colyseus server:", err);
     showActionToast("Không thể kết nối tới server sau nhiều lần thử. Vui lòng kiểm tra terminal!", "error");

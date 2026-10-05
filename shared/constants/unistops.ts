@@ -257,7 +257,7 @@ export const LOOT_ITEMS: Record<string, LootItem> = {
 
 export const ALL_LOOT_ITEMS: LootItem[] = Object.values(LOOT_ITEMS);
 
-// Loot Tables per UniStop Tier (exact integer weights out of 1000)
+// Loot Tables per UniStop Tier (exact weights out of 1000)
 export const UNISTOP_LOOT_TABLES: Record<UniStopTier, LootItem[]> = {
   aspire: [
     { ...LOOT_ITEMS.points_x1, weight: 325 },     // 32.5%
@@ -277,8 +277,7 @@ export const UNISTOP_LOOT_TABLES: Record<UniStopTier, LootItem[]> = {
     { ...LOOT_ITEMS.crystal_2, weight: 110 },     // 11.0%
     { ...LOOT_ITEMS.crystal_4, weight: 70 },      // 7.0%
     { ...LOOT_ITEMS.treasure_map, weight: 30 },  // 3.0%
-    { ...LOOT_ITEMS.key_nitro, weight: 19 },      // 1.9%
-    { ...LOOT_ITEMS.gift_socks, weight: 1 }       // 0.1%
+    { ...LOOT_ITEMS.key_nitro, weight: 20 }       // 2.0%
   ],
   predator: [
     { ...LOOT_ITEMS.points_x1, weight: 250 },     // 25.0%
@@ -288,43 +287,42 @@ export const UNISTOP_LOOT_TABLES: Record<UniStopTier, LootItem[]> = {
     { ...LOOT_ITEMS.crystal_2, weight: 125 },     // 12.5%
     { ...LOOT_ITEMS.crystal_4, weight: 100 },     // 10.0%
     { ...LOOT_ITEMS.treasure_map, weight: 30 },  // 3.0%
-    { ...LOOT_ITEMS.key_predator, weight: 15 },   // 1.5%
-    { ...LOOT_ITEMS.gift_socks, weight: 3 },      // 0.3%
-    { ...LOOT_ITEMS.gift_keychain, weight: 2 }    // 0.2%
+    { ...LOOT_ITEMS.key_predator, weight: 19.8 }, // 1.98%
+    { ...LOOT_ITEMS.gift_socks, weight: 0.2 }     // 0.02%
   ]
 };
 
-// Loot Tables per Chest Tier (exact integer weights out of 1000)
+// Loot Tables per Chest Tier (exact weights out of 1000)
 export const CHEST_LOOT_TABLES: Record<ChestTier, LootItem[]> = {
   aspire: [
-    { ...LOOT_ITEMS.points_x1, weight: 300 },     // 30.0%
+    { ...LOOT_ITEMS.points_x1, weight: 312.5 },   // 31.25%
     { ...LOOT_ITEMS.points_x2, weight: 135 },     // 13.5%
     { ...LOOT_ITEMS.points_x5, weight: 50 },      // 5.0%
-    { ...LOOT_ITEMS.crystal_1, weight: 300 },     // 30.0%
-    { ...LOOT_ITEMS.crystal_2, weight: 135 },     // 13.5%
-    { ...LOOT_ITEMS.crystal_3, weight: 50 },      // 5.0%
-    { ...LOOT_ITEMS.gift_socks, weight: 30 }      // 3.0%
+    { ...LOOT_ITEMS.crystal_1, weight: 312.5 },   // 31.25%
+    { ...LOOT_ITEMS.crystal_5, weight: 135 },     // 13.5%
+    { ...LOOT_ITEMS.crystal_10, weight: 50 },     // 5.0%
+    { ...LOOT_ITEMS.gift_socks, weight: 5 }       // 0.5%
   ],
   nitro: [
-    { ...LOOT_ITEMS.points_x1, weight: 250 },     // 25.0%
+    { ...LOOT_ITEMS.points_x1, weight: 271.875 }, // 27.1875%
     { ...LOOT_ITEMS.points_x2, weight: 150 },     // 15.0%
     { ...LOOT_ITEMS.points_x5, weight: 75 },      // 7.5%
-    { ...LOOT_ITEMS.crystal_1, weight: 250 },     // 25.0%
-    { ...LOOT_ITEMS.crystal_2, weight: 150 },     // 15.0%
-    { ...LOOT_ITEMS.crystal_3, weight: 75 },      // 7.5%
-    { ...LOOT_ITEMS.gift_socks, weight: 30 },     // 3.0%
-    { ...LOOT_ITEMS.gift_keychain, weight: 20 }   // 2.0%
+    { ...LOOT_ITEMS.crystal_1, weight: 271.875 }, // 27.1875%
+    { ...LOOT_ITEMS.crystal_5, weight: 150 },     // 15.0%
+    { ...LOOT_ITEMS.crystal_10, weight: 75 },     // 7.5%
+    { ...LOOT_ITEMS.gift_socks, weight: 3.75 },   // 0.375%
+    { ...LOOT_ITEMS.gift_keychain, weight: 2.5 }  // 0.25%
   ],
   predator: [
-    { ...LOOT_ITEMS.points_x1, weight: 200 },     // 20.0%
+    { ...LOOT_ITEMS.points_x1, weight: 231.5 },   // 23.15%
     { ...LOOT_ITEMS.points_x2, weight: 165 },     // 16.5%
     { ...LOOT_ITEMS.points_x5, weight: 100 },     // 10.0%
-    { ...LOOT_ITEMS.crystal_1, weight: 200 },     // 20.0%
-    { ...LOOT_ITEMS.crystal_2, weight: 165 },     // 16.5%
-    { ...LOOT_ITEMS.crystal_3, weight: 100 },     // 10.0%
-    { ...LOOT_ITEMS.gift_socks, weight: 30 },     // 3.0%
-    { ...LOOT_ITEMS.gift_keychain, weight: 25 },  // 2.5%
-    { ...LOOT_ITEMS.gift_tshirt, weight: 15 }     // 1.5%
+    { ...LOOT_ITEMS.crystal_1, weight: 231.5 },   // 23.15%
+    { ...LOOT_ITEMS.crystal_5, weight: 165 },     // 16.5%
+    { ...LOOT_ITEMS.crystal_10, weight: 100 },    // 10.0%
+    { ...LOOT_ITEMS.gift_socks, weight: 3 },      // 0.3%
+    { ...LOOT_ITEMS.gift_keychain, weight: 2.5 }, // 0.25%
+    { ...LOOT_ITEMS.gift_tshirt, weight: 1.5 }    // 0.15%
   ]
 };
 

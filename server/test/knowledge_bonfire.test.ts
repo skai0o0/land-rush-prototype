@@ -1,3 +1,4 @@
+process.env.ALLOW_DEV = "true";
 import * as assert from "assert";
 import { CampusRoom } from "../src/rooms/CampusRoom";
 import { GameState, TileState, PlayerState } from "../src/schema/GameState";
@@ -72,6 +73,10 @@ async function runTests() {
     room.state.claimedTiles.set("500,500", tFriendly);
     room.landData.setOwner(500, 500, "hcmut");
 
+    // Ensure test coordinates are not reserved by random landmark footprints
+    ["500,500", "500,501", "500,502"].forEach((k) => (room as any).landmarkTileMap.delete(k));
+    if (room.state.claimedTiles.has("500,501")) room.state.claimedTiles.delete("500,501");
+
     // Client A claims adjacent wild tile (500, 501)
     clientA.clear();
     (room as any).handleClaimAction(clientA, { x: 500, y: 501 }, "claim");
@@ -104,9 +109,8 @@ async function runTests() {
     console.log("✅ Test 1 Passed: Wild tiles claimable, direct attack removed!");
   }
 
-  console.log("\n[Test 2] Knowledge Overlap & studyTile mechanics");
+  console.log("\n[Test 2] Knowledge Overlap & studyTile mechanics (Shared Zone)");
   {
-    // 2a. Friendly tile study
     const tFriendly = room.state.claimedTiles.get("500,500")!;
     tFriendly.retention = 60;
     const oldStudiedAt = tFriendly.lastStudiedAt;
@@ -115,80 +119,45 @@ async function runTests() {
     room.handleStudyAction(clientA as any, { x: 500, y: 500, points: 2 });
     assert.strictEqual(tFriendly.retention, 90, "Retention should increase by 2 * 15 = 30");
     assert.ok(tFriendly.lastStudiedAt >= oldStudiedAt, "lastStudiedAt should update");
-    assert.ok((tFriendly.studyCountBySchool.get("hcmut") || 0) >= 2, "studyCountBySchool should track study points");
 
-    // 2b. Overlap tile study (DTU tile at 500, 502 adjacent to HCMUT at 500, 501)
     const tOverlap = room.state.claimedTiles.get("500,502")!;
     tOverlap.retention = 50;
 
-    // Student A (HCMUT) studies at overlap tile (500, 502)
     clientA.clear();
     room.handleStudyAction(clientA as any, { x: 500, y: 502, points: 2 });
-    assert.strictEqual(tOverlap.studyCountBySchool.get("hcmut"), 2, "Challenger school study points recorded");
-    assert.strictEqual(tOverlap.retention, 30, "Challenged neglected retention reduced by 2 * 10 = 20");
+    assert.strictEqual(tOverlap.isShared, true, "Tile must become shared zone");
+    assert.strictEqual(tOverlap.sharedWithSchoolId, "hcmut", "Must be shared with HCMUT");
+    assert.ok(tOverlap.sharedExpiresAt > Date.now(), "Shared zone expiration must be set");
 
-    // 2c. Continuous study to 0 retention triggers knowledge transfer
-    room.handleStudyAction(clientA as any, { x: 500, y: 502, points: 3 });
-    assert.strictEqual(tOverlap.ownerId, "hcmut", "Ownership must transfer to HCMUT when retention <= 0");
-    assert.strictEqual(tOverlap.retention, 60, "Transferred tile receives initial 60 retention");
+    clientB.clear();
+    room.handleStudyAction(clientB as any, { x: 500, y: 502, points: 2 });
+    assert.strictEqual(tOverlap.isShared, false, "Rebuffed shared zone");
+    assert.strictEqual(tOverlap.sharedWithSchoolId, "", "Rebuffed shared zone");
 
-    // 2d. Non-adjacent study rejected
     clientA.clear();
     room.handleStudyAction(clientA as any, { x: 999, y: 999, points: 1 });
     const nonAdjErr = clientA.lastMessage("error");
     assert.ok(nonAdjErr, "Non-adjacent study must be rejected");
 
-    console.log("✅ Test 2 Passed: Friendly study and overlap study contest work perfectly!");
+    console.log("-> Test 2 Passed");
   }
 
-  console.log("\n[Test 3] Decay Heartbeat Loop (Quên bài do bỏ bê)");
+  console.log("\n[Test 3] Decay Heartbeat Loop & Shared Zone Expiration");
   {
-    // Setup an overlap tile:
-    // (600, 600) owned by hcmut
-    // (600, 601) owned by dtu (adjacent!)
-    const tA = new TileState();
-    tA.x = 600; tA.y = 600; tA.ownerId = "hcmut"; tA.retention = 100; tA.lastStudiedAt = Date.now();
-    room.state.claimedTiles.set("600,600", tA);
-    room.landData.setOwner(600, 600, "hcmut");
-
     const tB = new TileState();
     tB.x = 600; tB.y = 601; tB.ownerId = "dtu"; tB.retention = 20;
-    // Simulate neglected for 60 seconds
-    tB.lastStudiedAt = Date.now() - 60000;
-    // DTU hasn't studied, but HCMUT studied this border
-    tB.studyCountBySchool.set("hcmut", 5);
+    tB.isShared = true;
+    tB.sharedWithSchoolId = "hcmut";
+    tB.sharedExpiresAt = Date.now() - 1000;
     room.state.claimedTiles.set("600,601", tB);
     room.landData.setOwner(600, 601, "dtu");
 
-    // 3a. In production mode (players have mode = 'normal'), 60s neglect (< 12 hours) does NOT decay
     room.processKnowledgeDecay();
-    assert.strictEqual(tB.retention, 20, "In production mode, 60s neglect (< 12h threshold) should NOT decay");
-
-    // 3b. Simulate dev mode (player has mode = 'dev') -> threshold drops to 30s
-    playerA.mode = "dev";
-    room.processKnowledgeDecay();
-    assert.strictEqual(tB.retention, 10, "In dev mode, 60s neglect (> 30s threshold) should decay by 10");
-
-    // Run again -> retention drops to 0 -> transfer to HCMUT (chăm hơn)
-    room.processKnowledgeDecay();
-    assert.strictEqual(tB.ownerId, "hcmut", "Neglected tile with retention <= 0 must transfer to diligent neighbor");
+    assert.strictEqual(tB.ownerId, "hcmut", "Expired shared zone must transfer to challenger");
+    assert.strictEqual(tB.isShared, false, "Shared state must reset");
     assert.strictEqual(tB.retention, 60, "Newly transferred tile reset to 60 retention");
 
-    // Reset playerA back to normal for subsequent tests
-    playerA.mode = "normal";
-
-    // Isolated tile (not overlap, e.g. 700, 700 without enemy neighbor)
-    const tIsolated = new TileState();
-    tIsolated.x = 700; tIsolated.y = 700; tIsolated.ownerId = "dtu"; tIsolated.retention = 80;
-    tIsolated.lastStudiedAt = Date.now() - 60000;
-    room.state.claimedTiles.set("700,700", tIsolated);
-
-    playerA.mode = "dev";
-    room.processKnowledgeDecay();
-    assert.strictEqual(tIsolated.retention, 80, "Isolated tile inside territory should NOT decay");
-    playerA.mode = "normal";
-
-    console.log("✅ Test 3 Passed: Knowledge decay loop decays only neglected overlap tiles and transfers properly!");
+    console.log("-> Test 3 Passed");
   }
 
   console.log("\n[Test 4] Landmark Beacon & Crystal Contribution (Thắp sáng Đèn hiệu)");
@@ -309,10 +278,20 @@ async function runTests() {
     assert.strictEqual(lm.crystalsBySchool.get("hcmut"), hcmutCrystalsBefore + 10, "+10 bonus crystals awarded to school");
 
     // 5d. Subsequent guess when already guessed -> rejected
+    clientA.clear();
+    room.handleGuessLandmark(clientA as any, { landmarkId: lm.id, guess: config.name });
+    const alreadyGuessedErr = clientA.lastMessage("error");
+    assert.ok(alreadyGuessedErr?.payload.message.includes("đã giải đố"), "Must reject if already guessed");
+ 
+    // 5e. Other school (DTU) CAN still guess and receive +10 crystals
     clientB.clear();
     room.handleGuessLandmark(clientB as any, { landmarkId: lm.id, guess: config.name });
-    const alreadyGuessedErr = clientB.lastMessage("error");
-    assert.ok(alreadyGuessedErr?.payload.message.includes("đã được giải đố"), "Must reject if already guessed");
+    const guessResultB = clientB.lastMessage("landmark_guess_result");
+    assert.ok(guessResultB, "Other school must be able to guess");
+    assert.strictEqual(guessResultB.payload.success, true);
+    assert.strictEqual(guessResultB.payload.crystalsAwarded, 10);
+    assert.strictEqual(lm.guessedSchools.get("dtu"), true);
+    assert.strictEqual(lm.crystalsBySchool.get("dtu"), dtuCrystalsBefore + 10, "+10 bonus crystals awarded to DTU");
 
     console.log("✅ Test 5 Passed: Landmark guessing cooldowns, case-insensitive match, and rewards verified!");
   }
