@@ -1,11 +1,10 @@
 // client/src/ui/devToolsPanel.ts
 import { Icons } from './icons';
 import { MOCK_STUDENT_ACCOUNTS } from '../../../shared/constants/schools';
-import { RunningDatabase } from '../services/runningDatabase';
+import { RunningDatabase } from '../dev/runningDatabase';
 import { FogOfWarManager } from '../engine/fogOfWarManager';
 
 export interface DevPanelCallbacks {
-  onToggleBot: (isRunning: boolean) => void;
   onAddPoints: (amount: number) => void;
   onResetMap: () => void;
   onResetCamera: () => void;
@@ -29,13 +28,11 @@ export interface DevPanelCallbacks {
   onDevAddKeys?: (aspire?: number, nitro?: number, predator?: number) => void;
   onSetTerritoryOpacity?: (opacity: number) => void;
   onOpenNotificationStudio?: () => void;
-  onToggleStudentBots?: () => void;
 }
 
 export class DevToolsPanel {
   private container: HTMLElement;
   private isOpen = false;
-  private isBotRunning = false;
   private showGrid = true;
   private showFog = true;
   private currentMode: "normal" | "dev" = "dev";
@@ -95,15 +92,6 @@ export class DevToolsPanel {
     this.currentMode = mode;
     this.render();
     this.bindEvents();
-  }
-
-  public setBotStatus(running: boolean): void {
-    this.isBotRunning = running;
-    const toggle = this.container.querySelector('#bot-toggle-btn');
-    if (toggle) {
-      toggle.className = `btn-dev-toggle ${this.isBotRunning ? 'active' : ''}`;
-      toggle.textContent = this.isBotRunning ? 'ĐANG CHẠY' : 'ĐÃ TẮT';
-    }
   }
 
   public setGraphicsTier(tier: 'performance' | 'balanced' | 'high'): void {
@@ -177,17 +165,6 @@ export class DevToolsPanel {
             <button class="btn-dev-action" id="btn-add-50pts">+5 km (50 pts)</button>
             <button class="btn-dev-action" id="btn-add-100pts">+10 km (100 pts)</button>
             <button class="btn-dev-action" id="btn-add-500pts">+50 km (500 pts)</button>
-          </div>
-        </div>
-
-        <!-- 4. GIẢ LẬP BOT -->
-        <div class="dev-menu-section">
-          <div class="section-title">GIẢ LẬP BOT (TỰ ĐỘNG)</div>
-          <div class="dev-row">
-            <span>Trạng thái Bot:</span>
-            <button id="bot-toggle-btn" class="btn-dev-toggle ${this.isBotRunning ? 'active' : ''}">
-              ${this.isBotRunning ? 'ĐANG CHẠY' : 'ĐÃ TẮT'}
-            </button>
           </div>
         </div>
 
@@ -291,14 +268,11 @@ export class DevToolsPanel {
         <!-- 10. THÔNG BÁO & NOTIFICATION STUDIO -->
         <div class="dev-menu-section">
           <div class="section-title" style="color: #00ffe8; display: flex; align-items: center; gap: 6px;">
-            📢 NOTIFICATION STUDIO & 5 BOTS
+            📢 NOTIFICATION STUDIO
           </div>
           <div class="dev-btn-group" style="grid-template-columns: 1fr;">
             <button class="btn-dev-action" id="btn-open-notification-studio" style="background: rgba(0, 255, 232, 0.15); border-color: rgba(0, 255, 232, 0.45); color: #00ffe8; font-weight: 700;">
               <span style="font-size: 15px; margin-right: 8px;">🔔</span> Notification Studio (Viết & Bắn thử)
-            </button>
-            <button class="btn-dev-action" id="btn-toggle-student-bots" style="background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.4); color: #10b981; font-weight: 700;" title="Bật/Tắt 5 Bots Sinh Viên (1 bot/trường) cày cuốc, giải đố, rương và bắn thông báo">
-              <span style="font-size: 15px; margin-right: 8px;">🤖</span> 5 Bots Simulation (BẬT / TẮT)
             </button>
           </div>
         </div>
@@ -372,15 +346,6 @@ export class DevToolsPanel {
     this.container.querySelector('#btn-open-db')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.callbacks.onOpenDbEditor?.();
-    });
-
-    // Bật/tắt Bot
-    const botToggle = this.container.querySelector('#bot-toggle-btn');
-    botToggle?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.isBotRunning = !this.isBotRunning;
-      this.setBotStatus(this.isBotRunning);
-      this.callbacks.onToggleBot(this.isBotRunning);
     });
 
     // Cộng điểm test (1 km = 1 điểm)
@@ -525,11 +490,6 @@ export class DevToolsPanel {
     this.container.querySelector('#btn-open-notification-studio')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.callbacks.onOpenNotificationStudio?.();
-    });
-
-    this.container.querySelector('#btn-toggle-student-bots')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.callbacks.onToggleStudentBots?.();
     });
 
     const opacitySlider = this.container.querySelector('#territory-opacity-slider') as HTMLInputElement | null;

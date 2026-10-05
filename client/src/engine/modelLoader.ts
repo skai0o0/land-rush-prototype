@@ -261,6 +261,7 @@ export class ModelLoader {
   public async spawnHQ(schoolId: string, x: number, y: number): Promise<THREE.Group> {
     // 1. Immediately create and add the fallback plinth so the base is NEVER empty
     const fallback = this.createFallbackHQ(schoolId, x, y);
+    if (schoolId !== "hcmut") return fallback;
 
     const school = SCHOOL_ROSTER[schoolId];
     const url = `/models/hqs/${schoolId}_hq.glb`;
@@ -348,91 +349,10 @@ export class ModelLoader {
     y: number,
     ownerSchoolId = ""
   ): Promise<THREE.Group> {
+    // Only HCMUT retains a bespoke GLB. Landmarks use the existing procedural art.
     const fallback = this.createFallbackLandmark(landmarkId, x, y);
-
-    const config = LANDMARK_ROSTER[landmarkId];
-    const cleanId = landmarkId.replace(/^landmark_/, "");
-    const fileName = config?.modelFileName || `${cleanId}.glb`;
-    const url = `/models/landmarks/${fileName}`;
-
-    try {
-      const model = await this.loadGLB(url);
-      x = fallback.userData.x; y = fallback.userData.y;
-      const targetW = config?.footprint.width || 14;
-      const targetH = config?.footprint.height || 12;
-      const cx = x + targetW * 0.5;
-      const cy = y + targetH * 0.5;
-      const h = getTerrainHeight(cx, cy);
-
-      // Scale landmark model to match enlarged footprint (~12 to 18.5 tiles)
-      const box = new THREE.Box3().setFromObject(model);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-      const scaleX = size.x > 0 ? targetW / size.x : 0.3;
-      const scaleZ = size.z > 0 ? targetH / size.z : 0.3;
-      const scaleFactor = Math.min(scaleX, scaleZ) * 1.02;
-      model.scale.set(scaleFactor, scaleFactor, scaleFactor);
-      const yOffset = box.min.y < 0 ? -box.min.y * scaleFactor : 0;
-      model.position.set(cx, h + 0.11 + yOffset, cy);
-
-      const factionColor = ownerSchoolId && SCHOOL_ROSTER[ownerSchoolId]
-        ? new THREE.Color(SCHOOL_ROSTER[ownerSchoolId].colorHex)
-        : new THREE.Color(0x1488d8);
-
-      const shouldTintAccent = (matName: string) => {
-        const lower = matName.toLowerCase();
-        if (lower.includes("tree") || lower.includes("green") || lower.includes("grass") || lower.includes("foliage") || lower.includes("leaf") || lower.includes("water") || lower.includes("lake") || lower.includes("palm")) {
-          return false; // preserve environmental materials
-        }
-        return lower.includes("faction") || (lower.includes("accent") && !lower.includes("glow"));
-      };
-
-      model.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          const mesh = child as THREE.Mesh;
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-
-          if (Array.isArray(mesh.material)) {
-            mesh.material = mesh.material.map((mat) => {
-              const m = mat.clone();
-              if (shouldTintAccent(m.name) && "color" in m) {
-                (m as any).color.copy(factionColor);
-              }
-              if (this.fogOfWar) {
-                applyFogOfWar(m, this.fogOfWar);
-              }
-              return m;
-            });
-          } else if (mesh.material) {
-            const m = mesh.material.clone();
-            if (shouldTintAccent(m.name) && "color" in m) {
-              (m as any).color.copy(factionColor);
-            }
-            if (this.fogOfWar) {
-              applyFogOfWar(m, this.fogOfWar);
-            }
-            mesh.material = m;
-          }
-        }
-      });
-
-      this.group.remove(fallback);
-      this.rotatingObjects = this.rotatingObjects.filter((obj) => obj.parent !== fallback);
-
-      model.name = `Landmark_${cleanId}`;
-      model.userData = { isLandmark: true, landmarkId, x, y, config, foundationHeight: h };
-      this.group.add(model);
-      this.spawnedModels.set(`lm_${landmarkId}`, model);
-      if (this.landmarkLitSchools.has(landmarkId)) {
-        this.setLandmarkBonfire(landmarkId, this.landmarkLitSchools.get(landmarkId)!);
-      }
-      console.log(`[ModelLoader] Swapped in GLB for Landmark ${landmarkId} at (${x}, ${y})`);
-      return model;
-    } catch (e) {
-      console.warn(`[ModelLoader] Retaining procedural fallback for Landmark ${landmarkId}:`, e);
-      return fallback;
-    }
+    if (ownerSchoolId) this.updateLandmarkOwner(landmarkId, ownerSchoolId);
+    return fallback;
   }
 
   // Update Landmark color when captured

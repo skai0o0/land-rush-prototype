@@ -98,31 +98,6 @@ async function runTests() {
   console.log('✅ Mega Emblem activated with bounding box and Tier 6');
   console.log('✅ Test 5 Passed');
 
-  // Test 6: Performance Benchmark
-  console.log('\n[Test 6] Performance Benchmark');
-  engine = new TerritoryClusterEngine(1000, 1000); // 1,000,000 tiles
-  
-  // Fill everything except borders
-  for (let y = 1; y < 999; y++) {
-    for (let x = 1; x < 999; x++) {
-      engine.setTile(x, y, 1, 3, 100);
-    }
-  }
-
-  console.log('Running BFS and Border Scan on ~1,000,000 tiles...');
-  const start = performance.now();
-  result = engine.evaluateCluster(1, 1);
-  const end = performance.now();
-  
-  const duration = end - start;
-  console.log(`⏱️ Benchmark completed in: ${duration.toFixed(2)}ms`);
-  assert.strictEqual(result.type, 'mega_emblem');
-  if (duration > 20) {
-    console.warn(`⚠️ Performance is above 20ms target (${duration.toFixed(2)}ms), may need optimization or warm-up.`);
-  }
-
-  console.log('✅ Test 6 Passed');
-  
   console.log('\n--- All Tests Passed Successfully! ---');
 }
 

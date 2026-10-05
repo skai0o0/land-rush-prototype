@@ -1,5 +1,5 @@
 // client/src/ui/databaseModal.ts
-import { RunningDatabase, StudentRunningRecord } from '../services/runningDatabase';
+import { RunningDatabase, StudentRunningRecord } from '../dev/runningDatabase';
 import { SCHOOL_ROSTER, getSchoolIdFromEmail } from '../../../shared/constants/schools';
 import { Icons } from './icons';
 

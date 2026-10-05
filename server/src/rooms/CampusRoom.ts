@@ -13,8 +13,6 @@ import {
   UniStopState,
   ChestState
 } from "../schema/GameState";
-import { BotManager } from "../bots/BotManager";
-import { StudentBotRunner } from "../bots/StudentBotRunner";
 import { SCHOOL_IDS, SCHOOL_ROSTER, getSchoolIdFromEmail } from "../../../shared/constants/schools";
 import { LANDMARK_IDS, LANDMARK_ROSTER } from "../../../shared/constants/landmarks";
 import {
@@ -113,6 +111,9 @@ export class CampusRoom extends Room<GameState> {
       this.updateKnowledgeCounts(tile);
     }
   }
+  private devLog(...args: unknown[]) {
+    if (process.env.ALLOW_DEV === "true") console.log(...args);
+  }
   private buffDirector = new BuffDirector();
   private decayCursor?: Iterator<[string, TileState]>;
   private eventSequence = 0;
@@ -141,7 +142,6 @@ export class CampusRoom extends Room<GameState> {
     // HQ foundations are persistent; other participants still decay independently.
     const before = Array.from(tile.knowledge.keys()) as string[];
     if (pruneKnowledge(tile, now, ...this.decayTiming())) {
-      for (const previous of before) if (!tile.knowledge.has(previous)) this.botManager.removeOwnedTile(previous, tile.x, tile.y, this.state);
       this.publishKnowledge(tile);
     }
     this.updateKnowledgeCounts(tile);
@@ -193,13 +193,9 @@ export class CampusRoom extends Room<GameState> {
   }
   private gameInterval?: Delayed;
   private landFlushInterval?: Delayed;
-  private botManager = new BotManager();
   private initialHQTiles: Map<string, { x: number; y: number; defenseTier: number; hp: number }[]> = new Map();
   public landmarkTileMap: Map<string, { landmarkKey: string; isCore: boolean }> = new Map();
   private initialLandmarkTiles: Map<string, { x: number; y: number; hp: number; maxHp: number; defenseTier: number }> = new Map();
-  private botsEnabled = false;
-  public studentBotsEnabled = false;
-  public studentBotRunner!: StudentBotRunner;
   private currentLeaderSchoolId: string = "";
   public clusterEngine = new TerritoryClusterEngine(1000, 1000);
   public activeBastions: Map<string, any> = new Map();
@@ -321,7 +317,7 @@ export class CampusRoom extends Room<GameState> {
     }
   }
 
-  /** Write-through for bots / cluster paths: LandState owner + combat. */
+  /** Write-through for cluster presentation paths: LandState owner + combat. */
   public syncLandTile(
     x: number,
     y: number,
@@ -346,13 +342,6 @@ export class CampusRoom extends Room<GameState> {
     this.roomOptions = options || {};
     this.autoDispose = false;
     this.setState(new GameState());
-
-    // Initialize 5 Student Bots runner
-    this.studentBotRunner = new StudentBotRunner(this);
-    this.studentBotsEnabled = Boolean(options?.studentBotsEnabled ?? false);
-    if (this.studentBotsEnabled) {
-      this.studentBotRunner.start();
-    }
 
     // 1. Spawn 5 School HQs (distance > 200 tiles)
     this.spawnHQs();
@@ -441,7 +430,6 @@ export class CampusRoom extends Room<GameState> {
 
           this.state.claimedTiles.set(key, tile);
           this.landData.writeTile(tx, ty, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
-          this.botManager.addOwnedTile(schoolId, tx, ty, this.state);
           this.clusterEngine.setTile(tx, ty, this.getSchoolNumericId(schoolId), tile.defenseTier, tile.hp);
           schoolHQTiles.push({ x: tx, y: ty, defenseTier: tile.defenseTier, hp: tile.hp });
         }
@@ -456,8 +444,6 @@ export class CampusRoom extends Room<GameState> {
     const minLmDistance = 65;
     const margin = 100;
     const maxBound = 900;
-
-    const lmMapForBot = new Map<string, { x: number; y: number; landmarkKey: string }>();
 
     for (const lmKey of LANDMARK_IDS) {
       let x = 0;
@@ -505,8 +491,6 @@ export class CampusRoom extends Room<GameState> {
       lmState.guessedBySchoolId = "";
       this.state.landmarks.set(lmKey, lmState);
 
-      lmMapForBot.set(lmKey, { x, y, landmarkKey: lmKey });
-
       // Pre-populate Landmark tiles as neutral fortress tiles with high HP & defenseTier
       const config = LANDMARK_ROSTER[lmKey];
       if (config) {
@@ -549,8 +533,6 @@ export class CampusRoom extends Room<GameState> {
         }
       }
     }
-
-    this.botManager.initLandmarks(lmMapForBot);
   }
 
   private spawnUniStops() {
@@ -701,7 +683,7 @@ export class CampusRoom extends Room<GameState> {
     if (lm.litBySchoolId && lm.ownerId !== lm.litBySchoolId) {
       lm.ownerId = lm.litBySchoolId;
       lm.buffActive = true;
-      console.log(`[CampusRoom] Landmark ${config.name} (${lmKey}) bonfire controlled by: "${lm.litBySchoolId}"`);
+      this.devLog(`[CampusRoom] Landmark ${config.name} (${lmKey}) bonfire controlled by: "${lm.litBySchoolId}"`);
     }
   }
 
@@ -789,17 +771,6 @@ export class CampusRoom extends Room<GameState> {
     const decayIntervalTicks = Math.max(1, Math.floor(ticksPerSec)) * 10;
     if (this.state.currentTick % decayIntervalTicks === 0) {
       this.processKnowledgeDecay();
-    }
-
-
-    // Run Bot autonomous simulation (only if enabled)
-    if (this.botsEnabled) {
-      this.botManager.processBots(this.state, this);
-    }
-
-    // Run Student Bots simulation (only if enabled)
-    if (this.studentBotsEnabled) {
-      this.studentBotRunner.tick();
     }
   }
 
@@ -899,7 +870,6 @@ export class CampusRoom extends Room<GameState> {
       this.state.claimedTiles.set(key, tile);
     }
     studyKnowledge(tile, player.schoolId, cost, Date.now(), ...this.decayTiming());
-    if (adding) this.botManager.addOwnedTile(player.schoolId, x, y, this.state);
     this.publishKnowledge(tile);
     this.handleClusterUpdate(player.schoolId, x, y);
     this.captureReachedStops(player.schoolId);
@@ -1074,7 +1044,7 @@ export class CampusRoom extends Room<GameState> {
         "landmark"
       );
 
-      console.log(
+      this.devLog(
         `[CampusRoom] Landmark ${lm.landmarkKey || lm.id} BEACON LIT by ${player.schoolId} (${curSchoolCrystals}/${lm.maxCrystals} crystals)!`
       );
     }
@@ -1413,7 +1383,7 @@ export class CampusRoom extends Room<GameState> {
         },
         "chest"
       );
-      console.log(
+      this.devLog(
         `[CampusRoom] 🎁 Real Gift won by ${player.displayName || maskEmail(player.email) || client.sessionId} (${player.schoolId}): ${winningItem.name}`
       );
     }
@@ -1576,7 +1546,7 @@ export class CampusRoom extends Room<GameState> {
         },
         "chest"
       );
-      console.log(
+      this.devLog(
         `[CampusRoom] 🎁 Real Gift won from Chest by ${player.displayName || maskEmail(player.email) || client.sessionId} (${player.schoolId}): ${winningItem.name}`
       );
     }
@@ -1710,12 +1680,9 @@ export class CampusRoom extends Room<GameState> {
     }
     this.landData.reset();
     this.clusterEngine=new TerritoryClusterEngine(1000,1000);
-    this.botManager.reset();
-    this.botManager.initLandmarks(new Map(Array.from(this.state.landmarks.entries()).map(([id,lm])=>[id,{x:lm.x,y:lm.y,landmarkKey:lm.landmarkKey}])));
     for (const tile of this.state.claimedTiles.values()) {
       if (!this.landmarkTileMap.has(`${tile.x},${tile.y}`)) {
         pruneKnowledge(tile,Date.now(),...this.decayTiming());
-        for (const school of tile.knowledge.keys()) this.botManager.addOwnedTile(school,tile.x,tile.y,this.state);
       }
       this.landData.writeTile(tile.x,tile.y,tile.ownerId,tile.hp,tile.maxHp,tile.defenseTier);
       this.clusterEngine.setTile(tile.x,tile.y,this.getSchoolNumericId(tile.ownerId),tile.defenseTier,tile.hp);
@@ -1751,125 +1718,10 @@ export class CampusRoom extends Room<GameState> {
       initializeKnowledge(tile, Date.now());
       const before = Array.from(tile.knowledge.keys()) as string[];
       if (pruneKnowledge(tile, Date.now(), ...this.decayTiming())) {
-        for (const school of before) if (!tile.knowledge.has(school)) this.botManager.removeOwnedTile(school, tile.x, tile.y, this.state);
         this.publishKnowledge(tile);
       }
     }
     this.captureReachedStops();
-  }
-
-  /**
-   * Legacy compatibility entry point: add knowledge through the bot rules.
-   */
-  public transferTileOwnership(tile: TileState, newSchoolId: string, reason: string) {
-    this.handleBotStudy(newSchoolId, tile.x, tile.y, 1);
-  }
-
-  /**
-   * Helper cho Bot ôn bài tại ô tiếp giáp.
-   */
-  public handleBotStudy(schoolId: string, x: number, y: number, points: number = 1) {
-    if (!Number.isSafeInteger(points) || points < 1) return;
-    const tile = this.state.claimedTiles.get(`${x},${y}`);
-    if (!tile || this.landmarkTileMap.has(`${x},${y}`)) return;
-    const friendly = this.tileHasKnowledge(tile, schoolId);
-    if (!friendly && ![[x+1,y],[x-1,y],[x,y+1],[x,y-1]].some(([nx,ny]) =>
-      this.tileHasKnowledge(this.state.claimedTiles.get(`${nx},${ny}`), schoolId))) return;
-    const cost = Math.max(points, !friendly && tile.knowledge.size ? EXCHANGE_COST : 1);
-    const balance = this.state.schoolTroops.get(schoolId) || 0;
-    if (balance < cost) return;
-    this.state.schoolTroops.set(schoolId, balance - cost);
-    studyKnowledge(tile, schoolId, cost, Date.now(), ...this.decayTiming());
-    if (!friendly) this.botManager.addOwnedTile(schoolId, x, y, this.state);
-    this.publishKnowledge(tile);
-    this.captureReachedStops(schoolId);
-  }
-
-  /**
-   * Helper cho Bot nạp Tinh thể vào Công trình.
-   */
-  public handleBotContributeCrystal(schoolId: string, landmarkId: string, amount: number = 20) {
-    let lm = this.state.landmarks.get(landmarkId);
-    if (!lm) {
-      for (const [_, item] of this.state.landmarks) {
-        if (item.landmarkKey === landmarkId || item.id === landmarkId) {
-          lm = item;
-          break;
-        }
-      }
-    }
-    if (!lm) return;
-    if (!this.hasPathToLandmark(schoolId, lm)) return;
-
-    const cur = (lm.crystalsBySchool.get(schoolId) || 0) + amount;
-    lm.crystalsBySchool.set(schoolId, cur);
-
-    let litChanged = false;
-    const prev = lm.litBySchoolId;
-
-    if (!lm.litBySchoolId || !lm.buffActive) {
-      if (cur >= lm.maxCrystals) {
-        lm.litBySchoolId = schoolId;
-        lm.ownerId = schoolId;
-        lm.buffActive = true;
-        litChanged = true;
-      }
-    } else if (lm.litBySchoolId !== schoolId) {
-      const ownerCrystals = lm.crystalsBySchool.get(lm.litBySchoolId) || lm.maxCrystals;
-      if (cur >= beaconOvertakeTarget(ownerCrystals)) {
-        lm.litBySchoolId = schoolId;
-        lm.ownerId = schoolId;
-        lm.buffActive = true;
-        litChanged = true;
-      }
-    }
-
-    if (lm.litBySchoolId) {
-      lm.currentCrystals = lm.crystalsBySchool.get(lm.litBySchoolId) || 0;
-    } else {
-      let maxC = 0;
-      lm.crystalsBySchool.forEach((c) => {
-        if (c > maxC) maxC = c;
-      });
-      lm.currentCrystals = maxC;
-    }
-
-    if (litChanged) {
-      const config = LANDMARK_ROSTER[lm.landmarkKey || lm.id];
-      if (config) {
-        for (let dx = 0; dx < config.footprint.width; dx++) {
-          for (let dy = 0; dy < config.footprint.height; dy++) {
-            const tx = lm.x + dx;
-            const ty = lm.y + dy;
-            const t = this.state.claimedTiles.get(`${tx},${ty}`);
-            if (t) {
-              t.ownerId = schoolId;
-              this.landData.writeTile(tx, ty, schoolId, t.hp, t.maxHp, t.defenseTier);
-            }
-          }
-        }
-      }
-
-      this.emitBeacon({
-        landmarkId: lm.id,
-        schoolId: schoolId,
-        previousSchoolId: prev,
-        crystals: cur,
-        fuel: cur
-      });
-
-      this.broadcast("landmark_lit", {
-        landmarkId: lm.id,
-        schoolId: schoolId,
-        previousSchoolId: prev,
-        crystals: cur,
-        fuel: cur
-      });
-    }
-  }
-
-  public handleBotContributeFuel(schoolId: string, landmarkId: string, amount: number = 20) {
-    return this.handleBotContributeCrystal(schoolId, landmarkId, amount);
   }
 
   /**
@@ -1905,9 +1757,6 @@ export class CampusRoom extends Room<GameState> {
       command === "soft_reset" ||
       command === "add_points" ||
       command === "set_simulation_speed" ||
-      command === "toggle_bots" ||
-      command === "toggle_student_bots" ||
-      command === "get_student_bots_status" ||
       command === "bulk_dispatch" ||
       command === "set_role" ||
       command === "login_student" ||
@@ -2129,7 +1978,6 @@ export class CampusRoom extends Room<GameState> {
       this.buffDirector.reset();
       this.broadcast("knowledge_sync", { tiles: [] });
       this.landData.reset();
-      this.botManager.reset();
       this.clusterEngine = new TerritoryClusterEngine(1000, 1000);
 
       // Restore initial HQ tiles
@@ -2150,7 +1998,6 @@ export class CampusRoom extends Room<GameState> {
 
           this.state.claimedTiles.set(key, tile);
           this.landData.writeTile(t.x, t.y, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
-          this.botManager.addOwnedTile(schoolId, t.x, t.y, this.state);
           this.clusterEngine.setTile(t.x, t.y, this.getSchoolNumericId(schoolId), tile.defenseTier, tile.hp);
         }
         this.state.schoolTroops.set(schoolId, 500);
@@ -2220,7 +2067,7 @@ export class CampusRoom extends Room<GameState> {
 
       if (isValidSchoolId(data?.schoolId)) {
         player.schoolId = data.schoolId;
-        console.log(`[CampusRoom] Player ${client.sessionId} switched to school: ${data.schoolId}`);
+        this.devLog(`[CampusRoom] Player ${client.sessionId} switched to school: ${data.schoolId}`);
       } else {
         client.send("error", { message: "Mã trường không hợp lệ!" });
       }
@@ -2303,7 +2150,7 @@ export class CampusRoom extends Room<GameState> {
 
       this.syncProfile(client, studentId, true);
 
-      console.log(
+      this.devLog(
         `[CampusRoom] Player ${client.sessionId} logged in as student: ${player.displayName} [${player.schoolId.toUpperCase()}] - ${player.personalTroops} pts (WeeklyPoints: ${player.hasWeeklyRunningPoints}, Mode: ${player.mode}, Locked: ${player.isLockedSchool})`
       );
     });
@@ -2314,12 +2161,6 @@ export class CampusRoom extends Room<GameState> {
       if (player && ["assault", "fortify", "support"].includes(data.role)) {
         player.currentRole = data.role;
       }
-    });
-
-    // 8. toggle_bots
-    this.registerHandler("toggle_bots", (client, data: { enabled: boolean }) => {
-      this.botsEnabled = !!data.enabled;
-      console.log(`[CampusRoom] Bot simulation enabled: ${this.botsEnabled}`);
     });
 
     // 9. add_points
@@ -2366,7 +2207,6 @@ export class CampusRoom extends Room<GameState> {
           tile.maxHp = 400;
 
           this.landData.writeTile(tx, ty, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
-          this.botManager.addOwnedTile(schoolId, tx, ty, this.state);
           this.clusterEngine.setTile(tx, ty, this.getSchoolNumericId(schoolId), 3, 100);
         }
       }
@@ -2402,7 +2242,6 @@ export class CampusRoom extends Room<GameState> {
           tile.maxHp = 400;
 
           this.landData.writeTile(tx, ty, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
-          this.botManager.addOwnedTile(schoolId, tx, ty, this.state);
           this.clusterEngine.setTile(tx, ty, this.getSchoolNumericId(schoolId), 3, 100);
         }
       }
@@ -2447,7 +2286,6 @@ export class CampusRoom extends Room<GameState> {
                 projectKnowledge(tile);
                 if (!tile.knowledge.size) { tile.defenseTier = 0; tile.hp = 0; }
                 this.publishKnowledge(tile);
-                this.botManager.removeOwnedTile(schoolId, cx, cy, this.state);
                 destroyedCount++;
                 
                 const neighbors = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]];
@@ -2589,28 +2427,6 @@ export class CampusRoom extends Room<GameState> {
         this.syncProfile(client, studentId);
       }
     });
-
-    // 17. toggle_student_bots
-    this.registerHandler("toggle_student_bots", (client, data: { enabled?: boolean }) => {
-      if (data && typeof data.enabled === "boolean") {
-        this.studentBotsEnabled = data.enabled;
-      } else {
-        this.studentBotsEnabled = !this.studentBotsEnabled;
-      }
-      if (this.studentBotsEnabled) {
-        this.studentBotRunner.start();
-      } else {
-        this.studentBotRunner.stop();
-      }
-      const status = this.studentBotRunner.getStatus();
-      this.broadcast("student_bots_status", status);
-      client.send("student_bots_toggled", status);
-    });
-
-    // 17b. get_student_bots_status
-    this.registerHandler("get_student_bots_status", (client) => {
-      client.send("student_bots_status", this.studentBotRunner.getStatus());
-    });
   }
 
   onJoin(client: Client, options: any) {
@@ -2740,11 +2556,7 @@ export class CampusRoom extends Room<GameState> {
       .filter(tile => { if (this.landmarkTileMap.has(`${tile.x},${tile.y}`)) return false; initializeKnowledge(tile, Date.now()); if (pruneKnowledge(tile, Date.now(), ...this.decayTiming())) this.publishKnowledge(tile); this.updateKnowledgeCounts(tile); return tile.isShared; })
       .map(tile => ({ x: tile.x, y: tile.y, schools: Array.from(tile.knowledge.keys()).sort() })) });
 
-    if (this.studentBotRunner) {
-      client.send("student_bots_status", this.studentBotRunner.getStatus());
-    }
-
-    console.log(
+    this.devLog(
       `[CampusRoom] Player joined: ${client.sessionId} | School: ${player.schoolId} | Mode: ${player.mode} | Locked: ${player.isLockedSchool} | Points: ${player.personalTroops} | Name: ${player.displayName}`
     );
   }
@@ -2786,11 +2598,10 @@ export class CampusRoom extends Room<GameState> {
       clearTimeout(this.profileSyncTimers.get(client.sessionId)!);
       this.profileSyncTimers.delete(client.sessionId);
     }
-    console.log(`[CampusRoom] Player left: ${client.sessionId} (consented: ${consented})`);
+    this.devLog(`[CampusRoom] Player left: ${client.sessionId} (consented: ${consented})`);
   }
 
   onDispose() {
-    this.studentBotRunner?.stop();
     if (this.gameInterval) {
       this.gameInterval.clear();
     }
@@ -2799,6 +2610,6 @@ export class CampusRoom extends Room<GameState> {
     }
     this.profileSyncTimers.forEach((timer) => clearTimeout(timer));
     this.profileSyncTimers.clear();
-    console.log("[CampusRoom] Disposed");
+    this.devLog("[CampusRoom] Disposed");
   }
 }

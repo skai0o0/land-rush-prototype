@@ -186,27 +186,6 @@ async function runSecurityTests() {
     assert.ok(err, "set_simulation_speed must be rejected when ALLOW_DEV is disabled");
     assert.strictEqual(room.state.simulationSpeed, prevSpeed, "simulationSpeed must remain unchanged");
 
-    // 6. toggle_bots
-    client.clear();
-    (room as any).onMessageHandlers["toggle_bots"](client, { enabled: true });
-    err = client.lastMessage("error");
-    assert.ok(err, "toggle_bots must be rejected when ALLOW_DEV is disabled");
-    assert.strictEqual((room as any).botsEnabled, false, "Bot simulation must remain stopped");
-
-    // 7. toggle_student_bots
-    client.clear();
-    (room as any).onMessageHandlers["toggle_student_bots"](client, { enabled: true });
-    err = client.lastMessage("error");
-    assert.ok(err, "toggle_student_bots must be rejected when ALLOW_DEV is disabled");
-    assert.strictEqual((room as any).studentBotsEnabled, false, "studentBotsEnabled must remain false");
-
-    // 8. get_student_bots_status
-    client.clear();
-    (room as any).onMessageHandlers["get_student_bots_status"](client, {});
-    err = client.lastMessage("error");
-    assert.ok(err, "get_student_bots_status must be rejected when ALLOW_DEV is disabled");
-    assert.strictEqual(client.lastMessage("student_bots_status"), undefined, "student_bots_status must not be returned");
-
     // 9. bulk_dispatch
     client.clear();
     const hcmutTroopsBefore = room.state.schoolTroops.get("hcmut") || 0;

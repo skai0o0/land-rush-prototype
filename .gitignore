@@ -55,3 +55,8 @@ desktop.ini
 Screenshot*
 Recording*
 blender.cmd
+
+# Performance output and obsolete asset staging
+bench-results/
+perf-results/
+client/public/models/temp/

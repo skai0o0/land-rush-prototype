@@ -111,7 +111,7 @@ export class ChestState extends Schema {
 }
 
 export class GameState extends Schema {
-  // Internal server-side tile bookkeeping (BotManager / game rules).
+  // Internal server-side tile bookkeeping (knowledge / game rules).
   // NOT networked: ownership/combat paint state lives in LandState (data plane)
   // and is synced via snap/own_batch/combat frames. No @type on purpose.
   claimedTiles = new MapSchema<TileState>();

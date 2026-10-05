@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", game: "dhqg-land-rush" });
+  res.json({ status: "ok", game: "predator-knowledge-journey" });
 });
 
 // Serve client production build if available (Unified single-port for Cloudflare Tunnel)
@@ -48,8 +48,8 @@ const gameServer = new Server({
 gameServer.define("campus_room", CampusRoom);
 
 httpServer.listen(port, "0.0.0.0", () => {
-  console.log(`[Colyseus Server] DHQG Land Rush listening on ws://localhost:${port}`);
-  console.log(`[Colyseus Server] Room "campus_room" defined and ready for battles.`);
+  console.log(`[Colyseus Server] Predator Knowledge Journey listening on ws://localhost:${port}`);
+  console.log(`[Colyseus Server] Room "campus_room" defined and ready for exploration.`);
 });
 
 // Clean shutdown handlers to release port on Windows / ts-node-dev reload

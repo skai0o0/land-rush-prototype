@@ -71,11 +71,8 @@ export interface NetworkCallbacks {
   onTreasureMapReveal?: (data: { chestId: string; x: number; z: number; tier: string }) => void;
   onPointsConverted?: (points: number, crystals: number) => void;
   onGameplayEvent?: (event: GameplayEvent) => void;
-  onSharedZoneEvent?: (event: any) => void;
   onPlayerStateChange?: (player: any) => void;
   onGameNotification?: (data: { templateId: string; vars: Record<string, any>; category?: string }) => void;
-  onStudentBotsStatus?: (data: { enabled: boolean; count: number; bots?: any[] }) => void;
-  onStudentBotAction?: (data: { botId: string; name: string; schoolId: string; x: number; y: number; actionType: string; actionText: string; points?: number; crystals?: number }) => void;
   onProfileSync?: (profile: ProfileSyncMessage) => void;
   onSessionReplaced?: (data: { message?: string }) => void;
 }
@@ -89,7 +86,6 @@ export class ColyseusClient {
   /** Dense ownership bytes + sparse combat overlay (no 1e6 tile objects). */
   public readonly landSync = new ClientLandSync();
   public knowledgeSchools = new Map<string, string[]>();
-  private sharedZones = new Map<string, { isShared: boolean; sharedWithSchoolId: string; sharedExpiresAt: number }>();
   private lastJoinOptions: any = { schoolId: "hcmut" };
   private isReconnecting = false;
   private territoryDebounceTimer: any = null;
@@ -135,7 +131,7 @@ export class ColyseusClient {
     while (attempt < maxRetries) {
       attempt++;
       try {
-        console.log(`[ColyseusClient] Connecting to campus_room (attempt ${attempt}/${maxRetries})...`, joinOptions);
+        console.log(`[ColyseusClient] Connecting to campus_room (attempt ${attempt}/${maxRetries})...`);
 
         this.room = await this.client.joinOrCreate("campus_room", joinOptions);
 
@@ -539,33 +535,6 @@ export class ColyseusClient {
       this.callbacks.onGameplayEvent?.(event);
       if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("gameplay_event", { detail: event }));
     });
-    room.onMessage("tactical_event", (data: any) => {
-      if (data.type === "shared_zone_created") {
-        this.sharedZones.set(`${data.x},${data.y}`, {
-          isShared: true,
-          sharedWithSchoolId: data.sharedWithSchoolId || data.schoolId || "",
-          sharedExpiresAt: data.expiresAt || 0
-        });
-      } else if (data.type === "shared_zone_rebuffed" || data.type === "shared_zone_captured") {
-        this.sharedZones.delete(`${data.x},${data.y}`);
-      }
-      if (this.callbacks.onSharedZoneEvent) {
-        this.callbacks.onSharedZoneEvent(data);
-      }
-    });
-
-    // Listen to Initial Shared Zones Sync
-    room.onMessage("shared_zones_sync", (data: { zones: any[] }) => {
-      if (Array.isArray(data.zones)) {
-        for (const z of data.zones) {
-          this.sharedZones.set(`${z.x},${z.y}`, {
-            isShared: true,
-            sharedWithSchoolId: z.sharedWithSchoolId || "",
-            sharedExpiresAt: z.sharedExpiresAt || 0
-          });
-        }
-      }
-    });
 
     // Listen to Points Converted Event
     room.onMessage("points_converted", (data: { points: number; crystals: number }) => {
@@ -577,16 +546,6 @@ export class ColyseusClient {
     // Listen to Game Notifications (In-Game Push Banners)
     room.onMessage("game_notification", (data: { templateId: string; vars: Record<string, any>; category?: string }) => {
       this.callbacks.onGameNotification?.(data);
-    });
-
-    // Listen to Student Bots Status (5 Simulated Bots)
-    room.onMessage("student_bots_status", (data: { enabled: boolean; count: number; bots?: any[] }) => {
-      this.callbacks.onStudentBotsStatus?.(data);
-    });
-
-    // Listen to Student Bot Realtime Action (Move, Explore, Study, etc.)
-    room.onMessage("student_bot_action", (data: any) => {
-      this.callbacks.onStudentBotAction?.(data);
     });
 
     // Listen to Private Profile Sync (points, crystals, keys, guess cooldowns)
@@ -913,14 +872,6 @@ export class ColyseusClient {
 
   public setRole(role: PlayerRole) {
     this.room?.send("set_role", { role });
-  }
-
-  public toggleBots(enabled: boolean) {
-    this.room?.send("toggle_bots", { enabled });
-  }
-
-  public toggleStudentBots(enabled?: boolean): void {
-    this.room?.send("toggle_student_bots", enabled !== undefined ? { enabled } : {});
   }
 
   public addPoints(amount: number) {

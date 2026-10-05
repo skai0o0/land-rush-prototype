@@ -387,24 +387,20 @@ export class MiniMap {
       ctx.restore();
     }
 
-    // Chests: Small treasure boxes (Silver, Gold, Platinum)
+    // Chests: Aspire, Nitro, Predator
     for (const chest of this.chestList) {
       if (chest.isOpened) continue;
       const cx = chest.x * scale;
       const cy = chest.z * scale;
 
       ctx.save();
-      if (chest.isOpened) {
-        ctx.fillStyle = "rgba(71, 85, 105, 0.45)";
-        ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3);
-      } else {
-        const color = chest.tier === 'platinum' ? '#00ffe8' : (chest.tier === 'gold' ? '#fbbf24' : '#e2e8f0');
+
+        const color = chest.tier === 'predator' ? '#00ffe8' : (chest.tier === 'nitro' ? '#fbbf24' : '#e2e8f0');
         ctx.fillStyle = color;
         ctx.fillRect(cx - 1.8, cy - 1.8, 3.6, 3.6);
         ctx.strokeStyle = "#080c14";
         ctx.lineWidth = 0.6;
         ctx.strokeRect(cx - 1.8, cy - 1.8, 3.6, 3.6);
-      }
       ctx.restore();
     }
 
