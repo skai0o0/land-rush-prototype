@@ -89,9 +89,9 @@ async function runTests() {
   }
 
   // ----------------------------------------------------
-  // TEST 2: Landmark Guessing: School A +10 crystals, School B +10 crystals
+  // TEST 2: Landmark Guessing: School A +100 crystals, School B +100 crystals
   // ----------------------------------------------------
-  console.log("\n[Test 2] Multi-school Guessing (School A and School B both receive +10 crystals)");
+  console.log("\n[Test 2] Multi-school Guessing (School A and School B both receive +100 crystals)");
   {
     const room = new CampusRoom();
     room.onCreate({});
@@ -118,8 +118,8 @@ async function runTests() {
     const resultA = clientA1.lastMessage("landmark_guess_result");
     assert.ok(resultA, "Must receive landmark_guess_result");
     assert.strictEqual(resultA.payload.success, true);
-    assert.strictEqual(resultA.payload.crystalsAwarded, 10);
-    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 10, "HCMUT must receive +10 crystals");
+    assert.strictEqual(resultA.payload.crystalsAwarded, 100);
+    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 100, "HCMUT must receive +100 crystals");
     assert.strictEqual(lm.guessedSchools.get("hcmut"), true, "HCMUT must be marked in guessedSchools");
     assert.strictEqual(lm.nameGuessed, true, "nameGuessed must be true for backward compatibility");
     assert.strictEqual(lm.guessedBySchoolId, "hcmut", "guessedBySchoolId must be hcmut");
@@ -134,12 +134,12 @@ async function runTests() {
     const resultB = clientB1.lastMessage("landmark_guess_result");
     assert.ok(resultB, "School B must be able to guess even after School A guessed");
     assert.strictEqual(resultB.payload.success, true);
-    assert.strictEqual(resultB.payload.crystalsAwarded, 10);
-    assert.strictEqual(lm.crystalsBySchool.get("dtu"), 10, "DTU must receive +10 crystals");
+    assert.strictEqual(resultB.payload.crystalsAwarded, 100);
+    assert.strictEqual(lm.crystalsBySchool.get("dtu"), 100, "DTU must receive +100 crystals");
     assert.strictEqual(lm.guessedSchools.get("dtu"), true, "DTU must be marked in guessedSchools");
 
     room.onDispose();
-    console.log("✅ Test 2 Passed: School A and School B both independently guess and receive +10 crystals!");
+    console.log("✅ Test 2 Passed: School A and School B both independently guess and receive +100 crystals!");
   }
 
   // ----------------------------------------------------
@@ -164,7 +164,7 @@ async function runTests() {
       landmarkId: lm.id,
       guess: config.name
     });
-    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 10);
+    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 100);
 
     // Student A1 tries again -> rejected
     clientA1.clear();
@@ -175,7 +175,7 @@ async function runTests() {
     const errA1 = clientA1.lastMessage("error");
     assert.ok(errA1, "Same student must be rejected");
     assert.ok(errA1.payload.message.includes("đã giải đố thành công"));
-    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 10, "Crystals must NOT increase on repeat guess");
+    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 100, "Crystals must NOT increase on repeat guess");
 
     // Student A2 from SAME school tries to guess -> also rejected
     clientA2.clear();
@@ -186,7 +186,7 @@ async function runTests() {
     const errA2 = clientA2.lastMessage("error");
     assert.ok(errA2, "Different student from same school must be rejected");
     assert.ok(errA2.payload.message.includes("đã giải đố thành công"));
-    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 10, "Crystals must NOT increase from same school");
+    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 100, "Crystals must NOT increase from same school");
 
     room.onDispose();
     console.log("✅ Test 3 Passed: Same school cannot guess or receive rewards twice!");
@@ -253,7 +253,7 @@ async function runTests() {
     const successC2 = clientC2.lastMessage("landmark_guess_result");
     assert.ok(successC2, "Student C2 should succeed");
     assert.strictEqual(successC2.payload.success, true);
-    assert.strictEqual(lm.crystalsBySchool.get("hcmcou"), 10, "HCMCOU received +10 crystals via Student C2");
+    assert.strictEqual(lm.crystalsBySchool.get("hcmcou"), 100, "HCMCOU received +100 crystals via Student C2");
 
     room.onDispose();
     console.log("✅ Test 4 Passed: Cooldown of 10 minutes is strictly per-student!");
@@ -290,7 +290,7 @@ async function runTests() {
     const resultD = clientD.lastMessage("landmark_guess_result");
     assert.ok(resultD, "Must receive guess result");
     assert.strictEqual(resultD.payload.success, true, "Guessing must succeed without path");
-    assert.strictEqual(lm.crystalsBySchool.get("dhhp"), 10);
+    assert.strictEqual(lm.crystalsBySchool.get("dhhp"), 100);
 
     room.onDispose();
     console.log("✅ Test 5 Passed: No path requirement for guessing landmark!");

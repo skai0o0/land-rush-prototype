@@ -14,6 +14,8 @@ export class MiniMap {
   private landmarkList: { x: number; y: number }[] = [];
   private claimedTilesRef: Map<string, any> = new Map();
   /** Dense owner bytes (1000x1000) from LandState sync — no 1e6 tile objects. */
+  private knowledgeSchools: ReadonlyMap<string, string[]> = new Map();
+  public setKnowledgeSchools(schools: ReadonlyMap<string, string[]>) { this.knowledgeSchools = schools; this.requestRedraw(); }
   private landOwnerBytes: Uint8Array | null = null;
   private playerHQ: { schoolId: string; x: number; y: number } | null = null;
   private unistopList: { id: string; tier: string; x: number; z: number }[] = [];
@@ -300,7 +302,12 @@ export class MiniMap {
           const o = owner[row + x];
           if (o === 0) continue;
           const schoolId = SCHOOL_IDS[o - 1];
-          ctx.fillStyle = getSchoolColor(schoolId || "");
+          const schools = this.knowledgeSchools.get(`${x},${y}`);
+          if (schools && schools.length > 1) {
+            const rgb = schools.map(school => parseInt(getSchoolColor(school).slice(1), 16));
+            const average = (shift: number) => Math.round(rgb.reduce((sum, color) => sum + ((color >> shift) & 255), 0) / rgb.length);
+            ctx.fillStyle = `rgb(${average(16)},${average(8)},${average(0)})`;
+          } else ctx.fillStyle = getSchoolColor(schoolId || "");
           const px = Math.floor(x * scale);
           const py = Math.floor(y * scale);
           ctx.fillRect(px, py, 2, 2);
@@ -382,6 +389,7 @@ export class MiniMap {
 
     // Chests: Small treasure boxes (Silver, Gold, Platinum)
     for (const chest of this.chestList) {
+      if (chest.isOpened) continue;
       const cx = chest.x * scale;
       const cy = chest.z * scale;
 

@@ -168,7 +168,7 @@ export class ModelLoader {
     group.add(bannerGroup);
     this.rotatingObjects.push(bannerGroup);
 
-    group.userData = { isHQ: true, schoolId, x, y, isFallback: true };
+    group.userData = { isHQ: true, schoolId, x, y, isFallback: true, foundationHeight: getTerrainHeight(x,y) };
     if (this.fogOfWar) {
       group.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
@@ -240,7 +240,7 @@ export class ModelLoader {
     group.add(lantern);
     this.rotatingObjects.push(lantern);
 
-    group.userData = { isLandmark: true, landmarkId, x, y, config, isFallback: true };
+    group.userData = { isLandmark: true, landmarkId, x, y, config, isFallback: true, foundationHeight: getTerrainHeight(group.position.x,group.position.z) };
     if (this.fogOfWar) {
       group.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
@@ -267,6 +267,7 @@ export class ModelLoader {
 
     try {
       const model = await this.loadGLB(url);
+      x = fallback.userData.x; y = fallback.userData.y;
       const h = getTerrainHeight(x, y);
 
       // HQ model scale: 1 unit in GLB = 1 unit in Three.js = 1 in-game tile (~20 tiles diameter)
@@ -329,7 +330,7 @@ export class ModelLoader {
       this.rotatingObjects = this.rotatingObjects.filter((obj) => obj.parent !== fallback);
 
       model.name = `HQ_${schoolId}`;
-      model.userData = { isHQ: true, schoolId, x, y };
+      model.userData = { isHQ: true, schoolId, x, y, foundationHeight: h };
       this.group.add(model);
       this.spawnedModels.set(`hq_${schoolId}`, model);
       console.log(`[ModelLoader] Swapped in GLB for HQ ${schoolId} at (${x}, ${y})`);
@@ -356,6 +357,7 @@ export class ModelLoader {
 
     try {
       const model = await this.loadGLB(url);
+      x = fallback.userData.x; y = fallback.userData.y;
       const targetW = config?.footprint.width || 14;
       const targetH = config?.footprint.height || 12;
       const cx = x + targetW * 0.5;
@@ -419,7 +421,7 @@ export class ModelLoader {
       this.rotatingObjects = this.rotatingObjects.filter((obj) => obj.parent !== fallback);
 
       model.name = `Landmark_${cleanId}`;
-      model.userData = { isLandmark: true, landmarkId, x, y, config };
+      model.userData = { isLandmark: true, landmarkId, x, y, config, foundationHeight: h };
       this.group.add(model);
       this.spawnedModels.set(`lm_${landmarkId}`, model);
       if (this.landmarkLitSchools.has(landmarkId)) {
@@ -528,6 +530,19 @@ export class ModelLoader {
     this.group.clear();
     this.spawnedModels.clear();
     this.rotatingObjects = [];
+  }
+
+  public relocate(kind: "hq" | "lm", id: string, x: number, y: number): void {
+    const model = this.spawnedModels.get(`${kind}_${id}`);
+    if (!model) return;
+    const oldX = model.userData.x, oldY = model.userData.y;
+    const dx = x - oldX, dy = y - oldY;
+    const oldHeight = model.userData.foundationHeight ?? getTerrainHeight(model.position.x, model.position.z);
+    model.position.x += dx; model.position.z += dy;
+    model.position.y += getTerrainHeight(model.position.x, model.position.z) - oldHeight;
+    model.userData.x = x; model.userData.y = y;
+    model.userData.foundationHeight = getTerrainHeight(model.position.x,model.position.z);
+    if (kind === "lm") this.setLandmarkBeacon(id, this.landmarkLitSchools.get(id) || "");
   }
 }
 

@@ -115,7 +115,7 @@ export class StudentBot {
 
     // Tìm ô hoang sơ tiếp giáp với bất kỳ ô nào thuộc sở hữu của trường
     for (const [_, tile] of claimed) {
-      if (tile.ownerId === schoolId) {
+      if (room.tileHasKnowledge(tile, schoolId)) {
         const neighbors = [
           { x: tile.x + 1, y: tile.y },
           { x: tile.x - 1, y: tile.y },
@@ -165,7 +165,7 @@ export class StudentBot {
     let targetTile: TileState | null = null;
 
     for (const [_, tile] of claimed) {
-      if (tile.ownerId === schoolId) {
+      if (room.tileHasKnowledge(tile, schoolId)) {
         if (!targetTile || tile.retention < targetTile.retention) {
           targetTile = tile;
           if (tile.retention < 80) break;
@@ -196,12 +196,9 @@ export class StudentBot {
    * Ghé trạm UniStop gần nhất, thực hiện lượt gacha nhận điểm, tinh thể, chìa khóa
    */
   public actionRollUniStop(room: CampusRoom): void {
-    const unistops = Array.from(room.state.unistops.values());
+    const unistops = Array.from(room.state.unistops.values()).filter(s => s.ownerSchoolId === this.config.schoolId);
     if (unistops.length > 0) {
       const stop = unistops[Math.floor(Math.random() * unistops.length)];
-      if (stop.cooldownUntil > Date.now()) {
-        stop.cooldownUntil = 0; // Đặt lại cooldown cho chu kỳ giả lập
-      }
       this.x = stop.x;
       this.y = stop.z;
       room.handleRollUniStop(this.client as any, { stopId: stop.id, x: stop.x, y: stop.z });
@@ -217,14 +214,6 @@ export class StudentBot {
    */
   public actionOpenChest(room: CampusRoom): void {
     let chest = Array.from(room.state.chests.values()).find((c) => !c.isOpened);
-    if (!chest) {
-      const allChests = Array.from(room.state.chests.values());
-      if (allChests.length > 0) {
-        chest = allChests[0];
-        chest.isOpened = false;
-        chest.openedBySchoolId = "";
-      }
-    }
 
     if (chest) {
       const player = room.state.players.get(this.config.id);
@@ -244,31 +233,24 @@ export class StudentBot {
 
   /**
    * Hành động 6 - Giải đố tên công trình:
-   * Thử đoán tên công trình gần đó bằng tên địa danh chuẩn hóa để nhận +10 tinh thể
+   * Thử đoán tên công trình gần đó bằng tên địa danh chuẩn hóa để nhận 10% mốc thắp
    */
   public actionGuessLandmark(room: CampusRoom): void {
     const schoolId = this.config.schoolId;
     const landmarks = Array.from(room.state.landmarks.values());
     const unguesseds = landmarks.filter((lm) => !lm.guessedSchools.get(schoolId));
-    const targetLm = unguesseds.length > 0 ? unguesseds[0] : landmarks[0];
+    const targetLm = unguesseds[0];
 
     if (targetLm) {
       const config = LANDMARK_ROSTER[targetLm.landmarkKey || targetLm.id];
       if (config) {
-        const player = room.state.players.get(this.config.id);
-        if (player) {
-          player.guessCooldowns.set(targetLm.id, 0);
-        }
-        if (targetLm.guessedSchools.get(schoolId)) {
-          targetLm.guessedSchools.set(schoolId, false);
-        }
         this.x = targetLm.x;
         this.y = targetLm.y;
         room.handleGuessLandmark(this.client as any, {
           landmarkId: targetLm.id,
           guess: config.name
         });
-        this.notifyAction(room, "guess", `🏛️ Đang giải đố ${config.name}`);
+        this.notifyAction(room, "guess", `🏛️ Đang giải đố công trình bí ẩn`);
       }
     } else {
       this.actionWalkRun(room);
@@ -284,27 +266,9 @@ export class StudentBot {
     const landmarks = Array.from(room.state.landmarks.values());
     if (landmarks.length > 0) {
       const lm = landmarks[0];
-      // Đảm bảo mở đường tới công trình nếu chưa có
       if (!room.hasPathToLandmark(schoolId, lm)) {
-        const px = Math.max(0, lm.x - 1);
-        const py = lm.y;
-        const key = `${px},${py}`;
-        let tile = room.state.claimedTiles.get(key);
-        if (!tile) {
-          tile = new TileState();
-          tile.x = px;
-          tile.y = py;
-          tile.ownerId = schoolId;
-          tile.hp = 100;
-          tile.maxHp = 100;
-          tile.retention = 100;
-          tile.maxRetention = 100;
-          tile.lastStudiedAt = Date.now();
-          room.state.claimedTiles.set(key, tile);
-        } else {
-          tile.ownerId = schoolId;
-        }
-        room.landData.writeTile(px, py, schoolId, tile.hp, tile.maxHp, tile.defenseTier);
+        this.actionExploreWild(room);
+        return;
       }
 
       const player = room.state.players.get(this.config.id);

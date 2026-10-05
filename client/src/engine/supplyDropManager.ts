@@ -5,6 +5,7 @@ import { applyFogOfWar } from "./fogOfWarShader";
 import type { FogOfWarManager } from "./fogOfWarManager";
 
 export interface UniStopData {
+  ownerSchoolId?: string;
   id: string;
   name: string;
   tier: UniStopTier;
@@ -306,6 +307,7 @@ export class SupplyDropManager {
     const tier = (data.tier || "aspire") as ChestTier;
     const h = getTerrainHeight(data.x, data.z);
     const chestGroup = new THREE.Group();
+    chestGroup.visible = !data.isOpened;
     chestGroup.name = `Chest_${data.id}`;
     const initialY = h + 0.65;
     chestGroup.position.set(data.x, initialY, data.z);
@@ -459,6 +461,7 @@ export class SupplyDropManager {
       entry.group.position.set(entry.data.x, entry.initialY, entry.data.z);
     }
 
+    entry.group.visible = !entry.data.isOpened;
     if (partial.isOpened !== undefined) {
       if (entry.data.isOpened) {
         // Open lid and fade
@@ -581,6 +584,7 @@ export class SupplyDropManager {
     let minDist = maxDist;
 
     for (const entry of this.chests.values()) {
+      if (entry.data.isOpened) continue;
       const dist = Math.hypot(x - entry.data.x, z - entry.data.z);
       if (dist <= minDist) {
         minDist = dist;

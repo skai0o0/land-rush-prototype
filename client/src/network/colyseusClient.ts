@@ -1,3 +1,4 @@
+import type { GameplayEvent } from "../../../shared/types/gameplay";
 import { Client, Room } from "colyseus.js";
 import * as THREE from "three";
 import { ChunkGridManager } from "../engine/chunkGridManager";
@@ -8,6 +9,8 @@ import { LANDMARK_ROSTER } from "../../../shared/constants/landmarks";
 import { PlayerRole, ProfileSyncMessage } from "../../../shared/types";
 import {
   registerLeveledZone,
+  clearLeveledZones,
+  getTerrainHeight,
   getFootprintFoundationHeight,
   isInsideLeveledZone,
   getTerrainColor
@@ -34,6 +37,7 @@ export interface NetworkCallbacks {
   onConnected?: (room: Room) => void;
   onDisconnected?: (code: number) => void;
   onStateChange?: (state: any) => void;
+  onCampaignRankings?: (counts: Record<string, number>) => void;
   onSchoolTroopsChange?: (schoolId: string, troops: number) => void;
   onTerritoryChange?: (territoryCounts: Record<string, number>) => void;
   onHQAdded?: (hq: { schoolId: string; x: number; y: number }) => void;
@@ -66,6 +70,7 @@ export interface NetworkCallbacks {
   onLandmarkGuessResult?: (data: any) => void;
   onTreasureMapReveal?: (data: { chestId: string; x: number; z: number; tier: string }) => void;
   onPointsConverted?: (points: number, crystals: number) => void;
+  onGameplayEvent?: (event: GameplayEvent) => void;
   onSharedZoneEvent?: (event: any) => void;
   onPlayerStateChange?: (player: any) => void;
   onGameNotification?: (data: { templateId: string; vars: Record<string, any>; category?: string }) => void;
@@ -83,6 +88,7 @@ export class ColyseusClient {
   public territoryCounts: Record<string, number> = {};
   /** Dense ownership bytes + sparse combat overlay (no 1e6 tile objects). */
   public readonly landSync = new ClientLandSync();
+  public knowledgeSchools = new Map<string, string[]>();
   private sharedZones = new Map<string, { isShared: boolean; sharedWithSchoolId: string; sharedExpiresAt: number }>();
   private lastJoinOptions: any = { schoolId: "hcmut" };
   private isReconnecting = false;
@@ -243,6 +249,10 @@ export class ColyseusClient {
           this.modelLoader.setLandmarkBonfire(lmKey, lm.litBySchoolId);
         }
 
+        const refreshPuzzle = () => this.callbacks.onLandmarkChange?.(lm);
+        for (const map of [lm.guessedSchools,lm.crystalsBySchool]) {
+          map?.onAdd?.(refreshPuzzle); map?.onChange?.(refreshPuzzle); map?.onRemove?.(refreshPuzzle);
+        }
         // Listen for ownership & bonfire changes on this landmark
         if (typeof lm.onChange === "function") {
           lm.onChange(() => {
@@ -325,6 +335,13 @@ export class ColyseusClient {
     // NOTE: claimedTiles is intentionally NOT networked (no @type on GameState).
     // Ownership/HP/defense paint and territory counts come from land frames only.
 
+    if (room.state.schoolKnowledgeTiles) {
+      const updateRank = () => this.callbacks.onCampaignRankings?.(Object.fromEntries(room.state.schoolKnowledgeTiles));
+      room.state.schoolKnowledgeTiles.onAdd(updateRank);
+      room.state.schoolKnowledgeTiles.onChange(updateRank);
+      room.state.schoolKnowledgeTiles.onRemove(updateRank);
+      updateRank();
+    }
     // Listen to School Troops
     if (room.state.schoolTroops && typeof room.state.schoolTroops.onAdd === "function") {
       room.state.schoolTroops.onAdd((troops: number, schoolId: string) => {
@@ -440,6 +457,30 @@ export class ColyseusClient {
 
     // Listen to Map Layout Updated broadcast
     room.onMessage("map_layout_updated", (data: any) => {
+      const oldBounds = [
+        ...collectedHQs.map(h=>expandRect(getHQRect(h.x,h.y))),
+        ...collectedLMs.map(l=>expandRect(getLandmarkRect(l.x,l.y,l.width,l.height)))
+      ];
+      clearLeveledZones(); collectedHQs.length=0; collectedLMs.length=0;
+      for (const h of data.hqs || []) {
+        const bounds=expandRect(getHQRect(h.x,h.y));
+        const height=getFootprintFoundationHeight(bounds.minX,bounds.maxX,bounds.minY,bounds.maxY);
+        registerLeveledZone(`hq_${h.schoolId}`,bounds.minX,bounds.maxX,bounds.minY,bounds.maxY,height);
+        collectedHQs.push({x:h.x,y:h.y});
+      }
+      for (const l of data.landmarks || []) {
+        const config=LANDMARK_ROSTER[l.landmarkKey || l.id];
+        const w=config.footprint.width,h=config.footprint.height;
+        const bounds=expandRect(getLandmarkRect(l.x,l.y,w,h));
+        const height=getFootprintFoundationHeight(bounds.minX,bounds.maxX,bounds.minY,bounds.maxY);
+        registerLeveledZone(`lm_${l.id}`,bounds.minX,bounds.maxX,bounds.minY,bounds.maxY,height);
+        collectedLMs.push({x:l.x,y:l.y,width:w,height:h});
+      }
+      const boundsToRefresh=[...oldBounds,...collectedHQs.map(h=>expandRect(getHQRect(h.x,h.y))),...collectedLMs.map(l=>expandRect(getLandmarkRect(l.x,l.y,l.width,l.height)))];
+      for (const b of boundsToRefresh) for (let x=b.minX;x<=b.maxX;x++) for (let y=b.minY;y<=b.maxY;y++) this.chunkGridManager.flattenArea(x,x,y,y,getTerrainHeight(x,y));
+      for (const h of data.hqs || []) this.modelLoader.relocate("hq",h.schoolId,h.x,h.y);
+      for (const l of data.landmarks || []) this.modelLoader.relocate("lm",l.landmarkKey || l.id,l.x,l.y);
+      triggerExclusionUpdate();
       if (this.callbacks.onMapLayoutUpdated) {
         this.callbacks.onMapLayoutUpdated(data);
       }
@@ -479,6 +520,25 @@ export class ColyseusClient {
     });
 
     // Listen to Tactical Events (Shared Knowledge Zones)
+    const receiveKnowledge = (tile: { x: number; y: number; schools: string[] }) => {
+      const key = `${tile.x},${tile.y}`;
+      const currentSchool = this.getTileOwnerSchoolId(tile.x, tile.y) || "";
+      if (tile.schools.length > 1 || (tile.schools[0] || "") !== currentSchool) this.knowledgeSchools.set(key, tile.schools);
+      else this.knowledgeSchools.delete(key);
+      this.rebuildTerritoryCountsFromLand();
+      this.triggerTerritoryUpdate();
+      this.paintLandTile({ x: tile.x, y: tile.y, owner: tile.schools.length ? SCHOOL_IDS.indexOf(tile.schools[0]) + 1 : 0 } as DirtyTileChange);
+    };
+    room.onMessage("knowledge_update", receiveKnowledge);
+    room.onMessage("knowledge_sync", (data: { tiles: { x: number; y: number; schools: string[] }[] }) => {
+      this.knowledgeSchools.clear();
+      this.paintAllOwnedTilesFromLand();
+      data.tiles.forEach(receiveKnowledge);
+    });
+    room.onMessage("gameplay_event", (event: GameplayEvent) => {
+      this.callbacks.onGameplayEvent?.(event);
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("gameplay_event", { detail: event }));
+    });
     room.onMessage("tactical_event", (data: any) => {
       if (data.type === "shared_zone_created") {
         this.sharedZones.set(`${data.x},${data.y}`, {
@@ -637,6 +697,9 @@ export class ColyseusClient {
     }
 
     for (const change of result.dirtyTiles) {
+      const key = `${change.x},${change.y}`;
+      const schools = this.knowledgeSchools.get(key);
+      if (schools && schools.length <= 1 && (schools[0] || "") === (SCHOOL_IDS[change.owner - 1] || "")) this.knowledgeSchools.delete(key);
       this.paintLandTile(change);
     }
 
@@ -682,12 +745,13 @@ export class ColyseusClient {
   }
 
   private paintLandTile(change: DirtyTileChange) {
-    if (change.owner === 0) {
+    const known = this.knowledgeSchools.get(`${change.x},${change.y}`);
+    if (known ? known.length === 0 : change.owner === 0) {
       this.chunkGridManager.resetTerrainColor(change.x, change.y);
       return;
     }
     const schoolId = SCHOOL_IDS[change.owner - 1];
-    const color = getSchoolColor(schoolId || "");
+    const color = this.knowledgeColor(change.x, change.y, schoolId || "");
     const baseTerrainHex = this.chunkGridManager ? this.chunkGridManager.getTerrainColor(change.x, change.y) : 0x4a7c59;
     const blendedColor = new THREE.Color(baseTerrainHex).lerp(new THREE.Color(color), this.territoryTintAlpha).getHex();
     this.chunkGridManager.setTileColor(change.x, change.y, blendedColor, this.isInitialSyncDone);
@@ -697,6 +761,16 @@ export class ColyseusClient {
     }
   }
 
+  private knowledgeColor(x: number, y: number, fallback: string): THREE.Color {
+    const schools = this.knowledgeSchools.get(`${x},${y}`) || [fallback];
+    const mixed = new THREE.Color(0, 0, 0);
+    for (const school of schools) mixed.add(new THREE.Color(getSchoolColor(school)));
+    return mixed.multiplyScalar(1 / Math.max(1, schools.length));
+  }
+  public hasSchoolKnowledge(x: number, y: number, school: string): boolean {
+    const schools = this.knowledgeSchools.get(`${x},${y}`);
+    return schools ? schools.includes(school) : this.getTileOwnerSchoolId(x, y) === school;
+  }
   /** Snapshot paint: walk dense bytes once, color only non-zero owners. */
   private paintAllOwnedTilesFromLand() {
     const owner = this.landSync.owner;
@@ -708,7 +782,7 @@ export class ColyseusClient {
         const o = owner[row + x];
         if (o === 0) continue;
         const schoolId = SCHOOL_IDS[o - 1];
-        const color = getSchoolColor(schoolId || "");
+        const color = this.knowledgeColor(x, y, schoolId || "");
         const baseTerrainHex = this.chunkGridManager ? this.chunkGridManager.getTerrainColor(x, y) : 0x4a7c59;
         const blendedColor = new THREE.Color(baseTerrainHex).lerp(new THREE.Color(color), this.territoryTintAlpha).getHex();
         this.chunkGridManager.setTileColor(x, y, blendedColor, false);
@@ -728,6 +802,12 @@ export class ColyseusClient {
       const o = Number(key);
       const schoolId = SCHOOL_IDS[o - 1];
       if (schoolId) next[schoolId] = counts[o];
+    }
+    for (const [key, schools] of this.knowledgeSchools) {
+      const [x, y] = key.split(",").map(Number);
+      const projected = this.getTileOwnerSchoolId(x, y);
+      if (projected) next[projected] = Math.max(0, (next[projected] || 0) - 1);
+      for (const school of schools) next[school] = (next[school] || 0) + 1;
     }
     this.territoryCounts = next;
   }
@@ -772,24 +852,8 @@ export class ColyseusClient {
 
   /** Shared knowledge zone (Ô Tri Thức Chung) info via real-time tracker or schema fallback. */
   public getTileSharedInfo(x: number, y: number): { isShared: boolean; sharedWithSchoolId?: string; sharedExpiresAt?: number } | undefined {
-    const key = `${x},${y}`;
-    const tracked = this.sharedZones.get(key);
-    if (tracked) {
-      if (tracked.sharedExpiresAt && Date.now() >= tracked.sharedExpiresAt) {
-        this.sharedZones.delete(key);
-        return undefined;
-      }
-      return tracked;
-    }
-    const schemaTile = this.getSchemaTile(x, y);
-    if (schemaTile && schemaTile.isShared) {
-      return {
-        isShared: true,
-        sharedWithSchoolId: schemaTile.sharedWithSchoolId,
-        sharedExpiresAt: schemaTile.sharedExpiresAt
-      };
-    }
-    return undefined;
+    const schools = this.knowledgeSchools.get(`${x},${y}`);
+    return schools && schools.length > 1 ? { isShared: true, sharedWithSchoolId: schools.join(", "), sharedExpiresAt: 0 } : undefined;
   }
 
   /** True if any 4-neighbour is owned by schoolId (land overlay first). */
@@ -801,7 +865,7 @@ export class ColyseusClient {
       [x, y - 1]
     ];
     for (const [nx, ny] of neighbors) {
-      if (this.getTileOwnerSchoolId(nx, ny) === schoolId) return true;
+      if (this.hasSchoolKnowledge(nx, ny, schoolId)) return true;
     }
     return false;
   }

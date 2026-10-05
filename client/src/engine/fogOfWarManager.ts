@@ -323,14 +323,26 @@ export class FogOfWarManager {
     }
   }
 
+  public resetVision(): void {
+    this.revealedState.fill(0); this.revealTimeState.fill(0); this.revealedCount = 0;
+    this.textureNeedsUpdate = true; this.revealTimeNeedsUpdate = true;
+    this.onExplorationChanged?.(this.getExplorationStats());
+  }
+
   public revealLandmarks(
-    landmarks: { x: number; y: number; width?: number; height?: number }[]
+    landmarks: { x: number; y: number; width?: number; height?: number; solved?: boolean }[]
   ): void {
     for (const lm of landmarks) {
       const w = lm.width || 14;
       const h = lm.height || 12;
-      const bounds = expandRect(getLandmarkRect(lm.x, lm.y, w, h));
-      this.revealRect(bounds.minX, bounds.minY, bounds.maxX, bounds.maxY, false);
+      if (lm.solved) {
+        this.revealRect(lm.x, lm.y, lm.x + w - 1, lm.y + h - 1, false);
+      } else {
+        // Reveal a central strip, about 10% of the footprint, as the visual clue.
+        const stripWidth = Math.max(1, Math.floor(w / 10));
+        const startX = lm.x + Math.floor((w - stripWidth) / 2);
+        this.revealRect(startX, lm.y, startX + stripWidth - 1, lm.y + h - 1, false);
+      }
     }
   }
 

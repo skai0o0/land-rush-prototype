@@ -130,9 +130,10 @@ export interface MapLandmarkPlacement {
 }
 
 export interface MapUniStopPlacement {
+  ownerSchoolId?: string;
   id: string;
   name?: string;
-  tier: 'aspire' | 'nitro' | 'predator';
+  tier?: 'aspire' | 'nitro' | 'predator';
   x: number;
   z?: number;
   y?: number;
@@ -140,7 +141,7 @@ export interface MapUniStopPlacement {
 
 export interface MapChestPlacement {
   id: string;
-  tier: 'aspire' | 'nitro' | 'predator';
+  tier?: 'aspire' | 'nitro' | 'predator';
   x: number;
   z?: number;
   y?: number;
@@ -161,6 +162,7 @@ export interface ProfileSyncMessage {
   studentId: string;
   points: number;       // điểm khả dụng (availablePoints)
   totalPoints: number;  // tổng điểm từ running provider
+  gamePointsEarned?: number;
   pointsSpent: number;
   crystals: number;
   aspireKeys: number;

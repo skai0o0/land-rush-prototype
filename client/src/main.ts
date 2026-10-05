@@ -1,3 +1,4 @@
+import { BEACON_CRYSTALS } from "../../shared/constants/gameplay";
 import * as THREE from "three";
 import { ChunkGridManager } from "./engine/chunkGridManager";
 import { NatureGridManager } from "./engine/natureGridManager";
@@ -13,6 +14,7 @@ import { StatsOverlay } from "./ui/statsOverlay";
 import { StudentActionDock, ACTION_MODES, ActionMode } from "./ui/studentActionDock";
 import { TileTooltip } from "./ui/tileTooltip";
 import { MiniMap } from "./ui/miniMap";
+import { MapEditorPanel } from "./ui/mapEditorPanel";
 import { DevToolsPanel } from "./ui/devToolsPanel";
 import { DatabaseModal } from "./ui/databaseModal";
 import { LandmarkModal, LandmarkModalData } from "./ui/landmarkModal";
@@ -22,6 +24,7 @@ import { NotificationStudioModal } from "./ui/notificationStudioModal";
 import { DEFAULT_NOTIFICATIONS, formatNotificationText, getNotificationTemplate } from "../../shared/constants/notifications";
 import { RunningDatabase } from "./services/runningDatabase";
 import { PlayerRole, GameMode } from "../../shared/types";
+import { LANDMARK_HINTS } from "../../shared/constants/landmarkPuzzle";
 import { LANDMARK_ROSTER } from "../../shared/constants/landmarks";
 import { SCHOOL_ROSTER, SCHOOL_IDS, getSchoolIdFromEmail } from "../../shared/constants/schools";
 import { getTerrainType } from "./engine/terrainNoise";
@@ -347,7 +350,7 @@ async function bootstrap() {
     }
 
     const curCrystals = targetLM.currentCrystals !== undefined ? targetLM.currentCrystals : (targetLM.currentFuel || 0);
-    const maxCrystals = targetLM.maxCrystals || 100;
+    const maxCrystals = targetLM.maxCrystals || BEACON_CRYSTALS;
 
     let guessCooldownUntil = 0;
     const targetKey = targetLM.id || lmKey;
@@ -372,6 +375,7 @@ async function bootstrap() {
     const data: LandmarkModalData = {
       landmarkId: targetLM.id || lmKey,
       landmarkKey: lmKey,
+      hint: LANDMARK_HINTS[lmKey],
       name,
       category,
       footprint,
@@ -478,7 +482,7 @@ async function bootstrap() {
       colyseusClient.contributeCrystal(landmarkId, amount);
 
       const lmConf = LANDMARK_ROSTER[landmarkId] || LANDMARK_ROSTER[landmarkId.replace(/^landmark_/, "")];
-      const lmName = lmConf?.name || landmarkId;
+      const lmName = "Công trình";
       showActionToast(`Đã nạp +${amount} Tinh thể vào ${lmName}!`);
 
       setTimeout(() => {
@@ -609,6 +613,25 @@ async function bootstrap() {
       durationMs: 60000
     });
   }
+
+  const mapEditor = new MapEditorPanel({
+    onFocusItem: item => sceneManager.panTo(item.x, item.y, {duration:0.6}),
+    onItemRelocated: () => showActionToast("Đã sửa bản nháp. Bấm áp dụng để lưu bố trí."),
+    onApplyToServer: layout => colyseusClient.updateMapLayout(layout),
+    onImportLayout: layout => mapEditor.updateData(layout.hqs || [],layout.landmarks || [],layout.unistops || [],layout.chests || []),
+    onNotification: (message,type) => showActionToast(message,type === "info" ? "success" : type || "success")
+  });
+  const editorButton = document.createElement("button");
+  editorButton.textContent="Map Editor";
+  editorButton.setAttribute("data-ui","true");
+  editorButton.style.cssText="position:fixed;right:18px;top:100px;z-index:1000;padding:8px;color:#00ffe8;background:#0f172a;border:1px solid #00ffe8;border-radius:6px;cursor:pointer";
+  editorButton.onclick=()=>{
+    const s=colyseusClient?.room?.state;
+    if (!s) return;
+    mapEditor.updateData(Array.from(s.hqs.values()) as any[],Array.from(s.landmarks.values()) as any[],Array.from(s.unistops.values()) as any[],Array.from(s.chests.values()) as any[]);
+    mapEditor.toggle();
+  };
+  if (currentGameMode === "dev") appEl.appendChild(editorButton);
 
   // 3. Initialize DevTools Dropdown
   devTools = new DevToolsPanel(
@@ -766,7 +789,7 @@ async function bootstrap() {
 
     // 2. Reveal All 10 Landmarks
     if (s.landmarks) {
-      const lmsToReveal: { x: number; y: number; width?: number; height?: number }[] = [];
+      const lmsToReveal: { x: number; y: number; width?: number; height?: number; solved?: boolean }[] = [];
       s.landmarks.forEach((lm: any, key: string) => {
         if (lm && typeof lm.x === "number" && typeof lm.y === "number") {
           const lmKey = lm.landmarkKey || lm.id || key;
@@ -775,7 +798,8 @@ async function bootstrap() {
             x: lm.x,
             y: lm.y,
             width: conf?.footprint?.width || 14,
-            height: conf?.footprint?.height || 12
+            height: conf?.footprint?.height || 12,
+            solved: !!lm.guessedSchools?.get(playerSchoolId)
           });
         }
       });
@@ -842,6 +866,25 @@ async function bootstrap() {
           miniMap.setPlayerHQ(playerSchoolId, hq.x, hq.y);
         }
       },
+      onMapLayoutUpdated: layout => {
+        fogOfWarManager.resetVision();
+        miniMap.setStaticFeatures(layout.hqs || [],layout.landmarks || []);
+        miniMap.setUniStops(layout.unistops || []);miniMap.setChests(layout.chests || []);
+        for (const stop of layout.unistops || []) supplyDropManager.updateUniStop(stop.id,stop);
+        for (const chest of layout.chests || []) supplyDropManager.updateChest(chest.id,chest);
+        for (const hq of layout.hqs || []) schoolHQMap.set(hq.schoolId,{x:hq.x,y:hq.y});
+        fogOfWarManager.revealHQs(layout.hqs || []);
+        fogOfWarManager.revealLandmarks((layout.landmarks || []).map((lm:any)=>({...lm,...LANDMARK_ROSTER[lm.landmarkKey]?.footprint,solved:!!colyseusClient.room?.state.landmarks.get(lm.id)?.guessedSchools?.get(playerSchoolId)})));
+        fogOfWarManager.syncAllClaimedTiles(colyseusClient.landSync.owner);
+        const ownHQ=(layout.hqs || []).find((h:any)=>h.schoolId===playerSchoolId);
+        if (ownHQ) {
+          playerHQCoords={x:ownHQ.x,y:ownHQ.y};
+          sceneManager.setPlayerHQBeacon(ownHQ.x,ownHQ.y,SCHOOL_ROSTER[playerSchoolId]?.accentHex || "#1488D8");
+          miniMap.setPlayerHQ(playerSchoolId,ownHQ.x,ownHQ.y);
+        }
+        mapEditor.updateData(layout.hqs || [],layout.landmarks || [],layout.unistops || [],layout.chests || []);
+        showActionToast("Đã cập nhật bố trí và footprint gameplay.","success");
+      },
       onLandmarkAdded: (lm) => {
         updateMiniMapStatic();
         if (lm) {
@@ -896,7 +939,7 @@ async function bootstrap() {
         const sc = SCHOOL_ROSTER[data.schoolId];
         const lmConf = LANDMARK_ROSTER[data.landmarkId] || LANDMARK_ROSTER[data.landmarkId.replace(/^landmark_/, "")];
         showActionToast(
-          `⚡ ${sc ? sc.name : data.schoolId.toUpperCase()} đã THẮP SÁNG ĐÈN HIỆU ${lmConf ? lmConf.name : data.landmarkId}!`
+          `⚡ ${sc ? sc.name : data.schoolId.toUpperCase()} đã THẮP SÁNG ĐÈN HIỆU Công trình!`
         );
         landmarkModal.onBeaconLit(data);
         updateSchoolLitLandmarksCount();
@@ -916,14 +959,14 @@ async function bootstrap() {
       onLandmarkGuessed: (data) => {
         const sc = SCHOOL_ROSTER[data.schoolId];
         const schoolName = sc ? sc.name : data.schoolId.toUpperCase();
-        showActionToast(`🎉 ${schoolName} đã giải đố thành công ${data.landmarkName}! (+${data.bonusCrystals || 10} Tinh thể)`, "success");
+        showActionToast(`🎉 ${schoolName} đã giải đố thành công ${data.landmarkName}! (+${data.bonusCrystals || 0} Tinh thể)`, "success");
         if (landmarkModal.isVisible() && landmarkModal.getCurrentLandmarkId() === data.landmarkId) {
           openLandmarkModalFor(data.landmarkId);
         }
       },
       onLandmarkGuessResult: (data) => {
         if (data.success) {
-          showActionToast(`Đoán chính xác! Thưởng +${data.crystalsAwarded || 10} Tinh thể cho trường bạn!`, "success");
+          showActionToast(`Đoán chính xác! Thưởng +${data.crystalsAwarded || 0} Tinh thể cho trường bạn!`, "success");
         } else {
           showActionToast("Câu trả lời chưa chính xác! Thời gian chờ đoán lại là 10 phút.", "warning");
           if (data.cooldownUntil) {
@@ -1085,6 +1128,7 @@ async function bootstrap() {
         showActionToast(`🎁 Chúc mừng ${data.displayName || data.studentEmail || data.schoolId.toUpperCase()} vừa trúng QUÀ THẬT: ${data.item?.name}!`, "success");
       },
       onLandmarkChange: (lm) => {
+        revealAllHQsAndLandmarks(colyseusClient?.room?.state);
         const lmId = lm.id || lm.landmarkKey;
         if (landmarkModal.isVisible() && landmarkModal.getCurrentLandmarkId() === lmId) {
           openLandmarkModalFor(lmId);
@@ -1098,20 +1142,13 @@ async function bootstrap() {
       onPointsConverted: (pts, crystals) => {
         showActionToast(`Quy đổi thành công: ${pts} Điểm Tri Thức ➔ +${crystals} Tinh Thể!`, "success");
       },
-      onSharedZoneEvent: (event) => {
-        if (event.type === "shared_zone_created") {
-          const isMe = event.sharedWithSchoolId === playerSchoolId;
-          const sc = SCHOOL_ROSTER[event.sharedWithSchoolId];
-          const name = sc?.shortName || event.sharedWithSchoolId?.toUpperCase();
-          showActionToast(`⚠️ Ô tri thức chung (${event.x}, ${event.y}) bắt đầu đếm ngược chuyển giao cho ${name}!`, isMe ? "success" : "warning");
-        } else if (event.type === "shared_zone_rebuffed") {
-          showActionToast(`🛡️ Ô tri thức (${event.x}, ${event.y}) đã được trường sở hữu ôn bài an toàn!`, "success");
-        } else if (event.type === "shared_zone_captured") {
-          showActionToast(`🏆 Ô tri thức (${event.x}, ${event.y}) đã hết hạn và chuyển giao quyền kiểm soát!`, "warning");
+      onGameplayEvent: (event) => {
+        if (event.type === "knowledge.added" && event.payload.shared) {
+          showActionToast(`Ô tri thức chung (${event.payload.x}, ${event.payload.y}) đã có thêm tri thức của ${event.payload.schoolId}!`, "success");
         }
       },
+      onCampaignRankings: counts => statsOverlay.updateSchoolRankings(counts),
       onSchoolTroopsChange: (schoolId, troops) => {
-        statsOverlay.updateSchoolPoints(schoolId, troops);
         // Sinh viên không nhận điểm tự động theo thời gian, điểm lấy từ database giải chạy!
         if (playerEmail || currentGameMode === "normal") {
           return;
@@ -1122,6 +1159,7 @@ async function bootstrap() {
         }
       },
       onTerritoryChange: (territoryCounts) => {
+        miniMap.setKnowledgeSchools(colyseusClient.knowledgeSchools);
         statsOverlay.updateTerritory(territoryCounts);
         miniMap.setLandOwnerBytes(colyseusClient.landSync.owner);
       },
@@ -1216,7 +1254,7 @@ async function bootstrap() {
     colyseusClient.selectSchool(schoolId);
     if (colyseusClient.room) {
       if (!playerEmail) {
-        const troops = colyseusClient.room.state.schoolTroops.get(schoolId) || 0;
+        const troops = colyseusClient.currentProfile?.points ?? userPoints;
         userPoints = troops;
         statsOverlay.updateTroops(troops);
       }
@@ -1257,7 +1295,7 @@ async function bootstrap() {
       if (x >= lm.x && x < lm.x + w && y >= lm.y && y < lm.y + h) {
         found = {
           config: conf,
-          name: conf?.name || lm.landmarkKey,
+          name: lm.guessedSchools?.get(playerSchoolId) ? (conf?.name || "Công trình") : "Công trình bí ẩn",
           landmarkId: lm.id || lm.landmarkKey,
           landmarkKey: lm.landmarkKey,
           state: lm
@@ -1335,12 +1373,12 @@ async function bootstrap() {
     const ownerConfig = resolvedOwnerId ? SCHOOL_ROSTER[resolvedOwnerId] : null;
     const ownerSchoolName = ownerConfig ? ownerConfig.name : (landmarkName ? "Cứ điểm Trung Lập" : null);
     const ownerColor = ownerConfig ? ownerConfig.colorHex : undefined;
-    const isOwnedByMe = resolvedOwnerId === playerSchoolId;
+    const isOwnedByMe = colyseusClient.hasSchoolKnowledge(x, y, playerSchoolId);
     const isEnemyControlled = !!resolvedOwnerId && resolvedOwnerId !== "" && !isOwnedByMe;
     const isAdjacent = isAdjacentToSchool(x, y, playerSchoolId);
     const isExchangeZone = isEnemyControlled && isAdjacent;
 
-    const cost = 1;
+    const cost = isEnemyControlled ? 3 : 1;
     const hp = landCombat?.hp;
     const maxHp = landCombat?.maxHp;
     const defenseTier = landCombat?.defenseTier;
@@ -1350,12 +1388,12 @@ async function bootstrap() {
     let litBySchoolName: string | null = null;
     let litBySchoolColor: string | undefined = undefined;
     let currentFuel = 0;
-    let maxFuel = 500;
+    let maxFuel = BEACON_CRYSTALS;
     let isLit = false;
 
     if (landmarkState) {
       currentFuel = landmarkState.currentFuel || 0;
-      maxFuel = landmarkState.maxFuel || 500;
+      maxFuel = landmarkState.maxFuel || BEACON_CRYSTALS;
       if (landmarkState.litBySchoolId && landmarkState.litBySchoolId !== "") {
         isLit = true;
         const litSc = SCHOOL_ROSTER[landmarkState.litBySchoolId];
@@ -1396,7 +1434,7 @@ async function bootstrap() {
           maxHp,
           defenseTier,
           isCore,
-          buffDescription: landmarkConfig?.buffDescription,
+          buffDescription: landmarkState?.guessedSchools?.get(playerSchoolId) ? landmarkConfig?.buffDescription : undefined,
           category: landmarkConfig?.category,
           isFogCovered: !isRevealed,
           isLandmark: !!landmarkName,
@@ -1419,7 +1457,7 @@ async function bootstrap() {
   // Evaluate smart context for a given tile
   function evaluateTileContext(x: number, y: number, modeOverride?: ActionMode) {
     const ownerSchool = colyseusClient.getTileOwnerSchoolId(x, y);
-    const isOwnedByMe = ownerSchool === playerSchoolId;
+    const isOwnedByMe = colyseusClient.hasSchoolKnowledge(x, y, playerSchoolId);
     const isOwnedByEnemy = !!ownerSchool && ownerSchool !== "" && !isOwnedByMe;
     const isEnemyControlled = isOwnedByEnemy;
     const isAdjacent = isAdjacentToSchool(x, y, playerSchoolId);
@@ -1471,14 +1509,14 @@ async function bootstrap() {
         reasonDisabled = `Không đủ điểm! Cần ${cost} điểm (points) để khám phá`;
       }
     } else if (mode === "study") {
-      cost = ACTION_MODES.study.cost;
+      cost = isEnemyControlled ? 3 : ACTION_MODES.study.cost;
       title = "Ôn bài & Giao lưu tri thức";
       if (isOwnedByMe) {
         actionTitle = `ÔN BÀI (${cost}đ)`;
         description = "Ôn bài tăng Độ bền tri thức (Retention) cho ô trường bạn";
       } else if (isEnemyControlled) {
         actionTitle = `GIAO LƯU TRI THỨC (${cost}đ)`;
-        description = `Giao lưu tri thức làm xói mòn retention của ${ownerConfig?.shortName || ownerSchool?.toUpperCase() || "đối thủ"}`;
+        description = "Thêm tri thức của trường bạn vào ô chung; mỗi trường ôn bài độc lập";
         if (!isAdjacent) {
           canExecute = false;
           reasonDisabled = "Chỉ có thể giao lưu tại các ô tiếp giáp với trường bạn";
@@ -1609,6 +1647,7 @@ async function bootstrap() {
   sceneManager.onTileClick = (event: TileClickEvent) => {
     if (isSessionReplaced) return;
     const { x, y } = event;
+    if (mapEditor.isRelocating()) { mapEditor.completeRelocate(x,y); return; }
 
     // Direct click on any 3D Student Bot focuses and spectates that bot!
     const nearbyBot = botVisualManager.getAllBots().find((b) => Math.hypot(b.x - x, b.y - y) <= 2.5);
@@ -1765,16 +1804,16 @@ async function bootstrap() {
         : `Đã kết nối Colyseus Server [Dev Mode: ${playerSchoolId.toUpperCase()}]`
     );
 
-    // Initialize school rankings by Points
-    if (room.state.schoolTroops) {
-      room.state.schoolTroops.forEach((pts: number, sId: string) => {
+    // Initialize campaign rankings by explored knowledge tiles
+    if (room.state.schoolKnowledgeTiles) {
+      room.state.schoolKnowledgeTiles.forEach((pts: number, sId: string) => {
         statsOverlay.updateSchoolPoints(sId, pts);
       });
     }
 
     // Update initial troop points (Only if NOT logged in as a student)
     if (!playerEmail && currentGameMode === "dev") {
-      const troops = room.state.schoolTroops.get(playerSchoolId) || 500;
+      const troops = colyseusClient.currentProfile?.points ?? userPoints;
       userPoints = troops;
       statsOverlay.updateTroops(troops);
     } else {

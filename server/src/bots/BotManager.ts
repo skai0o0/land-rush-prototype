@@ -1,3 +1,4 @@
+import { initializeKnowledge, studyKnowledge } from "../gameplay/knowledge";
 import { GameState, TileState } from "../schema/GameState";
 import { SCHOOL_IDS } from "../../../shared/constants/schools";
 import { LANDMARK_ROSTER } from "../../../shared/constants/landmarks";
@@ -53,7 +54,7 @@ export class BotManager {
       if (nx < 0 || nx >= 1000 || ny < 0 || ny >= 1000) continue;
       const key = `${nx},${ny}`;
       const existing = state.claimedTiles.get(key);
-      if (!existing || existing.ownerId !== schoolId) {
+      if (!existing || !(existing.knowledgeInitialized ? existing.knowledge.has(schoolId) : existing.ownerId === schoolId)) {
         frontier.add(key);
       }
     }
@@ -69,7 +70,7 @@ export class BotManager {
     for (const [nx, ny] of neighbors) {
       if (nx < 0 || nx >= 1000 || ny < 0 || ny >= 1000) continue;
       const nTile = state.claimedTiles.get(`${nx},${ny}`);
-      if (nTile && nTile.ownerId === schoolId) {
+      if (nTile && (nTile.knowledgeInitialized ? nTile.knowledge.has(schoolId) : nTile.ownerId === schoolId)) {
         return true;
       }
     }
@@ -87,7 +88,7 @@ export class BotManager {
     for (const [nx, ny] of neighbors) {
       if (nx < 0 || nx >= 1000 || ny < 0 || ny >= 1000) continue;
       const nTile = state.claimedTiles.get(`${nx},${ny}`);
-      if (nTile && nTile.ownerId === schoolId) {
+      if (nTile && (nTile.knowledgeInitialized ? nTile.knowledge.has(schoolId) : nTile.ownerId === schoolId)) {
         hasFriendly = true;
         break;
       }
@@ -168,7 +169,7 @@ export class BotManager {
           } else {
             score = 0; // Not enough troops to contest landmark
           }
-        } else if (existing && existing.ownerId !== schoolId) {
+        } else if (existing && !(existing.knowledgeInitialized ? existing.knowledge.has(schoolId) : existing.ownerId === schoolId)) {
           // Normal enemy tile
           if (troops >= 15) {
             // Lower HP = higher score
@@ -210,54 +211,16 @@ export class BotManager {
             room?.handleBotContributeFuel?.(schoolId, lmKey, 20);
           }
         }
-      } else if (existing && existing.ownerId !== schoolId) {
+      } else if (existing && !(existing.knowledgeInitialized ? existing.knowledge.has(schoolId) : existing.ownerId === schoolId)) {
         // Normal enemy overlap tile: Study (Giao lưu tri thức)
         if (troops >= 10) {
-          state.schoolTroops.set(schoolId, troops - 10);
           if (typeof room?.handleBotStudy === "function") {
-            room.handleBotStudy(schoolId, tx, ty, 1);
+            room.handleBotStudy(schoolId, tx, ty, 3);
           } else {
-            // Fallback for tests using mock room
-            const prev = existing.studyCountBySchool.get(schoolId) || 0;
-            existing.studyCountBySchool.set(schoolId, prev + 1);
-            existing.retention = Math.max(0, existing.retention - 10);
-            existing.hp = existing.retention;
-            if (existing.retention <= 0) {
-              const oldOwner = existing.ownerId;
-              if (oldOwner) {
-                this.removeOwnedTile(oldOwner, tx, ty, state);
-                if (room?.clusterEngine) {
-                  room.clusterEngine.setTile(tx, ty, 0, 0, 0);
-                  const nbors = [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]];
-                  for (const [nx, ny] of nbors) {
-                    if (nx >= 0 && nx < 1000 && ny >= 0 && ny < 1000) {
-                      room.handleClusterUpdate?.(oldOwner, nx, ny);
-                    }
-                  }
-                }
-              }
-              existing.ownerId = schoolId;
-              existing.retention = 60;
-              existing.hp = 60;
-              existing.maxHp = 100;
-              existing.defenseTier = 0;
-              this.addOwnedTile(schoolId, tx, ty, state);
-              room?.syncLandTile?.(tx, ty, schoolId, existing.hp, existing.maxHp, existing.defenseTier);
-
-              if (room?.clusterEngine) {
-                const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(schoolId) : 0;
-                room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
-                if (typeof room.handleClusterUpdate === "function") {
-                  room.handleClusterUpdate(schoolId, tx, ty);
-                }
-              }
-            } else {
-              room?.syncLandTile?.(tx, ty, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
-              if (room?.clusterEngine && existing.ownerId) {
-                const numId = typeof room.getSchoolNumericId === "function" ? room.getSchoolNumericId(existing.ownerId) : 0;
-                room.clusterEngine.setTile(tx, ty, numId, existing.defenseTier, existing.hp);
-              }
-            }
+            state.schoolTroops.set(schoolId, troops - 3);
+            studyKnowledge(existing, schoolId, 3, Date.now());
+            this.addOwnedTile(schoolId, tx, ty, state);
+            room?.syncLandTile?.(tx, ty, existing.ownerId, existing.hp, existing.maxHp, existing.defenseTier);
           }
         }
       } else if (!existing) {
@@ -276,6 +239,7 @@ export class BotManager {
           newTile.lastStudiedAt = Date.now();
           newTile.studyCountBySchool.set(schoolId, 1);
 
+          initializeKnowledge(newTile, Date.now());
           state.claimedTiles.set(bestKey, newTile);
           this.addOwnedTile(schoolId, tx, ty, state);
           room?.syncLandTile?.(tx, ty, schoolId, newTile.hp, newTile.maxHp, newTile.defenseTier);

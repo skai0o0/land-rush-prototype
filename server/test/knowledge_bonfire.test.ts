@@ -1,3 +1,4 @@
+import { studyKnowledge, retentionAt, pruneKnowledge, initializeKnowledge } from "../src/gameplay/knowledge";
 process.env.ALLOW_DEV = "true";
 import * as assert from "assert";
 import { CampusRoom } from "../src/rooms/CampusRoom";
@@ -42,8 +43,8 @@ async function runTests() {
   const clientA = new MockClient("session_hcmut");
   const clientB = new MockClient("session_dtu");
 
-  room.onJoin(clientA as any, { email: "sv1@hcmut.edu.vn", schoolId: "hcmut", points: 1000 });
-  room.onJoin(clientB as any, { email: "sv2@dtu.edu.vn", schoolId: "dtu", points: 1000 });
+  room.onJoin(clientA as any, { email: "sv1@hcmut.edu.vn", schoolId: "hcmut", points: 10000 });
+  room.onJoin(clientB as any, { email: "sv2@dtu.edu.vn", schoolId: "dtu", points: 10000 });
 
   const playerA = room.state.players.get("session_hcmut")!;
   const playerB = room.state.players.get("session_dtu")!;
@@ -97,67 +98,51 @@ async function runTests() {
     room.state.claimedTiles.set("500,502", tEnemy);
     room.landData.setOwner(500, 502, "dtu");
 
-    // Old behavior: claim deals HP damage.
-    // New Requirement 1: Direct attack is REMOVED! Must return error guiding to studyTile.
-    clientA.clear();
-    (room as any).handleClaimAction(clientA, { x: 500, y: 502 }, "claim");
-    const err = clientA.lastMessage("error");
-    assert.ok(err, "Must send error rejecting direct attack on owned tile");
-    assert.ok(err?.payload.message.includes("Không thể tấn công trực tiếp"), "Error message must guide to studyTile");
-    assert.strictEqual(tEnemy.ownerId, "dtu", "Owner must not change via direct claim");
-    assert.strictEqual(tEnemy.retention, 100, "Retention must not be damaged via claim");
-    console.log("✅ Test 1 Passed: Wild tiles claimable, direct attack removed!");
-  }
-
-  console.log("\n[Test 2] Knowledge Overlap & studyTile mechanics (Shared Zone)");
-  {
-    const tFriendly = room.state.claimedTiles.get("500,500")!;
-    tFriendly.retention = 60;
-    const oldStudiedAt = tFriendly.lastStudiedAt;
-
-    clientA.clear();
-    room.handleStudyAction(clientA as any, { x: 500, y: 500, points: 2 });
-    assert.strictEqual(tFriendly.retention, 90, "Retention should increase by 2 * 15 = 30");
-    assert.ok(tFriendly.lastStudiedAt >= oldStudiedAt, "lastStudiedAt should update");
-
-    const tOverlap = room.state.claimedTiles.get("500,502")!;
-    tOverlap.retention = 50;
-
-    clientA.clear();
+    const before = playerA.personalTroops;
+    room.handleClaimAction(clientA as any, { x: 500, y: 502 }, "claim");
+    assert.strictEqual(playerA.personalTroops, before - 3, "Exchange costs 3 points");
+    assert.ok(tEnemy.knowledge.has("hcmut") && tEnemy.knowledge.has("dtu"));
+    assert.strictEqual(tEnemy.knowledge.get("dtu")!.retention, 100, "Exchange never damages existing knowledge");
+    assert.strictEqual(tEnemy.sharedExpiresAt, 0, "No capture deadline");
+    const dtuTimestamp = tEnemy.knowledge.get("dtu")!.lastStudiedAt;
     room.handleStudyAction(clientA as any, { x: 500, y: 502, points: 2 });
-    assert.strictEqual(tOverlap.isShared, true, "Tile must become shared zone");
-    assert.strictEqual(tOverlap.sharedWithSchoolId, "hcmut", "Must be shared with HCMUT");
-    assert.ok(tOverlap.sharedExpiresAt > Date.now(), "Shared zone expiration must be set");
-
-    clientB.clear();
+    assert.strictEqual(tEnemy.knowledge.get("dtu")!.lastStudiedAt, dtuTimestamp);
     room.handleStudyAction(clientB as any, { x: 500, y: 502, points: 2 });
-    assert.strictEqual(tOverlap.isShared, false, "Rebuffed shared zone");
-    assert.strictEqual(tOverlap.sharedWithSchoolId, "", "Rebuffed shared zone");
-
-    clientA.clear();
-    room.handleStudyAction(clientA as any, { x: 999, y: 999, points: 1 });
-    const nonAdjErr = clientA.lastMessage("error");
-    assert.ok(nonAdjErr, "Non-adjacent study must be rejected");
-
-    console.log("-> Test 2 Passed");
+    assert.ok(tEnemy.isShared, "Original school studying never ejects other schools");
+    // The second school's presence supplies adjacency beyond a shared tile.
+    room.landmarkTileMap.delete("501,502"); if (room.state.claimedTiles.has("501,502")) room.state.claimedTiles.delete("501,502");
+    room.handleClaimAction(clientA as any, { x: 501, y: 502 });
+    assert.ok(room.state.claimedTiles.get("501,502")!.knowledge.has("hcmut"));
+    const pointsBeforeInvalid = playerA.personalTroops;
+    room.handleStudyAction(clientA as any, { x: 999, y: 999 });
+    assert.strictEqual(playerA.personalTroops, pointsBeforeInvalid);
+    room.handleStudyAction(clientA as any, { x: 500, y: 502, points: Infinity });
+    assert.strictEqual(playerA.personalTroops, pointsBeforeInvalid);
   }
-
-  console.log("\n[Test 3] Decay Heartbeat Loop & Shared Zone Expiration");
   {
-    const tB = new TileState();
-    tB.x = 600; tB.y = 601; tB.ownerId = "dtu"; tB.retention = 20;
-    tB.isShared = true;
-    tB.sharedWithSchoolId = "hcmut";
-    tB.sharedExpiresAt = Date.now() - 1000;
-    room.state.claimedTiles.set("600,601", tB);
-    room.landData.setOwner(600, 601, "dtu");
-
-    room.processKnowledgeDecay();
-    assert.strictEqual(tB.ownerId, "hcmut", "Expired shared zone must transfer to challenger");
-    assert.strictEqual(tB.isShared, false, "Shared state must reset");
-    assert.strictEqual(tB.retention, 60, "Newly transferred tile reset to 60 retention");
-
-    console.log("-> Test 3 Passed");
+    const tile = new TileState(); tile.ownerId = "dtu";
+    tile.lastStudiedAt = Date.now(); initializeKnowledge(tile, Date.now());
+    const old = tile.knowledge.get("dtu")!;
+    old.lastStudiedAt = Date.now() - 23 * 3600 * 1000;
+    studyKnowledge(tile, "hcmut", 3, Date.now());
+    assert.ok(!tile.knowledge.has("dtu") && tile.knowledge.has("hcmut"));
+    assert.strictEqual(tile.ownerId, "hcmut");
+    const a = tile.knowledge.get("hcmut")!;
+    const now = a.lastStudiedAt;
+    assert.strictEqual(retentionAt(a, now + 13 * 3600 * 1000), 90);
+    pruneKnowledge(tile, now + 13 * 3600 * 1000);
+    pruneKnowledge(tile, now + 13 * 3600 * 1000);
+    assert.strictEqual(retentionAt(a, now + 13 * 3600 * 1000), 90, "Repeated lazy evaluation is idempotent");
+    studyKnowledge(tile, "dtu", 3, now + 13 * 3600 * 1000);
+    pruneKnowledge(tile, now + 23 * 3600 * 1000);
+    assert.ok(!tile.knowledge.has("hcmut") && tile.knowledge.has("dtu"), "Decay is independent");
+    studyKnowledge(tile, "hsu", 3, now + 23 * 3600 * 1000);
+    assert.strictEqual(tile.knowledge.size, 2);
+    pruneKnowledge(tile, now + 50 * 3600 * 1000);
+    assert.strictEqual(tile.ownerId, "");
+    assert.strictEqual(tile.knowledge.size, 0);
+    initializeKnowledge(tile, now + 51 * 3600 * 1000);
+    assert.strictEqual(tile.knowledge.size, 0, "Expired knowledge must not resurrect through migration");
   }
 
   console.log("\n[Test 4] Landmark Beacon & Crystal Contribution (Thắp sáng Đèn hiệu)");
@@ -165,7 +150,7 @@ async function runTests() {
     const lm = Array.from(room.state.landmarks.values())[0];
     assert.ok(lm, "At least one landmark must exist");
     assert.strictEqual(lm.currentCrystals, 0);
-    assert.strictEqual(lm.maxCrystals, 100);
+    assert.strictEqual(lm.maxCrystals, 1000);
     assert.strictEqual(lm.litBySchoolId, "");
     assert.strictEqual(lm.buffActive, false);
 
@@ -197,9 +182,9 @@ async function runTests() {
     assert.strictEqual(lm.buffActive, false, "Buff must not be active before reaching 100");
     assert.strictEqual(lm.litBySchoolId, "", "Beacon must not be lit before 100 crystals");
 
-    // 4d. Reach maxCrystals (contribute 60 more -> total 100)
-    room.handleContributeCrystalAction(clientA as any, { landmarkId: lm.id, crystals: 60 });
-    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 100);
+    // 4d. Reach 1000 crystals: contribute the remaining 960.
+    room.handleContributeCrystalAction(clientA as any, { landmarkId: lm.id, crystals: 960 });
+    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), 1000);
     assert.strictEqual(lm.litBySchoolId, "hcmut", "HCMUT reached 100 crystals and lit the beacon!");
     assert.strictEqual(lm.buffActive, true, "Landmark buff must be active");
     assert.strictEqual(lm.ownerId, "hcmut", "Landmark owner set to lighting school");
@@ -222,21 +207,25 @@ async function runTests() {
 
     assert.strictEqual(room.hasPathToLandmark("dtu", lm), true, "DTU now has path to landmark");
 
-    // DTU contributes 110 crystals (< 100 + 20 = 120) -> MUST NOT OVERTAKE
+    // 1049 crystals is below the 1050 overtake target.
     clientB.clear();
-    room.handleContributeCrystalAction(clientB as any, { landmarkId: lm.id, crystals: 110 });
-    assert.strictEqual(lm.crystalsBySchool.get("dtu"), 110);
-    assert.strictEqual(lm.litBySchoolId, "hcmut", "DTU cannot overtake without delta >= 20 crystals!");
+    room.handleContributeCrystalAction(clientB as any, { landmarkId: lm.id, crystals: 1049 });
+    assert.strictEqual(lm.crystalsBySchool.get("dtu"), 1049);
+    assert.strictEqual(lm.litBySchoolId, "hcmut", "DTU cannot overtake without 5% threshold crystals!");
 
-    // DTU contributes 10 more crystals (total 120 >= 100 + 20) -> OVERTAKES BEACON!
-    room.handleContributeCrystalAction(clientB as any, { landmarkId: lm.id, crystals: 10 });
-    assert.strictEqual(lm.crystalsBySchool.get("dtu"), 120);
-    assert.strictEqual(lm.litBySchoolId, "dtu", "DTU overtakes beacon upon reaching delta >= 20 crystals!");
+    // One more crystal reaches exactly 1050 and activates the beacon.
+    room.handleContributeCrystalAction(clientB as any, { landmarkId: lm.id, crystals: 1 });
+    assert.strictEqual(lm.crystalsBySchool.get("dtu"), 1050);
+    assert.strictEqual(lm.litBySchoolId, "dtu", "DTU overtakes beacon upon reaching 5% threshold crystals!");
     assert.strictEqual(lm.ownerId, "dtu");
     assert.strictEqual(lm.buffActive, true);
-    assert.strictEqual(lm.currentCrystals, 120);
+    assert.strictEqual(lm.currentCrystals, 1050);
+    room.handleContributeCrystalAction(clientA as any, { landmarkId: lm.id, crystals: 102 });
+    assert.strictEqual(lm.litBySchoolId, "dtu", "1102 is below ceil(1050 * 1.05)");
+    room.handleContributeCrystalAction(clientA as any, { landmarkId: lm.id, crystals: 1 });
+    assert.strictEqual(lm.litBySchoolId, "hcmut", "1103 satisfies the rounded next overtake target");
 
-    console.log("✅ Test 4 Passed: Landmark Beacon ignition, buffs, and delta >= 20 overtake work flawlessly!");
+    console.log("✅ Test 4 Passed: Landmark Beacon ignition, buffs, and 5% threshold overtake work flawlessly!");
   }
 
   console.log("\n[Test 5] Landmark Guessing Mechanics (Giải đố Tên Công trình)");
@@ -272,10 +261,10 @@ async function runTests() {
     const guessResult = clientA.lastMessage("landmark_guess_result");
     assert.ok(guessResult, "Must receive landmark_guess_result");
     assert.strictEqual(guessResult.payload.success, true);
-    assert.strictEqual(guessResult.payload.crystalsAwarded, 10);
+    assert.strictEqual(guessResult.payload.crystalsAwarded, 100);
     assert.strictEqual(lm.nameGuessed, true, "Landmark nameGuessed must be true");
     assert.strictEqual(lm.guessedBySchoolId, "hcmut");
-    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), hcmutCrystalsBefore + 10, "+10 bonus crystals awarded to school");
+    assert.strictEqual(lm.crystalsBySchool.get("hcmut"), hcmutCrystalsBefore + 100, "+10 bonus crystals awarded to school");
 
     // 5d. Subsequent guess when already guessed -> rejected
     clientA.clear();
@@ -289,9 +278,9 @@ async function runTests() {
     const guessResultB = clientB.lastMessage("landmark_guess_result");
     assert.ok(guessResultB, "Other school must be able to guess");
     assert.strictEqual(guessResultB.payload.success, true);
-    assert.strictEqual(guessResultB.payload.crystalsAwarded, 10);
+    assert.strictEqual(guessResultB.payload.crystalsAwarded, Math.ceil(Math.ceil((hcmutCrystalsBefore + 100) * 105 / 100) / 10));
     assert.strictEqual(lm.guessedSchools.get("dtu"), true);
-    assert.strictEqual(lm.crystalsBySchool.get("dtu"), dtuCrystalsBefore + 10, "+10 bonus crystals awarded to DTU");
+    assert.strictEqual(lm.crystalsBySchool.get("dtu"), dtuCrystalsBefore + guessResultB.payload.crystalsAwarded, "+10 bonus crystals awarded to DTU");
 
     console.log("✅ Test 5 Passed: Landmark guessing cooldowns, case-insensitive match, and rewards verified!");
   }

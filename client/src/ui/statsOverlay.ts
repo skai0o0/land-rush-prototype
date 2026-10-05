@@ -35,7 +35,7 @@ export interface StudentStats {
 export class StatsOverlay {
   public element: HTMLElement;
   private stats: StudentStats;
-  private schoolPointsMap = new Map<string, number>();
+  private schoolKnowledgeMap = new Map<string, number>();
   private schoolRankingsList: SchoolRankingEntry[] = [];
   private showRankingPopover = false;
 
@@ -70,7 +70,7 @@ export class StatsOverlay {
 
     // Initialize default points map
     for (const sId of SCHOOL_IDS) {
-      this.schoolPointsMap.set(sId, sId === this.stats.schoolId ? this.stats.points : 0);
+      this.schoolKnowledgeMap.set(sId, 0);
     }
 
     this.element = document.createElement('header');
@@ -82,10 +82,7 @@ export class StatsOverlay {
 
   public updateStats(newStats: Partial<StudentStats>): void {
     this.stats = { ...this.stats, ...newStats };
-    if (newStats.points !== undefined) {
-      this.schoolPointsMap.set(this.stats.schoolId, newStats.points);
-      this.recalculateRankings();
-    }
+
     this.render();
   }
 
@@ -95,8 +92,7 @@ export class StatsOverlay {
   public updatePoints(points: number): void {
     if (this.stats.points === points) return;
     this.stats.points = points;
-    this.schoolPointsMap.set(this.stats.schoolId, points);
-    this.recalculateRankings();
+
 
     const pointEl = this.element.querySelector('.stat-points .stat-value');
     if (pointEl) {
@@ -115,8 +111,8 @@ export class StatsOverlay {
   }
 
   /**
-   * Cập nhật Bảng xếp hạng Điểm Tri Thức các trường (School Ranking)
-   * Hiển thị đơn vị "Điểm" (Points) thay vì "Quân" (Troops).
+   * Cập nhật Bảng xếp hạng Ô Tri Thức các trường (School Ranking)
+   * Hiển thị số ô tri thức đã mở rộng còn hiệu lực.
    */
   public updateSchoolRankings(rankings: SchoolRankingEntry[] | Record<string, number>): void {
     if (Array.isArray(rankings)) {
@@ -126,7 +122,7 @@ export class StatsOverlay {
         tiles: r.tiles
       }));
       for (const r of this.schoolRankingsList) {
-        this.schoolPointsMap.set(r.schoolId, r.points);
+        this.schoolKnowledgeMap.set(r.schoolId, r.points);
       }
     } else if (typeof rankings === 'object' && rankings !== null) {
       this.schoolRankingsList = Object.entries(rankings).map(([schoolId, pts]) => ({
@@ -134,7 +130,7 @@ export class StatsOverlay {
         points: pts
       }));
       for (const [sId, pts] of Object.entries(rankings)) {
-        this.schoolPointsMap.set(sId, pts);
+        this.schoolKnowledgeMap.set(sId, pts);
       }
     }
     this.schoolRankingsList.sort((a, b) => b.points - a.points);
@@ -145,7 +141,7 @@ export class StatsOverlay {
    * Cập nhật Điểm Tri Thức cho 1 trường học cụ thể
    */
   public updateSchoolPoints(schoolId: string, points: number): void {
-    this.schoolPointsMap.set(schoolId, points);
+    this.schoolKnowledgeMap.set(schoolId, points);
     this.recalculateRankings();
     this.updateRankDisplay();
   }
@@ -155,7 +151,7 @@ export class StatsOverlay {
     for (const id of SCHOOL_IDS) {
       list.push({
         schoolId: id,
-        points: this.schoolPointsMap.get(id) || 0
+        points: this.schoolKnowledgeMap.get(id) || 0
       });
     }
     list.sort((a, b) => b.points - a.points);
@@ -168,10 +164,11 @@ export class StatsOverlay {
     }
     const idx = this.schoolRankingsList.findIndex(r => r.schoolId === this.stats.schoolId);
     if (idx === -1) {
-      return `Hạng #1 (Điểm)`;
+      return `Hạng #1 (Ô)`;
     }
     const myEntry = this.schoolRankingsList[idx];
-    return `#${idx + 1} (${myEntry.points.toLocaleString()} Điểm)`;
+    const rank = 1 + this.schoolRankingsList.filter(r => r.points > myEntry.points).length;
+    return `#${rank} (${myEntry.points.toLocaleString()} ô)`;
   }
 
   private updateRankDisplay(): void {
@@ -274,12 +271,12 @@ export class StatsOverlay {
       return `
         <div class="ranking-row ${isMe ? 'is-my-school' : ''}" style="display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; border-radius: 4px; background: ${isMe ? 'rgba(0, 255, 232, 0.12)' : 'rgba(255,255,255,0.03)'}; margin-bottom: 4px; border-left: 3px solid ${color};">
           <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
-            <span style="font-weight: 800; font-size: 11px; color: ${rankColor}; width: 22px;">#${idx + 1}</span>
+            <span style="font-weight: 800; font-size: 11px; color: ${rankColor}; width: 22px;">#${1 + this.schoolRankingsList.filter(r => r.points > entry.points).length}</span>
             <span style="font-weight: 700; font-size: 11px; color: ${color}; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${name}</span>
             ${isMe ? `<span style="font-size: 9px; font-weight: 700; background: rgba(0, 255, 232, 0.2); color: #00ffe8; padding: 1px 4px; border-radius: 2px; white-space: nowrap;">Trường bạn</span>` : ''}
           </div>
           <div style="font-weight: 800; font-size: 11px; color: #fbbf24; white-space: nowrap; margin-left: 8px;">
-            ${entry.points.toLocaleString()} <span style="font-weight: 600; font-size: 10px; color: var(--text-secondary);">Điểm</span>
+            ${entry.points.toLocaleString()} <span style="font-weight: 600; font-size: 10px; color: var(--text-secondary);">ô</span>
           </div>
         </div>
       `;
@@ -368,13 +365,13 @@ export class StatsOverlay {
       </div>
 
       <div class="hud-right" style="position: relative;">
-        <!-- Bảng xếp hạng Điểm Tri Thức các trường (School Points Ranking) -->
-        <div class="stat-badge stat-school-rank" id="btnSchoolRankPopover" style="cursor: pointer;" title="Bảng xếp hạng Điểm Tri Thức các trường học [Nhấp để xem chi tiết]">
+        <!-- Bảng xếp hạng Ô Tri Thức các trường (School Points Ranking) -->
+        <div class="stat-badge stat-school-rank" id="btnSchoolRankPopover" style="cursor: pointer;" title="Bảng xếp hạng Ô Tri Thức các trường học [Nhấp để xem chi tiết]">
           <div class="stat-icon-box" style="color: #fbbf24;">
             ${Icons.trophy('md')}
           </div>
           <div class="stat-content">
-            <span class="stat-label">XẾP HẠNG ĐIỂM</span>
+            <span class="stat-label">XẾP HẠNG Ô TRI THỨC</span>
             <span class="stat-value" id="stat-school-rank-text" style="color: #fbbf24;">${this.getSchoolRankText()}</span>
           </div>
         </div>
@@ -401,7 +398,7 @@ export class StatsOverlay {
           </div>
         </div>
 
-        <!-- Popover Bảng xếp hạng Điểm Tri Thức Các Trường -->
+        <!-- Popover Bảng xếp hạng Ô Tri Thức Các Trường -->
         <div class="school-ranking-popover" id="school-ranking-popover" style="display: ${this.showRankingPopover ? 'block' : 'none'};">
           <div class="ranking-popover-header">
             <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; color: #fbbf24;">

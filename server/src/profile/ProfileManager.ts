@@ -45,13 +45,21 @@ export class ProfileManager {
 
   /**
    * Tính số điểm khả dụng của sinh viên:
-   * availablePoints = totalPoints (từ RunningPointsProvider) - pointsSpent
+   * availablePoints = runningPoints + gamePointsEarned - pointsSpent
    */
   public getAvailablePoints(studentId: string): number {
     const cleanId = (studentId || "").toLowerCase().trim();
     const profile = this.getOrCreateProfile(cleanId);
     const totalPoints = this.pointsProvider.getTotalPoints(cleanId);
-    return Math.max(0, totalPoints - profile.pointsSpent);
+    return Math.max(0, totalPoints + (profile.gamePointsEarned || 0) - profile.pointsSpent);
+  }
+
+  /** Exact game rewards; never modify running distance or weekly eligibility. */
+  public addGamePoints(studentId: string, amount: number): number {
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error("Invalid game reward");
+    const profile = this.getOrCreateProfile(studentId);
+    profile.gamePointsEarned = (profile.gamePointsEarned || 0) + amount;
+    return this.getAvailablePoints(studentId);
   }
 
   /**

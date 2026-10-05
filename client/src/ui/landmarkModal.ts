@@ -1,3 +1,4 @@
+import { BEACON_CRYSTALS, beaconOvertakeTarget, landmarkGuessReward } from "../../../shared/constants/gameplay";
 // client/src/ui/landmarkModal.ts
 import { SCHOOL_ROSTER, getSchoolColor } from '../../../shared/constants/schools';
 import { Icons } from './icons';
@@ -6,6 +7,7 @@ export interface LandmarkModalData {
   landmarkId: string;
   landmarkKey: string;
   name: string;
+  hint?: string;
   category: 'scenic' | 'iconic';
   footprint: { width: number; height: number };
   buffDescription: string;
@@ -220,11 +222,15 @@ export class LandmarkModal {
       : `<span class="lm-category-tag iconic">${Icons.landmark(13)} CÔNG TRÌNH BIỂU TƯỢNG</span>`;
 
     const curCrystals = data.currentCrystals !== undefined ? data.currentCrystals : (data.currentFuel || 0);
-    const maxCrystals = data.maxCrystals || 100;
+    const maxCrystals = data.maxCrystals || BEACON_CRYSTALS;
     const crystalPercent = Math.min(100, Math.round((curCrystals / maxCrystals) * 100));
 
     // Calculate school rankings for crystal contribution
     const crystalSource = data.crystalsBySchool || data.fuelBySchool || {};
+    const myCrystals = crystalSource[data.playerSchoolId] || 0;
+    const targetCrystals = isLit && data.litBySchoolId !== data.playerSchoolId
+      ? beaconOvertakeTarget(crystalSource[data.litBySchoolId] || maxCrystals) : maxCrystals;
+    const guessBonus = landmarkGuessReward(targetCrystals);
     const schoolCrystalEntries: { schoolId: string; crystals: number }[] = [];
     Object.keys(crystalSource).forEach((sId) => {
       const amt = crystalSource[sId];
@@ -278,7 +284,7 @@ export class LandmarkModal {
               <span>[PREDATOR] // THẮP ĐÈN HIỆU CÔNG TRÌNH TRI THỨC</span>
             </div>
             <div class="lm-title-wrap">
-              <h2 class="lm-title">${data.name.toUpperCase()}</h2>
+              <h2 class="lm-title">${mySchoolGuessed ? data.name.toUpperCase() : "CÔNG TRÌNH BÍ ẨN"}</h2>
               ${categoryBadge}
             </div>
           </div>
@@ -334,7 +340,7 @@ export class LandmarkModal {
             </div>
             <div class="lm-progress-note">
               ${isLit 
-                ? `⚡ Đèn hiệu đang chiếu rọi hào quang buff tri thức cho <strong>${litSchool?.shortName || litSchoolName}</strong>. Trường khác có thể nạp vượt mốc (+20 Tinh thể) để thắp đè lên!`
+                ? `⚡ Đèn hiệu đang chiếu rọi hào quang buff tri thức cho <strong>${litSchool?.shortName || litSchoolName}</strong>. Trường khác có thể nạp vượt mốc (cao hơn ít nhất 5%, hiện cần ${targetCrystals.toLocaleString()} tinh thể) để thắp Đèn hiệu!`
                 : `💡 Đạt mốc ${maxCrystals} Tinh thể để thắp sáng Đèn hiệu tri thức và kích hoạt đặc quyền toàn trường!`
               }
             </div>
@@ -351,7 +357,7 @@ export class LandmarkModal {
               }
             </div>
             <div class="lm-buff-content">
-              ${data.buffDescription}
+              ${mySchoolGuessed ? data.buffDescription : "Buff được khám phá khi trường thắp Đèn hiệu."}
             </div>
             <div class="lm-buff-foot">
               <span>Quy mô footprint: <strong>${data.footprint?.width || 40} × ${data.footprint?.height || 40} ô tiles</strong></span>
@@ -363,7 +369,7 @@ export class LandmarkModal {
           <div class="lm-guessing-card">
             <div class="lm-guess-header">
               <span class="lm-guess-icon">${Icons.target(16)}</span>
-              <span class="lm-guess-title">ĐOÁN TÊN CÔNG TRÌNH (NHẬN 10% TIẾN ĐỘ = 10 TINH THỂ)</span>
+              <span class="lm-guess-title">ĐOÁN TÊN CÔNG TRÌNH (NHẬN 10% MỐC THẮP = ${guessBonus} TINH THỂ)</span>
             </div>
 
             ${mySchoolGuessed
@@ -371,17 +377,18 @@ export class LandmarkModal {
                 <div class="lm-guess-solved-box">
                   <span class="lm-guess-solved-icon">${Icons.check(16)}</span>
                   <div class="lm-guess-solved-text">
-                    Trường bạn đã giải đố công trình này! (+10 Tinh thể đã được cộng vào tiến độ Đèn hiệu).
+                    Trường bạn đã giải đố công trình này! (Thưởng giải đố đã được cộng vào tiến độ Đèn hiệu).
                   </div>
                 </div>
               `
               : `
                 <div class="lm-guess-form">
+                  <p class="lm-guess-hint">Gợi ý: ${data.hint || "Quan sát phần công trình hiện ra trong sương mù."}</p>
                   ${(data.guessedBySchoolId && data.guessedBySchoolId !== mySchoolId && nameGuessed)
                     ? `
                       <div class="lm-guess-other-notice" style="margin-bottom: 8px; font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 5px;">
                         ${Icons.sparkles(12)}
-                        <span>Trường <strong>${guessedSchoolName}</strong> đã giải đố trước đó. Trường bạn vẫn có thể gửi dự đoán để nhận +10 Tinh thể!</span>
+                        <span>Trường <strong>${guessedSchoolName}</strong> đã giải đố trước đó. Trường bạn vẫn có thể gửi dự đoán để nhận 10% mốc thắp của trường bạn!</span>
                       </div>
                     `
                     : ''
@@ -524,7 +531,7 @@ export class LandmarkModal {
                 </button>
 
                 ${(() => {
-                  const neededToFill = Math.max(0, maxCrystals - curCrystals);
+                  const neededToFill = Math.max(0, targetCrystals - myCrystals);
                   if (neededToFill > 0 && neededToFill !== 10 && neededToFill !== 20 && neededToFill !== 50 && userPoints >= neededToFill) {
                     return `
                       <button 

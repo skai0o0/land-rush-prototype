@@ -12,6 +12,8 @@ export interface MapEditorItem {
   tier?: string;
   schoolId?: string;
   landmarkKey?: string;
+  landmarkId?: string;
+  maxCrystals?: number;
   x: number;
   y: number; // or z
 }
@@ -20,7 +22,7 @@ export interface MapLayoutPayload {
   version?: string;
   timestamp?: number;
   hqs?: { schoolId: string; x: number; y: number }[];
-  landmarks?: { id: string; landmarkKey?: string; x: number; y: number; maxFuel?: number }[];
+  landmarks?: { id: string; landmarkKey?: string; x: number; y: number; maxFuel?: number; maxCrystals?: number }[];
   unistops?: { id: string; name?: string; tier?: string; x: number; z: number }[];
   chests?: { id: string; tier?: string; x: number; z: number; isOpened?: boolean }[];
 }
@@ -150,7 +152,7 @@ export class MapEditorPanel {
 
   public updateData(
     hqs: { schoolId: string; x: number; y: number }[],
-    landmarks: { id: string; landmarkKey?: string; x: number; y: number; maxFuel?: number }[],
+    landmarks: { id: string; landmarkKey?: string; x: number; y: number; maxFuel?: number; maxCrystals?: number }[],
     unistops: { id: string; name?: string; tier?: string; x: number; z: number }[],
     chests: { id: string; tier?: string; x: number; z: number; isOpened?: boolean }[]
   ): void {
@@ -179,6 +181,8 @@ export class MapEditorPanel {
         id: `lm_${key}`,
         type: 'landmark',
         landmarkKey: key,
+        landmarkId: lm.id,
+        maxCrystals: lm.maxCrystals ?? lm.maxFuel,
         name,
         x: lm.x,
         y: lm.y
@@ -201,7 +205,7 @@ export class MapEditorPanel {
 
     // 4. Chests
     for (const c of chests) {
-      const tier = c.tier || 'silver';
+      const tier = c.tier || 'aspire';
       const name = `Rương ${tier.toUpperCase()}${c.isOpened ? ' (Đã mở)' : ''}`;
       this.items.set(c.id, {
         id: c.id,
@@ -328,7 +332,7 @@ export class MapEditorPanel {
 
   public generateLayoutPayload(): MapLayoutPayload {
     const hqs: { schoolId: string; x: number; y: number }[] = [];
-    const landmarks: { id: string; landmarkKey?: string; x: number; y: number; maxFuel?: number }[] = [];
+    const landmarks: { id: string; landmarkKey?: string; x: number; y: number; maxFuel?: number; maxCrystals?: number }[] = [];
     const unistops: { id: string; name?: string; tier?: string; x: number; z: number }[] = [];
     const chests: { id: string; tier?: string; x: number; z: number; isOpened?: boolean }[] = [];
 
@@ -337,7 +341,7 @@ export class MapEditorPanel {
         hqs.push({ schoolId: item.schoolId, x: item.x, y: item.y });
       } else if (item.type === 'landmark') {
         const key = item.landmarkKey || item.id.replace('lm_', '');
-        landmarks.push({ id: key, landmarkKey: key, x: item.x, y: item.y });
+        landmarks.push({ id: item.landmarkId || key, landmarkKey: key, x: item.x, y: item.y, maxCrystals: item.maxCrystals });
       } else if (item.type === 'unistop') {
         unistops.push({ id: item.id, name: item.name, tier: item.tier, x: item.x, z: item.y });
       } else if (item.type === 'chest') {

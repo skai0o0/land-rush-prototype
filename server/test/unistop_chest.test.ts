@@ -1,7 +1,8 @@
+import { ProfileManager } from "../src/profile/ProfileManager";
 process.env.ALLOW_DEV = "true";
 import * as assert from "assert";
 import { CampusRoom } from "../src/rooms/CampusRoom";
-import { GameState, UniStopState, ChestState, PlayerState } from "../src/schema/GameState";
+import { GameState, UniStopState, ChestState, PlayerState, TileState } from "../src/schema/GameState";
 import {
   UNISTOP_CONFIGS,
   CHEST_CONFIGS,
@@ -193,6 +194,11 @@ async function runTests() {
     // Pick first UniStop
     const stop = Array.from(room.state.unistops.values())[0];
     assert.ok(stop, "UniStop must exist");
+    stop.ownerSchoolId = player.schoolId;
+    const presence = new TileState(); presence.x = stop.x; presence.y = stop.z;
+    presence.ownerId = stop.ownerSchoolId; presence.lastStudiedAt = Date.now();
+    room.landmarkTileMap.delete(`${presence.x},${presence.y}`);
+    room.state.claimedTiles.set(`${presence.x},${presence.y}`, presence);
 
     // Case 1: Student is too far (> 50 tiles)
     client.clear();
@@ -221,7 +227,7 @@ async function runTests() {
     assert.strictEqual(rolledMsg.payload.carouselItems[24].id, rolledMsg.payload.winningItem.id);
 
     // Verify cooldown is set
-    assert.ok(stop.cooldownUntil > Date.now(), "Cooldown must be set after rolling");
+    assert.ok(ProfileManager.getInstance().getUniStopCooldown(player.email, stop.id) > Date.now(), "Per-player cooldown must be set");
 
     // Case 3: Rolling again while in cooldown -> must be rejected
     client.clear();
@@ -234,8 +240,8 @@ async function runTests() {
     assert.ok(cdErr, "Must reject rolling while cooldown is active");
     assert.ok(cdErr.payload.message.includes("hồi chiêu"), "Error message must indicate cooldown");
 
-    // Reset cooldown and roll again
-    stop.cooldownUntil = 0;
+    // Explicit admin reset clears the profile cooldown.
+    ProfileManager.getInstance().getOrCreateProfile(player.email, player.schoolId).unistopCooldowns.delete(stop.id);
     client.clear();
     room.handleRollUniStop(client as any, {
       stopId: stop.id,
@@ -279,6 +285,12 @@ async function runTests() {
 
     assert.ok(aspireChest && nitroChest && predatorChest, "All chest tiers must be present");
 
+    for (const chest of [aspireChest, nitroChest, predatorChest]) {
+      const tile = new TileState(); tile.x = Math.floor(chest.x - 2); tile.y = Math.floor(chest.z);
+      tile.ownerId = "dtu"; tile.lastStudiedAt = Date.now();
+      room.landmarkTileMap.delete(`${tile.x},${tile.y}`);
+      room.state.claimedTiles.set(`${tile.x},${tile.y}`, tile);
+    }
     // 1. Try to open Aspire Chest without Aspire Key
     client.clear();
     player.aspireKeys = 0;
@@ -355,6 +367,9 @@ async function runTests() {
     const room = new CampusRoom();
     room.onCreate({});
 
+    // Deterministic editor fixture: unrelated random map objects cannot collide.
+    room.state.hqs.clear(); room.state.landmarks.clear(); room.state.unistops.clear(); room.state.chests.clear(); room.state.claimedTiles.clear(); room.landmarkTileMap.clear();
+    (room as any).initialHQTiles.clear(); (room as any).initialLandmarkTiles.clear();
     const client = new MockClient("session_editor");
     room.onJoin(client as any, { email: "admin@r2pl.vn", mode: "dev" });
 
@@ -391,7 +406,7 @@ async function runTests() {
     const lmFansipan = room.state.landmarks.get("fansipan")!;
     assert.strictEqual(lmFansipan.x, 220);
     assert.strictEqual(lmFansipan.y, 330);
-    assert.strictEqual(lmFansipan.maxCrystals, 150);
+    assert.strictEqual(lmFansipan.maxCrystals, 1000, "Legacy map thresholds cannot lower the campaign minimum");
 
     const customStop = room.state.unistops.get("custom_stop_1")!;
     assert.ok(customStop, "custom_stop_1 must be added to GameState unistops");

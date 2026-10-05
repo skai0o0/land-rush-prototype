@@ -1,3 +1,4 @@
+import { TileState } from "../src/schema/GameState";
 process.env.ALLOW_DEV = "true";
 import * as assert from "assert";
 import { CampusRoom } from "../src/rooms/CampusRoom";
@@ -195,6 +196,11 @@ async function runStudentBotsSimulationTests() {
     const bot = room.studentBotRunner.getBot("bot_dtu")!;
     bot.client.clear();
 
+    room.state.unistops.forEach(stop => {
+      stop.ownerSchoolId = "dtu";
+      const tile = new TileState(); tile.x = stop.x; tile.y = stop.z; tile.ownerId = "dtu"; tile.lastStudiedAt = Date.now();
+      room.landmarkTileMap.delete(`${tile.x},${tile.y}`); room.state.claimedTiles.set(`${tile.x},${tile.y}`, tile);
+    });
     bot.actionRollUniStop(room);
 
     assert.ok(bot.client.messages.some((m) => m.type === "unistop_rolled"), "unistop_rolled message must be received");
@@ -214,6 +220,11 @@ async function runStudentBotsSimulationTests() {
     const bot = room.studentBotRunner.getBot("bot_dhhp")!;
     bot.client.clear();
 
+    const target = Array.from(room.state.chests.values()).find(c => !c.isOpened)!;
+    const reach = new TileState(); reach.x = Math.floor(target.x - 2); reach.y = Math.floor(target.z);
+    reach.ownerId = "dhhp"; reach.lastStudiedAt = Date.now();
+    room.landmarkTileMap.delete(`${reach.x},${reach.y}`);
+    room.state.claimedTiles.set(`${reach.x},${reach.y}`, reach);
     bot.actionOpenChest(room);
 
     assert.ok(bot.client.messages.some((m) => m.type === "chest_opened"), "chest_opened message must be received");
@@ -253,6 +264,11 @@ async function runStudentBotsSimulationTests() {
     capturedBotActions.length = 0;
     const bot = room.studentBotRunner.getBot("bot_hcmcou")!;
 
+    const target = Array.from(room.state.landmarks.values())[0];
+    const reach = new TileState(); reach.x = target.x - 1; reach.y = target.y;
+    reach.ownerId = "hcmcou"; reach.lastStudiedAt = Date.now();
+    room.landmarkTileMap.delete(`${reach.x},${reach.y}`);
+    room.state.claimedTiles.set(`${reach.x},${reach.y}`, reach);
     bot.actionContributeCrystal(room);
 
     const lm = Array.from(room.state.landmarks.values())[0];

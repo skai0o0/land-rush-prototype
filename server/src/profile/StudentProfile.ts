@@ -3,6 +3,7 @@ export interface StudentProfile {
   email: string;
   schoolId: string;
   pointsSpent: number;
+  gamePointsEarned: number;
   crystals: number;
   aspireKeys: number;
   nitroKeys: number;
@@ -18,6 +19,7 @@ export class StudentProfileEntity implements StudentProfile {
   public email: string;
   public schoolId: string;
   public pointsSpent: number = 0;
+  public gamePointsEarned: number = 0;
   public crystals: number = 0;
   public aspireKeys: number = 0;
   public nitroKeys: number = 0;

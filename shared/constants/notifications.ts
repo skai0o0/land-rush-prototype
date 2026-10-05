@@ -407,7 +407,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationTemplate[] = [
     sassyExamples: [
       {
         title: 'IQ vô cực! 🧠💡',
-        body: '{student_name} vừa giải đúng {landmark_name}, mang 10 tinh thể về cho {my_school}!'
+        body: '{student_name} vừa giải đúng {landmark_name}, mang tinh thể về cho {my_school}!'
       }
     ]
   },
@@ -486,12 +486,12 @@ export const DEFAULT_NOTIFICATIONS: NotificationTemplate[] = [
     category: 'ranking',
     target: 'all',
     titleTemplate: 'Bứt phá vươn lên dẫn đầu!',
-    bodyTemplate: '{my_school} đã vươn lên dẫn đầu bảng xếp hạng (+{delta_points} điểm)!',
+    bodyTemplate: '{my_school} đã vươn lên dẫn đầu bảng xếp hạng (+{delta_points} ô tri thức)!',
     icon: 'trending-up',
     sassyExamples: [
       {
         title: 'Ngôi vương đổi chủ! 👑',
-        body: '{my_school} đã xuất sắc vượt lên Top 1 với cách biệt +{delta_points} điểm!'
+        body: '{my_school} đã xuất sắc vượt lên Top 1 với cách biệt +{delta_points} ô tri thức!'
       }
     ]
   }

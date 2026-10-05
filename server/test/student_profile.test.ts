@@ -1,3 +1,4 @@
+import { TileState } from "../src/schema/GameState";
 import * as assert from "assert";
 import { CampusRoom } from "../src/rooms/CampusRoom";
 import { RunningPointsProvider } from "../src/profile/RunningPointsProvider";
@@ -123,9 +124,9 @@ async function runStudentProfileTests() {
     assert.ok(reconnectedSync, "Must receive profile_sync upon reconnecting");
     assert.strictEqual(reconnectedSync.payload.studentId, email);
     assert.strictEqual(reconnectedSync.payload.crystals, 75, "Crystals must be preserved exactly");
-    assert.strictEqual(reconnectedSync.payload.keys.aspire, 3, "Aspire keys must be preserved");
-    assert.strictEqual(reconnectedSync.payload.keys.nitro, 2, "Nitro keys must be preserved");
-    assert.strictEqual(reconnectedSync.payload.keys.predator, 1, "Predator keys must be preserved");
+    assert.strictEqual(reconnectedSync.payload.aspireKeys, 3, "Aspire keys must be preserved");
+    assert.strictEqual(reconnectedSync.payload.nitroKeys, 2, "Nitro keys must be preserved");
+    assert.strictEqual(reconnectedSync.payload.predatorKeys, 1, "Predator keys must be preserved");
 
     // Verify cooldown is preserved upon reconnecting (cannot guess landmark again)
     client2.clear();
@@ -185,16 +186,21 @@ async function runStudentProfileTests() {
     room.onCreate({});
 
     const emailA = "student_c_alpha@hcmut.edu.vn";
-    const emailB = "student_c_beta@dtu.edu.vn";
+    const emailB = "student_c_beta@hcmut.edu.vn";
 
     const clientA = new MockClient("session_c_a");
     const clientB = new MockClient("session_c_b");
 
     room.onJoin(clientA as any, { email: emailA, schoolId: "hcmut" });
-    room.onJoin(clientB as any, { email: emailB, schoolId: "dtu" });
+    room.onJoin(clientB as any, { email: emailB, schoolId: "hcmut" });
 
     const stop = Array.from(room.state.unistops.values())[0];
     assert.ok(stop, "UniStop must exist on map");
+    stop.ownerSchoolId = "hcmut";
+    const presence = new TileState(); presence.x = stop.x; presence.y = stop.z;
+    presence.ownerId = stop.ownerSchoolId; presence.lastStudiedAt = Date.now();
+    room.landmarkTileMap.delete(`${presence.x},${presence.y}`);
+    room.state.claimedTiles.set(`${presence.x},${presence.y}`, presence);
 
     // 1. Sinh viên A quay trạm -> Thành công
     clientA.clear();

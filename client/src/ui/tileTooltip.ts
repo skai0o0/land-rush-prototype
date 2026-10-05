@@ -1,3 +1,4 @@
+import { BEACON_CRYSTALS } from "../../../shared/constants/gameplay";
 // client/src/ui/tileTooltip.ts
 import { Icons } from './icons';
 import { SCHOOL_ROSTER } from '../../../shared/constants/schools';
@@ -131,69 +132,15 @@ export class TileTooltip {
     // Shared Knowledge Zone Section (Ô Tri Thức Chung)
     let sharedSection = '';
     if (tile.isShared) {
-      const formatRemaining = (expiresAt: number): string => {
-        const sec = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
-        if (sec >= 3600) {
-          const h = Math.floor(sec / 3600);
-          const m = Math.floor((sec % 3600) / 60);
-          const s = sec % 60;
-          return `${h} giờ ${m} phút ${s}s (${sec}s)`;
-        }
-        if (sec >= 60) {
-          const m = Math.floor(sec / 60);
-          const s = sec % 60;
-          return `${m} phút ${s}s (${sec}s)`;
-        }
-        return `${sec}s`;
-      };
-
-      const remainingTimeText = tile.sharedExpiresAt ? formatRemaining(tile.sharedExpiresAt) : 'Đang đếm ngược';
-      const challengerSchool = tile.sharedWithSchoolId ? SCHOOL_ROSTER[tile.sharedWithSchoolId] : null;
-      const challengerName = challengerSchool ? challengerSchool.name : (tile.sharedWithSchoolId ? tile.sharedWithSchoolId.toUpperCase() : 'Một trường học');
-      const challengerColor = challengerSchool ? challengerSchool.colorHex : '#38bdf8';
-
-      sharedSection = `
-        <div class="tooltip-shared-zone" style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.5); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px;">
-          <div style="display: flex; align-items: center; gap: 6px; color: #fbbf24; font-weight: 800; font-size: 11px; margin-bottom: 5px; text-transform: uppercase;">
-            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 6px #ef4444; animation: pulse 1.5s infinite;"></span>
-            <span>Ô TRI THỨC CHUNG (ĐANG ĐẾM NGƯỢC CHUYỂN GIAO)</span>
-          </div>
-          ${tile.sharedExpiresAt ? `
-            <div class="tooltip-row" style="color: #fef08a; font-size: 11px; margin-bottom: 4px;">
-              <span class="row-label" style="color: #fcd34d;">⏳ Thời gian còn lại:</span>
-              <span class="row-value" id="shared-countdown-val" style="font-weight: 700; color: #fef08a;">${remainingTimeText}</span>
-            </div>
-          ` : ''}
-          ${tile.sharedWithSchoolId ? `
-            <div class="tooltip-row" style="font-size: 11px; margin-bottom: 2px;">
-              <span class="row-label" style="color: #cbd5e1;">🎯 Trường thách thức:</span>
-              <span class="row-value" style="font-weight: 700; color: ${challengerColor};">${challengerName}</span>
-            </div>
-          ` : ''}
-        </div>
-      `;
-
-      // Live 1-second countdown update if expiration timestamp exists
-      if (tile.sharedExpiresAt) {
-        this.countdownInterval = window.setInterval(() => {
-          if (!this.visible) {
-            if (this.countdownInterval) {
-              window.clearInterval(this.countdownInterval);
-              this.countdownInterval = undefined;
-            }
-            return;
-          }
-          const valEl = this.element.querySelector('#shared-countdown-val');
-          if (valEl && tile.sharedExpiresAt) {
-            valEl.textContent = formatRemaining(tile.sharedExpiresAt);
-          }
-        }, 1000);
-      }
+      sharedSection = `<div class="tooltip-shared-zone" style="padding:8px;color:#fbbf24">
+        <strong>Ô TRI THỨC CHUNG</strong><br>
+        ${tile.sharedWithSchoolId || ""}<br>Mỗi trường ôn bài và giữ tri thức độc lập.
+      </div>`;
     }
 
     // Landmark Beacon info (thay cho Bonfire / Than củi)
     let landmarkBeaconSection = '';
-    const maxCrystals = tile.maxCrystals !== undefined ? tile.maxCrystals : (tile.maxFuel !== undefined ? tile.maxFuel : 100);
+    const maxCrystals = tile.maxCrystals !== undefined ? tile.maxCrystals : (tile.maxFuel !== undefined ? tile.maxFuel : BEACON_CRYSTALS);
     const currentCrystals = tile.currentCrystals !== undefined ? tile.currentCrystals : (tile.currentFuel || 0);
 
     if (isLandmark && maxCrystals !== undefined) {

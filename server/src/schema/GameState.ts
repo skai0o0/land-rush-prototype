@@ -1,6 +1,16 @@
+import { BEACON_CRYSTALS } from "../../../shared/constants/gameplay";
 import { Schema, MapSchema, type } from "@colyseus/schema";
 
+export class KnowledgeState extends Schema {
+  persistent = false;
+  @type("number") retention = 100;
+  @type("number") lastStudiedAt = 0;
+  @type("number") studyCount = 0;
+}
+
 export class TileState extends Schema {
+  @type({ map: KnowledgeState }) knowledge = new MapSchema<KnowledgeState>();
+  knowledgeInitialized = false;
   @type("number") x: number = 0;
   @type("number") y: number = 0;
   @type("string") ownerId: string = "";
@@ -58,7 +68,7 @@ export class LandmarkState extends Schema {
   @type("number") y: number = 0;
   @type("string") ownerId: string = "";
   @type("number") currentCrystals: number = 0; // Lượng tinh thể hiện tại của trường dẫn đầu
-  @type("number") maxCrystals: number = 100; // Mặc định 100 tinh thể để thắp sáng đèn hiệu
+  @type("number") maxCrystals: number = BEACON_CRYSTALS; // Mặc định 1000 tinh thể để thắp sáng đèn hiệu
   @type("string") litBySchoolId: string = ""; // ID trường đang thắp sáng đèn hiệu (ban đầu "")
   @type({ map: "number" }) crystalsBySchool = new MapSchema<number>(); // Tinh thể từng trường nạp
   @type({ map: "boolean" }) guessedSchools = new MapSchema<boolean>(); // Các trường đã giải đố thành công
@@ -75,6 +85,8 @@ export class LandmarkState extends Schema {
 }
 
 export class UniStopState extends Schema {
+  @type("string") ownerSchoolId = "";
+  arrivalOrderBySchool = new Map<string, number>(); // Server-only arrival order; never a cooldown.
   @type("string") id: string = "";
   @type("string") name: string = "";
   @type("string") tier: string = "aspire"; // 'aspire' | 'nitro' | 'predator'
@@ -104,6 +116,7 @@ export class GameState extends Schema {
   // and is synced via snap/own_batch/combat frames. No @type on purpose.
   claimedTiles = new MapSchema<TileState>();
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
+  @type({ map: "number" }) schoolKnowledgeTiles = new MapSchema<number>();
   @type({ map: "number" }) schoolPoints = new MapSchema<number>();
   get schoolTroops() { return this.schoolPoints; }
   set schoolTroops(val) { this.schoolPoints = val; }
