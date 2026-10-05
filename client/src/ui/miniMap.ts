@@ -66,6 +66,14 @@ export class MiniMap {
       <button class="btn-mini-control" id="mbtn-recenter" title="Căn giữa Trụ sở HQ">${Icons.compass('sm')}</button>
     `;
 
+    const expand = document.createElement('button');
+    expand.className = 'minimap-expand';
+    expand.type = 'button';
+    expand.setAttribute('aria-label', 'Mở bản đồ nhỏ');
+    expand.setAttribute('aria-expanded', 'false');
+    expand.textContent = '⤢';
+    expand.addEventListener('click', () => this.toggleExpand());
+    this.element.appendChild(expand);
     this.element.appendChild(this.canvas);
     this.element.appendChild(controls);
     (parent || document.body).appendChild(this.element);
@@ -83,6 +91,10 @@ export class MiniMap {
   public toggleExpand(): void {
     this.isExpanded = !this.isExpanded;
     this.element.classList.toggle('is-expanded', this.isExpanded);
+    const expand = this.element.querySelector<HTMLButtonElement>('.minimap-expand')!;
+    expand.setAttribute('aria-expanded', String(this.isExpanded));
+    expand.setAttribute('aria-label', this.isExpanded ? 'Thu gọn bản đồ nhỏ' : 'Mở bản đồ nhỏ');
+    expand.textContent = this.isExpanded ? '×' : '⤢';
     this.requestRedraw();
   }
 

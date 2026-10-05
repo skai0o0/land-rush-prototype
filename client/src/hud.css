@@ -1,0 +1,188 @@
+/* Mobile portrait is the default HUD. Desktop adapts above 768px. */
+:root {
+  --space-1: 4px; --space-2: 8px; --space-3: 12px;
+  --space-4: 16px; --space-5: 24px; --space-6: 32px;
+  --hud-edge: var(--space-2);
+  --hud-top: calc(env(safe-area-inset-top, 0px) + var(--hud-edge));
+  --hud-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--hud-edge));
+  --dock-height: 136px;
+  --navigation-bottom: calc(var(--hud-bottom) + var(--dock-height) + var(--space-2));
+  --hud-surface: rgba(8, 16, 27, .94);
+  --hud-shadow: 0 4px 16px rgba(0, 0, 0, .3);
+}
+#app { width: 100%; height: 100dvh; }
+.stats-top-hud, .student-mode-dock, .first-landmark-card, .minimap-wrapper {
+  position: fixed; font-variant-numeric: tabular-nums; color: var(--text-primary);
+}
+.stats-top-hud button, .student-mode-dock button, .first-landmark-card button, .minimap-wrapper button {
+  font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; min-height: 44px;
+}
+[data-ui] button:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+.stats-top-hud {
+  top: var(--hud-top); left: var(--hud-edge); right: var(--hud-edge); z-index: 100;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; gap: 0 var(--space-2);
+  padding: var(--space-2); background: var(--hud-surface); border: 1px solid var(--border-hud);
+  border-radius: var(--space-2); box-shadow: var(--hud-shadow);
+}
+.hud-identity { min-width: 0; text-align: left; border: 0; background: transparent; padding: 0; }
+.hud-brand-tag { display: flex; align-items: center; gap: var(--space-1); font-size: 12px; font-weight: 800; white-space: nowrap; }
+.brand-r2pl-badge { padding: 0 var(--space-1); border-radius: 2px; background: var(--predator-cyan); color: var(--dark-carbon-bg); font-size: 10px; }
+.school-pill { display: flex; align-items: center; gap: var(--space-2); min-width: 0; max-width: 100%; min-height: 28px !important; padding: 0; border: 0; background: transparent; text-align: left; font-size: 12px !important; }
+.student-name { display: none; }
+.hud-resources { display: flex; align-items: center; gap: var(--space-3); color: var(--predator-cyan); }
+.hud-resource { display: flex; align-items: center; gap: var(--space-1); }
+.stat-content { display: flex; flex-direction: column; }
+.stat-label { color: var(--text-secondary); font-size: 11px; }
+.hud-resource .stat-label { display: none; }
+.stat-value { font-size: 14px; font-weight: 700; }
+.stat-value small { font-size: 11px; font-weight: 400; color: var(--text-secondary); }
+.hud-menu-toggle { width: 44px; grid-column: 3; grid-row: 1; border: 1px solid var(--border-hud); border-radius: var(--space-1); background: transparent; font-size: 22px !important; }
+.hud-progress-strip { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-3); border-top: 1px solid rgba(148,163,184,.15); margin-top: var(--space-1); }
+.stat-territory, .stat-exploration { display: flex; flex-direction: column; gap: var(--space-1); }
+.stat-territory small, .exploration-sub { display: none; }
+.stat-school-rank { display: flex; align-items: center; justify-content: flex-end; flex: 1; gap: var(--space-2); border: 0; background: transparent; color: var(--accent-gold) !important; font-size: 12px !important; white-space: nowrap; }
+.hud-secondary-menu, .school-ranking-popover { position: absolute; top: calc(100% + var(--space-2)); right: 0; width: min(360px, calc(100vw - 16px)); max-height: calc(100dvh - 240px); overflow: auto; background: var(--hud-surface); border: 1px solid var(--border-hud); border-radius: var(--space-2); padding: var(--space-3); box-shadow: var(--hud-shadow); font-size: 13px; }
+.hud-secondary-menu[hidden], .school-ranking-popover[hidden] { display: none; }
+.hud-secondary-menu header, .school-ranking-popover header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); color: var(--predator-cyan); }
+.hud-menu-close, #btn-close-ranking-popover { background: transparent; border: 0; min-width: 44px; font-size: 24px !important; }
+.hud-secondary-menu p, .hud-secondary-menu > div { margin-top: var(--space-3); }
+.hud-secondary-menu > div { display: flex; justify-content: space-between; gap: var(--space-2); }
+.hud-menu-hint, .hud-player-name { color: var(--text-secondary); line-height: 1.5; }
+.first-landmark-card { top: calc(var(--hud-top) + 120px); left: var(--hud-edge); z-index: 90; width: 224px; padding: var(--space-2) var(--space-3); background: var(--hud-surface); border: 1px solid var(--border-hud); border-radius: var(--space-2); font-size: 12px; }
+.first-landmark-card[hidden], .goal-content[hidden] { display: none; }
+.first-landmark-card header { display: flex; align-items: center; justify-content: space-between; color: var(--predator-cyan); font-size: 11px; }
+.goal-collapse { min-width: 44px; background: transparent; border: 0; font-size: 20px !important; }
+.first-landmark-card h3 { font-size: 14px; line-height: 1.3; margin-bottom: var(--space-1); }
+.goal-content { display: grid; grid-template-columns: minmax(0,1fr) 44px; column-gap: var(--space-2); align-items: center; }
+.goal-content h3, .goal-progress, .goal-meter { grid-column: 1; }
+.goal-focus { grid-column: 2; grid-row: 1 / 4; margin: 0; font-size: 0 !important; }
+.goal-focus::after { content: '›'; font-size: 24px; }
+.goal-distance, .goal-stage, .first-landmark-card .guidance-note { display: none; }
+.goal-progress { color: var(--predator-cyan); font-size: 12px; }
+.hud-exploration-meter { width: 64px; height: 3px; border: 0; appearance: none; background: #20364a; }
+.goal-meter { width: 100%; height: 4px; appearance: none; display: block; border: 0; margin-top: var(--space-2); background: #20364a; border-radius: 4px; }
+.hud-exploration-meter::-webkit-progress-bar, .goal-meter::-webkit-progress-bar { background: #20364a; border-radius: 4px; }
+.hud-exploration-meter::-webkit-progress-value, .goal-meter::-webkit-progress-value { background: var(--predator-cyan); border-radius: 4px; }
+.hud-exploration-meter::-moz-progress-bar, .goal-meter::-moz-progress-bar { background: var(--predator-cyan); }
+.guidance-primary { width: 100%; min-height: 44px; margin-top: var(--space-2); padding: var(--space-2); border: 1px solid var(--border-hud); border-radius: var(--space-1); color: var(--predator-cyan) !important; background: rgba(0,255,232,.08); font-weight: 700; cursor: pointer; }
+.guidance-primary:disabled { opacity: .45; cursor: not-allowed; }
+.guidance-close { min-height: 44px; min-width: 44px; background: transparent; border: 0; color: var(--text-primary); font-size: 24px; cursor: pointer; }
+.guidance-modal header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.guidance-note { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.student-mode-dock { bottom: var(--hud-bottom); left: var(--hud-edge); right: var(--hud-edge); z-index: 100; height: var(--dock-height); }
+.mode-dock-bar { height: 100%; display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: 44px 1fr; gap: var(--space-2); padding: var(--space-2); background: var(--hud-surface); border: 1px solid var(--border-hud); border-radius: var(--space-2); box-shadow: var(--hud-shadow); }
+.dock-resource-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.dock-res-pill { display: flex; align-items: center; gap: var(--space-1); font-size: 12px; white-space: nowrap; }
+.dock-res-pill.points, .dock-res-pill.crystals, .dock-res-label, .dock-keys-mini-tags { display: none; }
+.dock-res-pill.keys::before { content: 'Chìa khóa'; color: var(--text-secondary); }
+.dock-res-icon { color: var(--predator-cyan); display: flex; }
+.dock-res-val { font-weight: 700; }
+.dock-header-bar { display: flex; align-items: center; }
+.smart-toggle-pill { display: flex; align-items: center; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--border-hud); border-radius: var(--space-1); background: transparent; font-size: 12px !important; }
+.smart-toggle-pill.active { color: var(--predator-cyan); }
+.smart-icon { display: flex; }
+.smart-indicator, .dock-label-hint { display: none; }
+.mode-buttons-group { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: var(--space-2); }
+.mode-btn { min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); padding: var(--space-1); background: rgba(0,255,232,.04); border: 1px solid rgba(148,163,184,.25); border-radius: var(--space-1); }
+.mode-btn.is-active { border-color: var(--predator-cyan); background: rgba(0,255,232,.16); }
+.mode-icon { display: flex; color: var(--predator-cyan); }
+.mode-text-wrap { display: flex; align-items: center; justify-content: center; line-height: 1.2; }
+.mode-name { display: block; font-size: 12px; font-weight: 700; line-height: 1.2; }
+.mode-sub { display: none; }
+.mode-cost { display: flex; align-items: center; gap: var(--space-1); color: var(--accent-gold); font-size: 11px; }
+.mode-beacon-btn .mode-cost { color: var(--predator-cyan); }
+.minimap-wrapper { bottom: var(--navigation-bottom); left: var(--hud-edge); z-index: 110; padding: var(--space-1); border: 1px solid var(--border-hud); border-radius: var(--space-2); background: var(--hud-surface); }
+.minimap-canvas { display: block; width: 88px; height: 88px; border-radius: var(--space-1); touch-action: none; }
+.minimap-controls { display: none; gap: var(--space-1); margin-top: var(--space-1); }
+.btn-mini-control { flex: 1; min-width: 44px; display: flex; align-items: center; justify-content: center; background: rgba(0,255,232,.06); border: 1px solid var(--border-hud); border-radius: var(--space-1); }
+.minimap-expand { position: absolute; inset: 0; width: 100%; display: flex; align-items: flex-start; justify-content: flex-end; padding: var(--space-1); background: transparent; border: 0; font-size: 22px !important; text-shadow: 0 2px 4px #000; }
+.minimap-wrapper.is-expanded .minimap-canvas { width: min(240px, calc(100vw - 28px)); height: min(240px, calc(100vw - 28px)); }
+.minimap-wrapper.is-expanded .minimap-expand { inset: var(--space-1) var(--space-1) auto auto; width: 44px; height: 44px; background: var(--hud-surface); justify-content: center; align-items: center; }
+.minimap-wrapper.is-expanded .minimap-controls { display: flex; }
+.tile-tactical-tooltip { top: auto !important; left: 112px !important; right: var(--hud-edge); bottom: var(--navigation-bottom); width: auto; max-width: none; min-width: 0; padding: 0; clip-path: none; border-radius: var(--space-2); box-shadow: var(--hud-shadow); }
+.desktop-context-info { display: none; }
+.compact-context-info { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); font-size: 12px; }
+.compact-context-info strong { font-size: 13px; }
+.compact-context-info small { color: var(--text-secondary); font-size: 11px; }
+.compact-context-status { color: var(--predator-cyan); }
+.compact-context-cost { border-top: 1px solid rgba(148,163,184,.15); padding-top: var(--space-1); }
+body:has(.minimap-wrapper.is-expanded) .tile-tactical-tooltip { visibility: hidden; }
+.action-toast { bottom: calc(var(--navigation-bottom) + 112px); max-width: calc(100vw - 32px); font-size: 13px; text-align: center; }
+.dev-dropdown-container { top: calc(var(--hud-top) + 116px); right: var(--hud-edge); }
+.dev-dropdown-trigger { min-width: 44px; min-height: 44px; padding: var(--space-2); }
+.dev-dropdown-trigger .trigger-label, .dev-dropdown-trigger .chevron-icon { display: none; }
+.dev-dropdown-menu { width: min(340px,calc(100vw - 16px)); max-height: calc(100dvh - 280px); overflow: auto; }
+@media (max-width: 768px) {
+  /* Dev entry remains accessible but secondary on phones. */
+  #app > button[data-ui] { top: calc(var(--hud-top) + 168px) !important; min-height: 44px; }
+  .db-modal-card { width: calc(100vw - 16px); max-height: calc(90dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+}
+@media (min-width: 769px) {
+  :root { --hud-edge: var(--space-4); --dock-height: 136px; }
+  .stats-top-hud { right: var(--hud-edge); grid-template-columns: minmax(160px,1fr) auto minmax(330px,2fr) 44px; align-items: center; gap: var(--space-4); padding: var(--space-2) var(--space-3); }
+  .hud-progress-strip { grid-column: 3; grid-row: 1; border: 0; margin: 0; }
+  .hud-menu-toggle { grid-column: 4; }
+  .hud-resource .stat-label { display: block; }
+  .stat-value { font-size: 16px; }
+  .student-name { display: block; font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .school-pill { min-height: 44px !important; }
+  .first-landmark-card { top: calc(var(--hud-top) + 100px); width: 268px; padding: var(--space-3); }
+  body:has(.dev-dropdown-container) .stats-top-hud { right: 188px; }
+  .goal-content { display: block; }
+  .goal-focus { font-size: 12px !important; margin-top: var(--space-2); }
+  .goal-focus::after { content: none; }
+  .goal-distance, .goal-stage, .first-landmark-card .guidance-note { display: block; line-height: 1.5; margin-top: var(--space-2); color: var(--text-secondary); }
+  .goal-stage, .first-landmark-card .guidance-note { display: none; }
+  .goal-progress { margin-top: var(--space-3); }
+  .student-mode-dock { left: auto; width: 500px; }
+  .dock-res-pill.points, .dock-res-pill.crystals { display: flex; }
+  .dock-res-pill.keys::before { content: none; }
+  .dock-keys-mini-tags { display: flex; gap: var(--space-1); color: var(--text-secondary); font-size: 11px; }
+  .mode-btn { flex-direction: row; gap: var(--space-2); padding: var(--space-2); }
+  .mode-cost { padding: var(--space-1); background: rgba(0,0,0,.25); border-radius: var(--space-1); }
+  .minimap-wrapper { bottom: var(--hud-bottom); }
+  .minimap-canvas { width: 144px; height: 144px; }
+  .minimap-controls { display: flex; }
+  .minimap-expand { inset: var(--space-1) var(--space-1) auto auto; width: 44px; height: 44px; background: var(--hud-surface); justify-content: center; align-items: center; }
+  .tile-tactical-tooltip { left: auto !important; right: var(--hud-edge); bottom: var(--navigation-bottom); width: 320px; }
+  .desktop-context-info { display: block; }
+  .compact-context-info { display: none; }
+  body:has(.minimap-wrapper.is-expanded) .tile-tactical-tooltip { visibility: visible; }
+  .dev-dropdown-container { top: var(--hud-top); }
+  .dev-dropdown-trigger .trigger-label, .dev-dropdown-trigger .chevron-icon { display: block; }
+}
+@media (min-width: 769px) and (max-width: 1100px) {
+  .stats-top-hud { grid-template-columns: minmax(0,1fr) auto 44px; }
+  .hud-progress-strip { grid-column: 1 / -1; grid-row: 2; }
+  .hud-menu-toggle { grid-column: 3; }
+  .first-landmark-card { top: calc(var(--hud-top) + 144px); }
+}
+@media (max-width: 360px) {
+  :root { --dock-height: 152px; }
+}
+@media (max-height: 620px) {
+  :root { --dock-height: 112px; }
+  .mode-dock-bar { grid-template-rows: 44px 1fr; gap: var(--space-1); padding: var(--space-1); }
+  .mode-icon { display: none; }
+  .goal-distance, .goal-stage, .first-landmark-card .guidance-note { display: none; }
+  .minimap-canvas { width: 88px; height: 88px; }
+  .minimap-controls { display: none; }
+  .minimap-wrapper.is-expanded .minimap-controls { display: flex; }
+  .minimap-wrapper.is-expanded .minimap-canvas { width: 144px; height: 144px; }
+  body:has(.minimap-wrapper.is-expanded) .first-landmark-card,
+  body:has(.minimap-wrapper.is-expanded) .tile-tactical-tooltip { visibility: hidden; }
+}
+@media (min-width: 769px) and (max-height: 620px) {
+  .stats-top-hud { grid-template-columns: minmax(160px,1fr) auto auto 44px; }
+  .hud-progress-strip { grid-column: 3; grid-row: 1; }
+  .hud-menu-toggle { grid-column: 4; }
+  .stat-territory, .stat-exploration { display: none; }
+  .first-landmark-card { top: calc(var(--hud-top) + 96px); width: 224px; }
+  .goal-content { display: grid; grid-template-columns: minmax(0,1fr) 44px; }
+  .goal-focus { grid-column: 2; grid-row: 1 / 4; margin: 0; font-size: 0 !important; }
+  .goal-focus::after { content: '›'; font-size: 24px; }
+  .goal-progress { margin: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stats-top-hud *, .student-mode-dock *, .minimap-wrapper * { transition: none; animation: none; }
+}

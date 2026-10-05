@@ -261,6 +261,7 @@ async function bootstrap() {
 
   function clearSelectedTile() {
     selectedMobileTile = null;
+    tileTooltip.hide();
     sceneManager.clearSelectedTileMarker();
   }
 
@@ -1354,7 +1355,7 @@ async function bootstrap() {
   }
 
   // 6. Raycast Hover & Click Handlers
-  sceneManager.onTileHover = (x, y, screenX, screenY) => {
+  const showTileContext = (x: number, y: number, screenX: number, screenY: number) => {
     if (!colyseusClient.room) return;
     // LandState data plane overlay (T4): authoritative owner/combat when present.
     const landCombat = colyseusClient.getTileCombatInfo(x, y);
@@ -1436,8 +1437,6 @@ async function bootstrap() {
     const sharedWithSchoolId = sharedInfo?.sharedWithSchoolId || null;
     const sharedExpiresAt = sharedInfo?.sharedExpiresAt;
 
-    const isMobile = window.innerWidth <= 768;
-    if (!isMobile) {
       tileTooltip.show(
         {
           x,
@@ -1475,11 +1474,13 @@ async function bootstrap() {
         screenX,
         screenY
       );
-    }
   };
 
+  sceneManager.onTileHover = (x, y, screenX, screenY) => {
+    if (window.innerWidth > 768) showTileContext(x, y, screenX, screenY);
+  };
   sceneManager.onTileLeave = () => {
-    tileTooltip.hide();
+    if (window.innerWidth > 768) tileTooltip.hide();
   };
 
   // Evaluate smart context for a given tile
@@ -1675,6 +1676,7 @@ async function bootstrap() {
   sceneManager.onTileClick = (event: TileClickEvent) => {
     if (isSessionReplaced) return;
     const { x, y } = event;
+    if (window.innerWidth <= 768) showTileContext(x, y, 0, 0);
     if (mapEditor?.isRelocating()) { mapEditor?.completeRelocate(x,y); return; }
 
     // Direct click on any Landmark footprint opens the LandmarkModal immediately!

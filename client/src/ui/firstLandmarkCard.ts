@@ -19,7 +19,7 @@ export class FirstLandmarkCard {
     this.element.setAttribute("aria-label", "Mục tiêu công trình đầu tiên");
     this.element.hidden = true;
     this.element.innerHTML = `<header><span>MỤC TIÊU ĐẦU TIÊN</span><button type="button" class="goal-collapse" aria-label="Thu gọn mục tiêu" aria-expanded="true">−</button></header>
-      <div class="goal-content"><h3></h3><p class="goal-distance"></p><p class="goal-stage"></p><p class="goal-progress"></p>
+      <div class="goal-content"><h3></h3><p class="goal-distance"></p><p class="goal-stage"></p><p class="goal-progress"></p><progress class="goal-meter" aria-label="Tiến độ tinh thể công trình" max="100" value="0"></progress>
       <button type="button" class="guidance-primary goal-focus">Xem vị trí công trình</button>
       <p class="guidance-note">Gợi ý gần HQ nhất. Trường vẫn có thể khám phá theo hướng khác.</p></div>`;
     for (const event of ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend", "click"]) this.element.addEventListener(event, e => e.stopPropagation());
@@ -32,7 +32,8 @@ export class FirstLandmarkCard {
       collapse.setAttribute("aria-label", content.hidden ? "Mở mục tiêu" : "Thu gọn mục tiêu");
       collapse.setAttribute("aria-expanded", String(!content.hidden));
     });
-    if (window.matchMedia("(max-width: 600px)").matches) collapse.click();
+
+    if (window.matchMedia("(max-height: 620px)").matches) collapse.click();
     parent.appendChild(this.element);
   }
   public update(data?: FirstLandmarkView) {
@@ -44,6 +45,9 @@ export class FirstLandmarkCard {
     this.element.querySelector("h3")!.textContent = data.name;
     this.element.querySelector(".goal-distance")!.textContent = `Cách HQ khoảng ${data.distance} ô theo đường thẳng`;
     this.element.querySelector(".goal-stage")!.textContent = data.litBySchool ? "Đèn hiệu đang sáng cho trường bạn!" : !data.hasPath ? "Mở rộng các ô tiếp giáp để nối đường tới công trình." : !data.guessed ? "Đã mở đường! Thử giải đố tên công trình để nhận tinh thể." : "Đã giải đố! Cùng trường góp tinh thể để thắp đèn hiệu.";
+    const meter = this.element.querySelector<HTMLProgressElement>(".goal-meter")!;
+    meter.max = Math.max(1, data.targetCrystals);
+    meter.value = data.crystals;
     this.element.querySelector(".goal-progress")!.textContent = `Tinh thể trường: ${data.crystals.toLocaleString()} / ${data.targetCrystals.toLocaleString()}`;
   }
 }

@@ -1,3 +1,4 @@
+import { compactContextInfo } from './compactContextInfo';
 import { BEACON_CRYSTALS } from "../../../shared/constants/gameplay";
 // client/src/ui/tileTooltip.ts
 import { Icons } from './icons';
@@ -52,6 +53,7 @@ export class TileTooltip {
     this.element = document.createElement('div');
     this.element.className = 'tile-tactical-tooltip';
     this.element.style.display = 'none';
+    this.element.setAttribute('data-ui', 'true');
     (parent || document.body).appendChild(this.element);
   }
 
@@ -106,6 +108,7 @@ export class TileTooltip {
           </div>
         </div>
       `;
+      this.addCompactInfo(tile);
       return;
     }
 
@@ -229,6 +232,14 @@ export class TileTooltip {
         ${buffRow}
       </div>
     `;
+    this.addCompactInfo(tile);
+  }
+
+  private addCompactInfo(tile: TileData): void {
+    const desktop = document.createElement('div');
+    desktop.className = 'desktop-context-info';
+    while (this.element.firstChild) desktop.appendChild(this.element.firstChild);
+    this.element.append(desktop, compactContextInfo(tile));
   }
 
   public hide(): void {

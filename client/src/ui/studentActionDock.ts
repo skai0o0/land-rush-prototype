@@ -180,14 +180,9 @@ export class StudentActionDock {
   }
 
   public updateResources(points: number, crystals: number, keys?: any): void {
-    this.points = points;
-    this.crystals = crystals;
-    if (keys !== undefined) {
-      this.setKeys(keys);
-    } else {
-      this.render();
-      this.bindEvents();
-    }
+    this.setPoints(points);
+    this.setCrystals(crystals);
+    if (keys !== undefined) this.setKeys(keys);
   }
 
   // Compatibility helpers
@@ -232,7 +227,7 @@ export class StudentActionDock {
 
         <!-- 2. Header Bar: Smart Mode Switcher -->
         <div class="dock-header-bar">
-          <button class="smart-toggle-pill ${this.smartMode ? 'active' : ''}" id="btn-smart-toggle" title="Chuyển chế độ Tự Động (Smart Context) hoặc Thủ Công (Manual)">
+          <button class="smart-toggle-pill ${this.smartMode ? 'active' : ''}" id="btn-smart-toggle" aria-pressed="${this.smartMode}" title="Chuyển chế độ Tự Động (Smart Context) hoặc Thủ Công (Manual)">
             <span class="smart-indicator"></span>
             <span class="smart-icon">${Icons.lightning(13)}</span>
             <span class="smart-text">${this.smartMode ? 'Tự Động' : 'Thủ Công'}</span>
@@ -253,12 +248,11 @@ export class StudentActionDock {
               <button 
                 class="mode-btn ${isActive ? 'is-active' : ''} ${isBeacon ? 'mode-beacon-btn mode-bonfire-btn' : ''} ${isStudy ? 'mode-study-btn' : ''}" 
                 data-mode="${mode.id}"
-                title="${mode.description}"
+                title="${mode.description}" aria-pressed="${isActive}" aria-label="${mode.title}, ${mode.cost} ${costUnit}"
               >
                 <span class="mode-icon">${mode.icon('sm')}</span>
                 <span class="mode-text-wrap">
                   <span class="mode-name">${mode.title}</span>
-                  ${mode.subtitle ? `<span class="mode-sub">${mode.subtitle}</span>` : ''}
                 </span>
                 <span class="mode-cost" title="Chi phí: ${mode.cost} ${costUnit}">
                   ${costIcon}

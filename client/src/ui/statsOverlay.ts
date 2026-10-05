@@ -38,6 +38,14 @@ export class StatsOverlay {
   private schoolKnowledgeMap = new Map<string, number>();
   private schoolRankingsList: SchoolRankingEntry[] = [];
   private showRankingPopover = false;
+  private showMenu = false;
+  private closePanels = (event: Event) => {
+    if (!this.element.contains(event.target as Node) && (this.showMenu || this.showRankingPopover)) {
+      this.showMenu = false;
+      this.showRankingPopover = false;
+      this.render();
+    }
+  };
 
   public onFlyToHQRequested?: () => void;
   public onSchoolChange?: (schoolId: string) => void;
@@ -76,8 +84,13 @@ export class StatsOverlay {
     this.element = document.createElement('header');
     this.element.className = 'stats-top-hud';
     this.element.setAttribute('data-ui', 'true');
+    for (const event of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click']) this.element.addEventListener(event, e => e.stopPropagation());
     this.render();
     (parent || document.body).appendChild(this.element);
+    document.addEventListener('click', this.closePanels);
+    this.element.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { this.showMenu = false; this.showRankingPopover = false; this.render(); this.element.querySelector<HTMLButtonElement>('.hud-menu-toggle')?.focus(); }
+    });
   }
 
   public updateStats(newStats: Partial<StudentStats>): void {
@@ -248,6 +261,8 @@ export class StatsOverlay {
 
     this.stats.revealedTilesCount = revealedCount;
     this.stats.explorationPercentage = percentage;
+    const meter = this.element.querySelector<HTMLProgressElement>(".hud-exploration-meter");
+    if (meter) meter.value = percentage;
 
     const expValEl = this.element.querySelector('.stat-exploration .stat-value');
     if (expValEl) {
@@ -284,182 +299,47 @@ export class StatsOverlay {
   }
 
   private render(): void {
+    const focusedId = this.element.contains(document.activeElement) ? document.activeElement?.id : undefined;
     this.element.innerHTML = `
-      <div class="hud-left">
-        <!-- Predator R2PL Gaming Brand Tag -->
-        <div class="hud-brand-tag" title="Acer Predator // Road to Predator League">
-          <span class="brand-predator-text"><span class="predator-bracket">[</span>PREDATOR<span class="predator-bracket">]</span></span>
-          <span class="brand-r2pl-badge">R2PL</span>
-        </div>
-
-        <div class="school-pill" id="btnFlyHQ" style="--school-color: ${this.stats.schoolColor};" title="Chạm để bay về Trụ sở Headquarters [Phím tắt: H / Space]">
-          <div class="school-icon-wrapper">
-            ${Icons.school('md')}
-          </div>
-          <div class="school-info">
-            <div class="school-title-row">
-              <span class="school-code">${this.stats.schoolId.toUpperCase()}</span>
-              ${
-                (this.stats.displayName || this.stats.studentEmail)
-                  ? `<span class="school-locked-pill" title="Tài khoản sinh viên: ${this.stats.displayName || this.stats.studentEmail}">
-                      ${Icons.lock(11)}
-                      <span class="locked-email-text">${this.stats.displayName || (this.stats.studentEmail ? this.stats.studentEmail.split('@')[0] : '')}</span>
-                    </span>`
-                  : `<span class="school-hq-jump-hint" title="Chạm để bay về Trụ sở Headquarters">${Icons.crosshair(11)} HQ</span>`
-              }
-              ${
-                this.stats.mode === "dev"
-                  ? `<span class="dev-mode-pill" title="Chế độ nhà phát triển">DEV</span>`
-                  : ''
-              }
-            </div>
-            <span class="student-name">${this.stats.schoolName}</span>
-          </div>
-        </div>
+      <button class="hud-identity" id="btnFlyHQ" title="Về trụ sở HQ">
+        <div class="hud-brand-tag"><span class="brand-predator-text">PREDATOR</span><span class="brand-r2pl-badge">R2PL</span></div>
+        <span class="school-pill" style="--school-color:${this.stats.schoolColor}">
+          <strong>${this.stats.schoolId.toUpperCase()}</strong><span class="student-name">${this.stats.schoolName}</span>
+        </span>
+      </button>
+      <div class="hud-resources">
+        <div class="stat-points hud-resource" aria-label="Điểm Tri Thức">${Icons.star(18)}<span class="stat-content"><span class="stat-label">Điểm Tri Thức</span><strong class="stat-value">${this.stats.points.toLocaleString()}</strong></span></div>
+        <div class="stat-crystals hud-resource" aria-label="Tinh Thể">${Icons.crystal(18)}<span class="stat-content"><span class="stat-label">Tinh Thể</span><strong class="stat-value">${(this.stats.crystals || 0).toLocaleString()}</strong></span></div>
       </div>
-
-      <div class="hud-center">
-        <!-- Điểm Tri Thức tích luỹ hiện có (Points) -->
-        <div class="stat-badge stat-points" title="Điểm Tri Thức (Points) tích luỹ từ hoạt động chạy bộ">
-          <div class="stat-icon-box point-glow">
-            ${Icons.star(16)}
-          </div>
-          <div class="stat-content">
-            <span class="stat-label">ĐIỂM TRI THỨC</span>
-            <span class="stat-value point-number">${this.stats.points.toLocaleString()}</span>
-          </div>
-        </div>
-
-        <!-- Tinh thể cá nhân (Crystals) -->
-        <div class="stat-badge stat-crystals" title="Tinh thể (Crystals) thu thập từ UniStop/Rương để thắp sáng Đèn hiệu">
-          <div class="stat-icon-box crystal-glow" style="color: #00ffe8;">
-            ${Icons.crystal(16)}
-          </div>
-          <div class="stat-content">
-            <span class="stat-label">TINH THỂ</span>
-            <span class="stat-value crystal-number" style="color: #00ffe8;">${(this.stats.crystals || 0).toLocaleString()}</span>
-          </div>
-        </div>
-
-        <!-- Ô tri thức trường đang kiểm soát -->
-        <div class="stat-badge stat-territory" title="Ô tri thức trường đang kiểm soát">
-          <div class="stat-icon-box">
-            ${Icons.tile('md')}
-          </div>
-          <div class="stat-content">
-            <span class="stat-label">Ô TRI THỨC</span>
-            <span class="stat-value">${this.stats.totalSchoolTiles} <small class="territory-pct-text">ô (${this.stats.controlPercentage}%)</small></span>
-          </div>
-        </div>
-
-        <!-- Tiến độ khám phá bản đồ toàn cục (Xua tan sương mù) -->
-        <div class="stat-badge stat-exploration" title="Tiến độ khám phá toàn bản đồ (Khám phá ô đất để xua tan sương mù)">
-          <div class="stat-icon-box exploration-glow">
-            ${Icons.compass('md')}
-          </div>
-          <div class="stat-content">
-            <span class="stat-label">TIẾN ĐỘ KHÁM PHÁ</span>
-            <span class="stat-value exploration-number">${(this.stats.explorationPercentage || 0).toFixed(2)}% <small class="exploration-sub">(${(this.stats.revealedTilesCount || 0).toLocaleString()} ô)</small></span>
-          </div>
-        </div>
+      <div class="hud-progress-strip">
+        <div class="stat-territory"><span class="stat-label">Ô Tri Thức</span><span class="stat-value">${this.stats.totalSchoolTiles} <small>ô (${this.stats.controlPercentage}%)</small></span></div>
+        <div class="stat-exploration"><span class="stat-label">Khám phá</span><span class="stat-value">${(this.stats.explorationPercentage || 0).toFixed(2)}% <small class="exploration-sub">(${(this.stats.revealedTilesCount || 0).toLocaleString()} ô)</small></span><progress class="hud-exploration-meter" max="100" value="${this.stats.explorationPercentage || 0}" aria-label="Tiến độ khám phá"></progress></div>
+        <button class="stat-school-rank" id="btnSchoolRankPopover" aria-label="Xem bảng xếp hạng" aria-expanded="${this.showRankingPopover}">${Icons.trophy(18)}<span id="stat-school-rank-text">${this.getSchoolRankText()}</span><span aria-hidden="true">›</span></button>
       </div>
-
-      <div class="hud-right" style="position: relative;">
-        <!-- Bảng xếp hạng Ô Tri Thức các trường (School Points Ranking) -->
-        <div class="stat-badge stat-school-rank" id="btnSchoolRankPopover" style="cursor: pointer;" title="Bảng xếp hạng Ô Tri Thức các trường học [Nhấp để xem chi tiết]">
-          <div class="stat-icon-box" style="color: #fbbf24;">
-            ${Icons.trophy('md')}
-          </div>
-          <div class="stat-content">
-            <span class="stat-label">XẾP HẠNG Ô TRI THỨC</span>
-            <span class="stat-value" id="stat-school-rank-text" style="color: #fbbf24;">${this.getSchoolRankText()}</span>
-          </div>
-        </div>
-
-        <!-- Thống kê Công trình đã Thắp Đèn Hiệu -->
-        <div class="stat-badge stat-beacons" title="Số lượng Công trình Tri Thức trường đã Thắp Đèn Hiệu">
-          <div class="stat-icon-box beacon-glow" style="color: #00ffe8;">
-            ${Icons.beacon('md')}
-          </div>
-          <div class="stat-content">
-            <span class="stat-label">ĐÈN HIỆU ĐÃ THẮP</span>
-            <span class="stat-value beacon-number">${this.stats.litLandmarksCount || 0} công trình</span>
-          </div>
-        </div>
-
-        <!-- Ô tri thức sinh viên đã khám phá -->
-        <div class="stat-badge stat-rank" title="Số ô tri thức sinh viên đã khám phá">
-          <div class="stat-icon-box">
-            ${Icons.tile('md')}
-          </div>
-          <div class="stat-content">
-            <span class="stat-label">ĐÃ KHÁM PHÁ</span>
-            <span class="stat-value">${this.stats.claimedTiles} ô</span>
-          </div>
-        </div>
-
-        <!-- Popover Bảng xếp hạng Ô Tri Thức Các Trường -->
-        <div class="school-ranking-popover" id="school-ranking-popover" style="display: ${this.showRankingPopover ? 'block' : 'none'};">
-          <div class="ranking-popover-header">
-            <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; color: #fbbf24;">
-              ${Icons.trophy('sm')}
-              <span>BẢNG XẾP HẠNG TRI THỨC (POINTS)</span>
-            </div>
-            <button class="ranking-popover-close" id="btn-close-ranking-popover">&times;</button>
-          </div>
-          <div class="ranking-popover-body" id="school-ranking-rows-container" style="max-height: 280px; overflow-y: auto;">
-            ${this.renderRankingRows()}
-          </div>
-        </div>
-      </div>
-    `;
-
+      <button id="btnHudMenu" class="hud-menu-toggle" aria-label="Menu thông tin" aria-expanded="${this.showMenu}" aria-controls="hud-secondary-menu">☰</button>
+      <section id="hud-secondary-menu" class="hud-secondary-menu" ${this.showMenu ? '' : 'hidden'} aria-label="Thông tin thêm">
+        <header><strong>Hành trình khám phá</strong><button id="btnHudMenuClose" class="hud-menu-close" aria-label="Đóng menu">×</button></header>
+        <p class="hud-player-name"></p>
+        <div class="stat-beacons">Đèn hiệu đã thắp <strong class="stat-value">${this.stats.litLandmarksCount || 0} công trình</strong></div>
+        <div>Đã khám phá <strong>${this.stats.claimedTiles} ô</strong></div>
+        <p class="hud-menu-hint">Chạm tên trường để về HQ. Chạm bản đồ để tương tác với ô tri thức.</p>
+      </section>
+      <section class="school-ranking-popover" ${this.showRankingPopover ? '' : 'hidden'} aria-label="Bảng xếp hạng">
+        <header><strong>Bảng xếp hạng Ô Tri Thức</strong><button id="btn-close-ranking-popover" aria-label="Đóng bảng xếp hạng">×</button></header>
+        <div id="school-ranking-rows-container">${this.renderRankingRows()}</div>
+      </section>`;
+    this.element.querySelector('.hud-player-name')!.textContent = this.stats.displayName || this.stats.studentName;
     this.bindEvents();
+    if (focusedId) this.element.querySelector<HTMLButtonElement>(`#${focusedId}`)?.focus();
   }
 
   private bindEvents(): void {
-    const stopProp = (e: Event) => e.stopPropagation();
-    const interactiveElements = this.element.querySelectorAll('.school-pill, .stat-badge, .school-ranking-popover');
-    interactiveElements.forEach((el) => {
-      el.addEventListener('pointerdown', stopProp);
-      el.addEventListener('mousedown', stopProp);
-      el.addEventListener('touchstart', stopProp, { passive: true });
-    });
-
-    const pill = this.element.querySelector('#btnFlyHQ');
-    pill?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.onFlyToHQRequested?.();
-    });
-
-    // Toggle Ranking Popover
-    const rankBadge = this.element.querySelector('#btnSchoolRankPopover');
-    const popover = this.element.querySelector('#school-ranking-popover') as HTMLElement;
-    rankBadge?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.showRankingPopover = !this.showRankingPopover;
-      if (popover) {
-        popover.style.display = this.showRankingPopover ? 'block' : 'none';
-      }
-    });
-
-    const closeBtn = this.element.querySelector('#btn-close-ranking-popover');
-    closeBtn?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.showRankingPopover = false;
-      if (popover) {
-        popover.style.display = 'none';
-      }
-    });
-
-    // Close popover when clicking outside
-    document.addEventListener('click', () => {
-      if (this.showRankingPopover) {
-        this.showRankingPopover = false;
-        if (popover) {
-          popover.style.display = 'none';
-        }
-      }
-    });
+    this.element.querySelector('#btnFlyHQ')?.addEventListener('click', () => this.onFlyToHQRequested?.());
+    const toggleRank = () => { this.showRankingPopover = !this.showRankingPopover; this.showMenu = false; this.render(); this.element.querySelector<HTMLButtonElement>(this.showRankingPopover ? "#btn-close-ranking-popover" : "#btnSchoolRankPopover")?.focus(); };
+    this.element.querySelector('#btnSchoolRankPopover')?.addEventListener('click', toggleRank);
+    this.element.querySelector('#btn-close-ranking-popover')?.addEventListener('click', toggleRank);
+    const toggleMenu = () => { this.showMenu = !this.showMenu; this.showRankingPopover = false; this.render(); this.element.querySelector<HTMLButtonElement>(this.showMenu ? '.hud-menu-close' : '.hud-menu-toggle')?.focus(); };
+    this.element.querySelector('.hud-menu-toggle')?.addEventListener('click', toggleMenu);
+    this.element.querySelector('.hud-menu-close')?.addEventListener('click', toggleMenu);
   }
 }
